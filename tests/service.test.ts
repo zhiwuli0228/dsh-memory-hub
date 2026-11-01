@@ -118,6 +118,16 @@ describe('memory service', () => {
       expect(result.status).toBe('ready')
       expect(result.pack).toContain(id)
       expect(harness.service.stateFor(harness.agent.id)?.taskId).toBe(result.taskId)
+
+      const other = await harness.seed({ title: '独有目标', summary: '另一个主题。', body: '## 结论\n\n另一个。\n' })
+      const forced = await harness.service.manualPreflight(harness.agent, '独有目标', true)
+      expect(forced.hits.map((hit) => hit.id)).toContain(other)
+      const overview = harness.service.overview() as {
+        tasks: Array<{ taskId: string; preflight: { hits: Array<{ id: string; version: number }> } | null }>
+      }
+      const task = overview.tasks.find((entry) => entry.taskId === result.taskId)
+      expect(task?.preflight?.hits).toEqual(forced.hits)
+
       const cited = await harness.service.cite(harness.agent, { knowledge_id: id, purpose: 'manual preflight' })
       expect(cited.citationId).toMatch(/^CIT-/)
     } finally {

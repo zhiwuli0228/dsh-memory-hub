@@ -414,6 +414,20 @@ export class MemoryService {
     state.pack = this.hub.config.policy.preflight.inject === 'off' ? '' : pack
     state.status = status
     state.hits = preflight.map((hit) => ({ id: hit.id, version: hit.version }))
+    const task = this.tasks.get(state.taskId)
+    if (task !== undefined) {
+      task.preflight = {
+        id: preflightId,
+        taskId: state.taskId,
+        sessionId: agent.id,
+        turn: task.turn,
+        workspaceId: state.workspace.id,
+        status,
+        hits: state.hits,
+        tokens,
+        createdAt: nowIso(),
+      }
+    }
     return {
       taskId: state.taskId,
       status,

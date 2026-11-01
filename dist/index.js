@@ -13453,7 +13453,7 @@ var MemoryService = class {
         closed: false
       };
       this.sessions.set(agent.id, nextState);
-      const task = {
+      const task2 = {
         taskId,
         sessionId: agent.id,
         turn: 0,
@@ -13464,7 +13464,7 @@ var MemoryService = class {
         assessment: null,
         closedAt: null
       };
-      this.tasks.set(taskId, task);
+      this.tasks.set(taskId, task2);
       try {
         await this.ledger.append({
           type: "task.created",
@@ -13472,7 +13472,7 @@ var MemoryService = class {
           sessionId: agent.id,
           turn: 0,
           workspaceId: workspace.id,
-          intentHash: task.intentHash,
+          intentHash: task2.intentHash,
           idempotencyKey: `${agent.id}:manual`
         });
         const hits = await this.runSearch(text, workspace, visibility);
@@ -13490,7 +13490,7 @@ var MemoryService = class {
         nextState.status = status2;
         nextState.hits = hits.map((hit) => ({ id: hit.id, version: hit.version }));
         nextState.pack = this.hub.config.policy.preflight.inject === "off" ? "" : pack2;
-        task.preflight = {
+        task2.preflight = {
           id: preflightId2,
           taskId,
           sessionId: agent.id,
@@ -13531,6 +13531,20 @@ var MemoryService = class {
     state.pack = this.hub.config.policy.preflight.inject === "off" ? "" : pack;
     state.status = status;
     state.hits = preflight.map((hit) => ({ id: hit.id, version: hit.version }));
+    const task = this.tasks.get(state.taskId);
+    if (task !== void 0) {
+      task.preflight = {
+        id: preflightId,
+        taskId: state.taskId,
+        sessionId: agent.id,
+        turn: task.turn,
+        workspaceId: state.workspace.id,
+        status,
+        hits: state.hits,
+        tokens,
+        createdAt: nowIso()
+      };
+    }
     return {
       taskId: state.taskId,
       status,
