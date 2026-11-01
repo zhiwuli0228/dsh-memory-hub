@@ -1,0 +1,27 @@
+{
+  "name": "dsh-memory-hub",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Long-term memory hub for DeepSeek Harness (DSH). Repository scaffold; design and implementation pending.",
+  "license": "MIT",
+  "author": "zhiwuli0228",
+  "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhiwuli0228/dsh-memory-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zhiwuli0228/dsh-memory-hub/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "long-term-memory"
+  ]
+}
