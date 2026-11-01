@@ -36,7 +36,8 @@
 - 本地优先排序：`policy.preflight.local_boost`
 - 指令式包尾：先 `memory_get`，使用后 `memory_cite`，结束前 `memory_close_task`
 - 面板任务行显示命中数与引用数
-- 41 个测试
+- 系统级 `memory-management` skill：全局注册、按需加载，覆盖检索/作用域/审批/回写/核心回填
+- 44 个测试
 
 ## V0.2（候选）
 

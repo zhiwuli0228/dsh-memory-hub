@@ -7,6 +7,7 @@ import { Ledger } from './ledger.js'
 import { MemoryError } from './errors.js'
 import { MemoryService, PLUGIN_VERSION } from './service.js'
 import { createTools, type ToolHost } from './tools.js'
+import { registerMemorySkill } from './skill.js'
 import type { MemoryConfig, WorkspaceConfig } from './config.js'
 import type {
   AgentLike,
@@ -74,6 +75,7 @@ export class MemoryRuntime implements ToolHost {
       }
     }
 
+    this.registerSkill()
     this.listen('agent/created', this.onAgentCreated)
     this.listen('agent/pre-step', this.onPreStep)
     this.listen('agent/turn-stopping', this.onTurnStopping)
@@ -95,6 +97,22 @@ export class MemoryRuntime implements ToolHost {
       }
       this.agentDisposers.clear()
     })
+  }
+
+  private registerSkill(): void {
+    try {
+      this.ctx.inject(['skills'], (skillsCtx) => {
+        if (this.disposed) return
+        try {
+          const dispose = registerMemorySkill(skillsCtx)
+          if (dispose !== null) this.disposers.push(dispose)
+        } catch (error) {
+          this.ctx.logger.warn(`dsh-memory-hub: cannot register memory-management skill: ${(error as Error).message}`)
+        }
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: skills injection failed: ${(error as Error).message}`)
+    }
   }
 
   private listen(name: string, listener: (...args: any[]) => unknown): void {

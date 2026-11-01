@@ -4,12 +4,20 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { apply } from '../src/index.js'
 import { serializeKnowledgeFile } from '../src/frontmatter.js'
-import type { AgentLike, Context, ContentBlock, PreStepDecision, ToolDefinition } from '../src/host.js'
+import type {
+  AgentLike,
+  Context,
+  ContentBlock,
+  PreStepDecision,
+  SkillRegistrationInput,
+  ToolDefinition,
+} from '../src/host.js'
 import type { KnowledgeRecord } from '../src/types.js'
 
 interface FakeHost {
   ctx: Context
   tools: Map<string, ToolDefinition>
+  skills: Map<string, SkillRegistrationInput>
   listeners: Map<string, Array<(...args: any[]) => unknown>>
   disposers: Array<() => void>
   contexts: Array<{ name: string; text: string | ((context: unknown) => string) }>
@@ -17,6 +25,7 @@ interface FakeHost {
 
 function createFakeHost(root: string): FakeHost {
   const tools = new Map<string, ToolDefinition>()
+  const skills = new Map<string, SkillRegistrationInput>()
   const listeners = new Map<string, Array<(...args: any[]) => unknown>>()
   const disposers: Array<() => void> = []
   const contexts: FakeHost['contexts'] = []
@@ -29,6 +38,12 @@ function createFakeHost(root: string): FakeHost {
       },
       get(name) {
         return tools.get(name)
+      },
+    },
+    skills: {
+      register(skill) {
+        skills.set(skill.name, skill)
+        return () => skills.delete(skill.name)
       },
     },
     logger: {
@@ -51,7 +66,9 @@ function createFakeHost(root: string): FakeHost {
       if (typeof result === 'function') disposers.push(result)
       return result ?? (() => {})
     },
-    inject: () => {},
+    inject(deps, callback) {
+      if (deps.includes('skills')) callback(ctx)
+    },
     workingDirectory: {
       defaultDirectory: root,
       get: () => root,
@@ -61,7 +78,7 @@ function createFakeHost(root: string): FakeHost {
     },
   }
 
-  return { ctx, tools, listeners, disposers, contexts }
+  return { ctx, tools, skills, listeners, disposers, contexts }
 }
 
 function makeAgent(host: FakeHost, id = 'session-plugin'): AgentLike {
@@ -126,6 +143,7 @@ describe('plugin entry', () => {
     const host = createFakeHost(root)
     apply(host.ctx, { root })
     expect(host.tools.size).toBe(9)
+    expect(host.skills.get('memory-management')?.source).toBe('runtime')
     expect(host.listeners.get('agent/pre-step')?.length).toBe(1)
 
     const statusBefore = (await invoke('memory_status', host, {}, makeAgent(host))) as {
@@ -255,19 +273,19 @@ workspaces:
       session: { id, seq: 0 },
     })
 
-    const statusA = (await invoke('memory_status', { ctx, tools, listeners, disposers, contexts: [] }, {}, makeAgentFor('session-a'))) as {
+    const statusA = (await invoke('memory_status', { ctx, tools, skills: new Map(), listeners, disposers, contexts: [] }, {}, makeAgentFor('session-a'))) as {
       root: string
     }
     expect(statusA.root).toContain('core-a')
 
-    const statusB = (await invoke('memory_status', { ctx, tools, listeners, disposers, contexts: [] }, {}, makeAgentFor('session-b'))) as {
+    const statusB = (await invoke('memory_status', { ctx, tools, skills: new Map(), listeners, disposers, contexts: [] }, {}, makeAgentFor('session-b'))) as {
       root: string
     }
     expect(statusB.root).toContain('core-b')
 
     const statusSub = (await invoke(
       'memory_status',
-      { ctx, tools, listeners, disposers, contexts: [] },
+      { ctx, tools, skills: new Map(), listeners, disposers, contexts: [] },
       {},
       makeAgentFor('session-sub'),
     )) as { root: string; workspace: { id: string } | null }

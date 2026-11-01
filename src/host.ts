@@ -96,6 +96,24 @@ export interface TokenMeterService {
   estimateMessage(message: unknown): number
 }
 
+export interface SkillInvocationPolicy {
+  modelInvocable: boolean
+  userInvocable: boolean
+}
+
+export interface SkillRegistrationInput {
+  name: string
+  description: string
+  whenToUse?: string
+  content: string
+  source?: string
+  invocation?: SkillInvocationPolicy
+}
+
+export interface SkillService {
+  register(skill: SkillRegistrationInput): () => void
+}
+
 export interface Logger {
   info(...args: unknown[]): void
   warn(...args: unknown[]): void
@@ -109,6 +127,7 @@ export interface Context {
   readonly workingDirectory?: WorkingDirectoryService
   readonly workspaceRegistry?: WorkspaceRegistryService
   readonly tokenMeter?: TokenMeterService
+  readonly skills?: SkillService
   readonly logger: Logger
   get(name: string): unknown
   on(
