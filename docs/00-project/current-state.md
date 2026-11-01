@@ -31,6 +31,7 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
 - [x] 39 个 vitest 测试（7 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.2`（2026-11-01，`latest`）
+- [x] GitHub release `v0.1.2`，仓库 homepage 指向 npm 包页
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`
 - [x] 宿主兼容性验证记录（`docs/COMPATIBILITY.md`）
