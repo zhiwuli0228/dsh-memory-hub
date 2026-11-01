@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.1
+// dsh-memory-hub 0.1.2
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13126,9 +13126,95 @@ function applyEvent(state, event) {
 // src/service.ts
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
+
+// package.json
+var package_default = {
+  name: "dsh-memory-hub",
+  version: "0.1.2",
+  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
+  license: "MIT",
+  author: "zhiwuli0228",
+  homepage: "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
+  repository: {
+    type: "git",
+    url: "git+https://github.com/zhiwuli0228/dsh-memory-hub.git"
+  },
+  bugs: {
+    url: "https://github.com/zhiwuli0228/dsh-memory-hub/issues"
+  },
+  type: "module",
+  main: "dist/index.js",
+  exports: {
+    ".": "./dist/index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  files: [
+    "dist/index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "docs/*.md"
+  ],
+  engines: {
+    node: ">=20",
+    dsh: ">=0.2.1-rc.5"
+  },
+  publishConfig: {
+    access: "public"
+  },
+  scripts: {
+    build: "node esbuild.config.mjs",
+    typecheck: "tsc --noEmit",
+    test: "vitest run",
+    "test:watch": "vitest",
+    check: "npm run typecheck && npm run build && npm run test"
+  },
+  keywords: [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "long-term-memory",
+    "knowledge-base"
+  ],
+  dsh: {
+    manifestVersion: 1,
+    bundle: {
+      patch: "./cordis.patch.yml"
+    },
+    client: {
+      platform: "web",
+      immediately: true,
+      inject: [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  devDependencies: {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    esbuild: "^0.25.9",
+    react: "^19.3.1",
+    "react-dom": "^19.3.1",
+    typescript: "^5.9.2",
+    vitest: "^3.2.4",
+    yaml: "^2.8.1",
+    zod: "^3.25.76"
+  }
+};
+
+// src/service.ts
 import { isAbsolute, relative as relative2, sep as sep2 } from "node:path";
 var import_yaml3 = __toESM(require_dist(), 1);
-var PLUGIN_VERSION = "0.1.2";
+var PLUGIN_VERSION = package_default.version;
 var MemoryService = class {
   ctx;
   hub;

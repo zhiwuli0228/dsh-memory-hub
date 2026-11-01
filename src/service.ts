@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
+import packageJson from '../package.json' with { type: 'json' }
 import { isAbsolute, relative, sep } from 'node:path'
 import { MemoryError } from './errors.js'
 import { configSchema, type CoreWorkspaceConfig, type MemoryConfig, type WorkspaceConfig } from './config.js'
@@ -28,7 +29,7 @@ import type {
 } from './types.js'
 import type { AgentLike, Context, PreToolDecision, ToolRunContext, WorkingDirectoryService } from './host.js'
 
-export const PLUGIN_VERSION = '0.1.2'
+export const PLUGIN_VERSION = packageJson.version
 
 interface SessionState {
   turn: number

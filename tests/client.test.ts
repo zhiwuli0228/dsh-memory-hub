@@ -87,7 +87,7 @@ describe('client bundle', () => {
     expect(panelHtml).toContain('dmh-tab')
 
     const sample = {
-      version: '0.1.1',
+      version: '0.1.2',
       initialized: true,
       root: '~/.dsh/memory-hub',
       readOnly: false,

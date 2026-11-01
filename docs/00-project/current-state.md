@@ -36,6 +36,7 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] Release workflow 已实测通过（`workflow_dispatch` + `v0.1.2`）；未配置 `NPM_TOKEN` 时跳过 npm 发布，其余步骤成功
 - [x] 发布说明：`docs/06-operations/release.md`
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
+- [x] `PLUGIN_VERSION` 直接读取 `package.json`，构建 banner 同步版本，避免发布时版本漂移
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`
 - [x] 宿主兼容性验证记录（`docs/COMPATIBILITY.md`）
 - [x] 新增项目文档体系（`docs/` 目录层级 + `AGENTS.md`）
