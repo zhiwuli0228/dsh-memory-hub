@@ -1,6 +1,6 @@
 # 宿主兼容性与验证记录
 
-日期：2026-11-01｜插件版本：`0.1.2`（`0.1.3` 仅发布流程与版本源变更，宿主行为未变）｜状态：Desktop 宿主冒烟通过；Web 面板已热加载，视觉待人工确认。
+日期：2026-11-01｜插件版本：`0.1.4`（本地；`0.1.3` 仅发布流程与版本源变更）｜状态：Desktop 宿主冒烟通过；`min_score` / `local_boost` / 面板计数已热加载验证，视觉待人工确认。
 
 ## 环境
 
@@ -33,12 +33,13 @@
 | V12 | 手动预检恢复任务 | PASS | 无自动任务的会话调用 `memory_preflight` 后获得 `TSK-…`，随后 `memory_cite` 成功 |
 | V13 | `config.yaml` 热加载与工作区映射 | PASS | 运行中写入 workspace；`memory_status` 显示 `dsh-memory-hub` 已注册；预检包显示该工作区 |
 | V14 | 卸载与重装 | PASS | `remove_bundle` → `applied`，写锁释放；重装后空 Hub 正常初始化 |
-| V15 | 单元/集成/面板注册测试 | PASS | 33 个测试（`vitest run`，7 个文件） |
+| V15 | 单元/集成/面板注册测试 | PASS | 41 个测试（`vitest run`，7 个文件） |
 | V16 | 构建可被 Node ESM 直接导入 | PASS | `import('./dist/index.js')` 返回 `apply,inject,name` |
 | V17 | 面板 Host API | PASS | `GET /dsh-memory-hub/api/overview` 返回 200 与完整 JSON；`/api/knowledge?id=…` 返回 200/404 |
 | V18 | 面板 bundle 可注册 | PASS | `tests/client.test.ts` 通过 `__ModuleLoader__` 装载并注册 `sidebar.panellist`（id `memory-hub`）与 `main`（key `memory-hub`）；React SSR 渲染面板与图标 |
 | V19 | 运行中热加载面板 | PASS | 安装后 `/api/overview` 返回 `client.advertised: true`；`Slots.listSubTree` 显示 `sidebar.panellist` 的 `memory-hub`（order 50）与 `main` 的 `memory-hub`，均 `active: true` |
 | V20 | 核心/子工作区配置与 Web 配置标签页 | PASS | `GET/POST /dsh-memory-hub/api/config` 读写 `core_workspaces` 与 `workspaces`；`config.yaml` 实时落盘并热加载；面板新增「配置」与「能力」标签页 |
+| V21 | 预检相关性门控与本地优先 | PASS | `memory_status` 显示 `min_score: 1, local_boost: 1.2`；对“本地优先 预检”手动预检时 `DEC-000002`（`project:dsh-memory-hub`）排在核心条目前；`/api/overview?core=dsh-plugin-dev` 的 task 返回 `citations` 与更新后的 `preflight.hits` |
 
 冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本在验证后已随 Hub 目录重置删除；当前安装的 Hub 为空，仅保留真实配置。
 
