@@ -142,7 +142,7 @@ policy:
 ```sh
 npm install
 npm run typecheck
-npm run test        # 33 个单元/集成/插件/面板注册测试
+npm run test        # 39 个单元/集成/插件/面板注册测试
 npm run build       # 产出 dist/index.js
 npm run check       # typecheck + build + test
 ```
@@ -159,11 +159,20 @@ src/
   frontmatter.ts      # 知识/候选文件解析与序列化
   config.ts hub.ts lock.ts atomic.ts ledger.ts ...
 client.js             # 侧边栏面板（模块加载器格式，无需构建）
-tests/                # 32 个测试
+tests/                # 39 个测试
 docs/
   DESIGN.md           # V0.1 设计
   KNOWLEDGE-FORMAT.md # 知识文件格式
   COMPATIBILITY.md    # 宿主验证记录与已知限制
+```
+
+## 发布
+
+推送 `v*` tag 会触发 GitHub Actions：在 Windows 上运行 typecheck、build、test，打包 npm tarball，按需发布到 npm，并创建 GitHub Release。配置 `NPM_TOKEN` 后也会自动发布 npm。步骤见 [docs/06-operations/release.md](docs/06-operations/release.md)。
+
+```sh
+git tag v0.1.3
+git push origin v0.1.3
 ```
 
 ## 已知限制

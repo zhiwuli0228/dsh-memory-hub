@@ -54,6 +54,7 @@
 1. `docs/06-operations/deployment-guide.md`
 2. `docs/06-operations/security-policy.md`
 3. `docs/06-operations/troubleshooting.md`
+4. `docs/06-operations/release.md`
 
 ## 硬规则
 
@@ -78,7 +79,7 @@ docs/
 ├── 03-openspec/                    # OpenSpec 提案/设计/规格/任务规则
 ├── 04-development/                 # 开发、编码、目录、测试、依赖
 ├── 05-domain/                      # 知识类型、作用域、source_ref 规则
-├── 06-operations/                  # 部署、安全、排障
+├── 06-operations/                  # 部署、安全、排障、发布
 ├── 07-templates/                   # 可复用模板
 └── 99-archive/                     # 归档或历史文档
 ```
