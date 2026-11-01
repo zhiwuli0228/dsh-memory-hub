@@ -423,6 +423,8 @@ policy:
     mode: per-turn       # per-turn | off
     pack_tokens: 600
     max_hits: 6
+    min_score: 1.0       # drop weak matches; 0 keeps every BM25 hit
+    local_boost: 1.2     # prefer project:<current-workspace> over core hits
     inject: compact      # compact | off
   gate:
     mode: enforce        # enforce | off

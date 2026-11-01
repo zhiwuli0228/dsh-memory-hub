@@ -54,6 +54,12 @@ export interface SearchFilters {
   visibility: Visibility
   types?: ReadonlySet<KnowledgeType>
   limit?: number
+  /** Drop hits whose final score is below this value. */
+  minScore?: number
+  /** Multiplier applied to project:<preferProject> entries. */
+  localBoost?: number
+  /** The current workspace id; its project scope is boosted over the core. */
+  preferProject?: string
 }
 
 const TYPE_BOOST: Record<KnowledgeType, number> = {
@@ -169,6 +175,14 @@ export class KnowledgeIndex {
       if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
         score *= 1.25
       }
+      if (
+        filters.preferProject !== undefined &&
+        record.scope.level === 'project' &&
+        record.scope.workspaceId === filters.preferProject
+      ) {
+        score *= filters.localBoost ?? 1
+      }
+      if (filters.minScore !== undefined && score < filters.minScore) continue
       hits.push({
         id: record.id,
         version: record.version,

@@ -43,6 +43,10 @@ const preflightSchema = z.object({
   mode: z.enum(['per-turn', 'off']).default('per-turn'),
   pack_tokens: z.number().int().positive().max(8000).default(600),
   max_hits: z.number().int().min(1).max(20).default(6),
+  // 低于该分数的命中不进入预检包；0 表示不过滤。新手配置默认 1.0。
+  min_score: z.number().min(0).max(1000).default(0),
+  // 当前工作区自己的 project 知识在排序时的倍率；1 表示不提升。新手配置默认 1.2。
+  local_boost: z.number().min(1).max(3).default(1),
   inject: z.enum(['compact', 'off']).default('compact'),
 }).default({})
 
@@ -130,6 +134,8 @@ policy:
     mode: per-turn        # per-turn | off
     pack_tokens: 600
     max_hits: 6
+    min_score: 1.0        # drop weak matches; 0 keeps every BM25 hit
+    local_boost: 1.2      # prefer project:<current-workspace> over core hits
     inject: compact       # compact | off
   gate:
     mode: enforce         # enforce | off

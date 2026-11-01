@@ -5,7 +5,7 @@ import { MemoryError } from './errors.js'
 import { parseKnowledgeFile, parseProposalFile, PROPOSAL_ID_PATTERN, serializeKnowledgeFile, serializeProposalFile } from './frontmatter.js'
 import type { Hub } from './hub.js'
 import type { Ledger } from './ledger.js'
-import { KnowledgeIndex } from './search.js'
+import { KnowledgeIndex, type SearchFilters } from './search.js'
 import { formatScope, isScopeVisible, parseScope } from './scope.js'
 import { formatSequence } from './ids.js'
 import { nowIso } from './time.js'
@@ -178,12 +178,7 @@ export class KnowledgeStore {
     }
   }
 
-  search(query: string, options: {
-    visibility: Visibility
-    statuses?: ReadonlySet<KnowledgeStatus>
-    types?: ReadonlySet<KnowledgeType>
-    limit?: number
-  }): KnowledgeHit[] {
+  search(query: string, options: SearchFilters): KnowledgeHit[] {
     return this.index.search(query, options)
   }
 

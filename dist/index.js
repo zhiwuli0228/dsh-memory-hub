@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.3
+// dsh-memory-hub 0.1.4
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11599,6 +11599,10 @@ var preflightSchema = external_exports.object({
   mode: external_exports.enum(["per-turn", "off"]).default("per-turn"),
   pack_tokens: external_exports.number().int().positive().max(8e3).default(600),
   max_hits: external_exports.number().int().min(1).max(20).default(6),
+  // 低于该分数的命中不进入预检包；0 表示不过滤。新手配置默认 1.0。
+  min_score: external_exports.number().min(0).max(1e3).default(0),
+  // 当前工作区自己的 project 知识在排序时的倍率；1 表示不提升。新手配置默认 1.2。
+  local_boost: external_exports.number().min(1).max(3).default(1),
   inject: external_exports.enum(["compact", "off"]).default("compact")
 }).default({});
 var gateSchema = external_exports.object({
@@ -11678,6 +11682,8 @@ policy:
     mode: per-turn        # per-turn | off
     pack_tokens: 600
     max_hits: 6
+    min_score: 1.0        # drop weak matches; 0 keeps every BM25 hit
+    local_boost: 1.2      # prefer project:<current-workspace> over core hits
     inject: compact       # compact | off
   gate:
     mode: enforce         # enforce | off
@@ -12427,6 +12433,10 @@ var KnowledgeIndex = class {
       if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
         score *= 1.25;
       }
+      if (filters.preferProject !== void 0 && record.scope.level === "project" && record.scope.workspaceId === filters.preferProject) {
+        score *= filters.localBoost ?? 1;
+      }
+      if (filters.minScore !== void 0 && score < filters.minScore) continue;
       hits.push({
         id: record.id,
         version: record.version,
@@ -13130,7 +13140,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.1.3",
+  version: "0.1.4",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -13865,6 +13875,7 @@ var MemoryService = class {
       workspaceId: task.workspaceId,
       createdAt: task.createdAt,
       preflight: task.preflight === null ? null : { status: task.preflight.status, hits: task.preflight.hits },
+      citations: this.citations.filter((citation) => citation.taskId === task.taskId).length,
       assessment: task.assessment
     }));
     return {
@@ -14061,7 +14072,10 @@ var MemoryService = class {
     return this.store.search(intent, {
       visibility,
       statuses: /* @__PURE__ */ new Set(["accepted"]),
-      limit: this.hub.config.policy.preflight.max_hits
+      limit: this.hub.config.policy.preflight.max_hits,
+      minScore: this.hub.config.policy.preflight.min_score,
+      localBoost: this.hub.config.policy.preflight.local_boost,
+      preferProject: workspace.id ?? void 0
     });
   }
   buildPack(hits, workspace, budget) {
@@ -14071,7 +14085,11 @@ var MemoryService = class {
       `Workspace: ${workspace.id ?? "unregistered"} \xB7 hits: ${hits.length}`,
       ""
     ];
-    const footer = ["", "Use memory_get for details; call memory_cite after actually using an entry."];
+    const footer = [
+      "",
+      "Before planning or modifying files, read the hit(s) that could change the decision with memory_get.",
+      "After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment."
+    ];
     const lines = [...header];
     let included = 0;
     for (const hit of hits) {

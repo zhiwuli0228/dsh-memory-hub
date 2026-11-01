@@ -102,6 +102,8 @@ policy:
     mode: per-turn       # per-turn | off
     pack_tokens: 600
     max_hits: 6
+    min_score: 1.0       # drop weak matches; 0 keeps every hit
+    local_boost: 1.2     # prefer the current project over core knowledge
     inject: compact
   gate:
     mode: enforce        # enforce | off

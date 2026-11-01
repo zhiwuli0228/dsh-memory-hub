@@ -30,6 +30,14 @@
 - `PLUGIN_VERSION` 与 `package.json` 使用单一版本源
 - 39 个测试
 
+## V0.1.4（未发布）
+
+- 预检相关性门控：`policy.preflight.min_score`
+- 本地优先排序：`policy.preflight.local_boost`
+- 指令式包尾：先 `memory_get`，使用后 `memory_cite`，结束前 `memory_close_task`
+- 面板任务行显示命中数与引用数
+- 41 个测试
+
 ## V0.2（候选）
 
 - 索引落盘与增量重建，减少启动扫描

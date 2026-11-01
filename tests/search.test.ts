@@ -104,6 +104,28 @@ describe('knowledge index', () => {
     expect(deprecated.map((hit) => hit.id)).toEqual(['DEC-000003'])
   })
 
+  it('drops hits below minScore and boosts the preferred project', () => {
+    const index = new KnowledgeIndex()
+    index.add(record({ id: 'KNO-000001', title: '缓存广播', summary: '全局版本' }))
+    index.add(record({
+      id: 'KNO-000002',
+      title: '缓存广播',
+      summary: '项目版本',
+      scope: { level: 'project', workspaceId: 'backend' },
+    }))
+    const visibility = { global: true, domains: new Set<string>(), projects: new Set(['backend']) }
+
+    expect(index.search('缓存广播', { visibility, minScore: 1_000_000 })).toEqual([])
+    expect(index.search('缓存广播', { visibility, minScore: 0 }).length).toBe(2)
+
+    const boosted = index.search('缓存广播', {
+      visibility,
+      preferProject: 'backend',
+      localBoost: 2,
+    })
+    expect(boosted[0]?.id).toBe('KNO-000002')
+  })
+
   it('returns no hits for an empty or unmatchable query', () => {
     const index = new KnowledgeIndex()
     index.add(record({ id: 'DEC-000001', title: '缓存广播' }))

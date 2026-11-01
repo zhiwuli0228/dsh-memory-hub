@@ -6,6 +6,8 @@
 
 V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.3` 已上架，仓库同时提供自托管插件市场索引。
 
+当前工作树为 **V0.1.4（未发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数。
+
 ## 已实现
 
 - [x] Cordis 插件入口 `src/index.ts`（`apply` / `inject`）
@@ -13,8 +15,12 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 本地优先存储：Markdown + YAML + JSONL，无强制数据库
 - [x] CJK unigram/bigram 分词 + 内存倒排索引 + BM25-lite 检索
 - [x] 每个用户回合第一步自动预检；幂等键 `(sessionId, turn)`
+- [x] 预检相关性门控：`policy.preflight.min_score` 过滤弱命中，全部低于阈值时记 `no_match`
+- [x] 本地优先排序：`policy.preflight.local_boost` 提升当前工作区 `project:<id>` 知识
 - [x] 紧凑上下文注入（`memory:pack`），只含 ID、标题、摘要、作用域
+- [x] 指令式包尾：先 `memory_get`、使用后 `memory_cite`、结束前 `memory_close_task`
 - [x] 引用记录（`memory_cite`）区分检索命中与实际使用
+- [x] 面板任务行显示预检命中数与引用数，暴露“命中但未引用”的断点
 - [x] 候选创建（`memory_propose`）与提交审批（`memory_commit`）
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
@@ -30,7 +36,7 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 39 个 vitest 测试（7 个文件）
+- [x] 41 个 vitest 测试（7 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.3`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.3`，仓库 homepage 指向 npm 包页
 - [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，Trusted Publisher/OIDC 发布 npm，自动创建 Release 并上传 tarball）
@@ -62,6 +68,8 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
+- 预检已覆盖所有子工作区，但模型实际调用 `memory_get` / `memory_cite` / `memory_close_task` 的比例仍低；账本中大量任务以 `deferred`（`turn ended without an assessment`）关闭。当前优化只解决“命中相关性与可见性”，不强制模型行为。
+- 子工作区本地 `project` 知识仍很少；没有本地条目时，预检只能返回核心共享知识。
 
 ## 当前目录
 
@@ -111,6 +119,8 @@ dsh-memory-hub/
 1. 在真实会话中验证审批**通过**路径。
 2. 增加面板交互与视觉验收测试。
 3. 压测 5k+ 条知识索引与检索性能。
+4. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
+5. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
 4. 验证 PTC `run_code` 嵌套调用与门禁边界。
 5. 补充外部 CLI / 多进程共享 Hub 测试。
 6. 评估索引落盘与增量重建（V0.2 方向）。

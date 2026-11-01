@@ -810,6 +810,7 @@ export class MemoryService {
         workspaceId: task.workspaceId,
         createdAt: task.createdAt,
         preflight: task.preflight === null ? null : { status: task.preflight.status, hits: task.preflight.hits },
+        citations: this.citations.filter((citation) => citation.taskId === task.taskId).length,
         assessment: task.assessment,
       }))
     return {
@@ -1032,6 +1033,9 @@ export class MemoryService {
       visibility,
       statuses: new Set<KnowledgeStatus>(['accepted']),
       limit: this.hub.config.policy.preflight.max_hits,
+      minScore: this.hub.config.policy.preflight.min_score,
+      localBoost: this.hub.config.policy.preflight.local_boost,
+      preferProject: workspace.id ?? undefined,
     })
   }
 
@@ -1042,7 +1046,11 @@ export class MemoryService {
       `Workspace: ${workspace.id ?? 'unregistered'} · hits: ${hits.length}`,
       '',
     ]
-    const footer = ['', 'Use memory_get for details; call memory_cite after actually using an entry.']
+    const footer = [
+      '',
+      'Before planning or modifying files, read the hit(s) that could change the decision with memory_get.',
+      'After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment.',
+    ]
     const lines: string[] = [...header]
     let included = 0
     for (const hit of hits) {

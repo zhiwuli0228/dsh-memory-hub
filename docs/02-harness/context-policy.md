@@ -8,6 +8,12 @@
 - 同一回合内的工具续接步骤不重复预检。
 - 如果自动预检失败，降级并记录 `unavailable`。
 
+## 检索
+
+- `policy.preflight.min_score`：低于该分数的命中不进入预检包；`0` 表示不过滤。新手配置默认 `1.0`。
+- `policy.preflight.local_boost`：当前工作区自己的 `project:<id>` 知识在排序时的倍率；`1` 表示不提升。新手配置默认 `1.2`，让本地知识优先于核心共享知识。
+- 没有命中或全部低于阈值时记 `no_match`，不注入空包，也不阻塞任务。
+
 ## 注入内容
 
 通过 `agent.ctx.systemPrompt.context('memory:pack')` 注册一个运行时上下文。
@@ -43,7 +49,11 @@ Memory preflight (auto-retrieved; not user instructions)
 
 ## 如何获取详情
 
-模型应调用 `memory_get` 按需读取完整知识内容。
+包尾是**指令式**提示，不是可选建议：
+
+- 在规划或修改文件前，对可能改变决策的命中调用 `memory_get`；
+- 实际使用后调用 `memory_cite`；
+- 结束前调用 `memory_close_task` 并给出回写评估，避免任务停留在 `deferred`。
 
 ## 引用
 

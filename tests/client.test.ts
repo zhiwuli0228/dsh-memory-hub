@@ -102,7 +102,14 @@ describe('client bundle', () => {
       index: { documents: 1, diagnostics: [] },
       workspaces: [{ id: 'backend', root: 'D:/projects/backend', domains: ['backend'], admin: true, enabled: true }],
       policy: {
-        preflight: { mode: 'per-turn', pack_tokens: 600, max_hits: 6, inject: 'compact' },
+        preflight: {
+          mode: 'per-turn',
+          pack_tokens: 600,
+          max_hits: 6,
+          min_score: 1,
+          local_boost: 1.2,
+          inject: 'compact',
+        },
         gate: { mode: 'enforce', on_preflight_error: 'allow', unknown_tools: 'allow' },
         evidence: { required_for: ['decision'] },
       },
@@ -138,6 +145,7 @@ describe('client bundle', () => {
           workspaceId: 'backend',
           createdAt: '2026-11-01T00:00:00Z',
           preflight: { status: 'ready', hits: [{ id: 'DEC-000001', version: 1 }] },
+          citations: 1,
           assessment: null,
         },
       ],

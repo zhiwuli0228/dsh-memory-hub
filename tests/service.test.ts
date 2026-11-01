@@ -37,6 +37,29 @@ describe('memory service', () => {
     }
   })
 
+  it('honors the preflight min_score and directive footer', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.seed({
+        title: '缓存广播使用版本号',
+        summary: '广播消息携带单调版本号。',
+        body: '## 结论\n\n使用版本号而不是时间戳。\n',
+      })
+      harness.hub.config.policy.preflight.min_score = 1_000_000
+      await harness.service.preflightForTurn(harness.agent, 1, '缓存广播版本号')
+      expect(harness.service.stateFor(harness.agent.id)?.status).toBe('no_match')
+      expect(harness.service.packFor(harness.agent.id)).toBe('')
+
+      harness.hub.config.policy.preflight.min_score = 0
+      await harness.service.preflightForTurn(harness.agent, 2, '缓存广播版本号')
+      const pack = harness.service.packFor(harness.agent.id)
+      expect(pack).toContain('memory_get')
+      expect(pack).toContain('memory_close_task')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('records no_match and keeps the task unblocked', async () => {
     const harness = await createHarness()
     try {
