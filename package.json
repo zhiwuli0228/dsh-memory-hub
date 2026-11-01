@@ -1,7 +1,7 @@
 {
   "name": "dsh-memory-hub",
-  "version": "0.1.0",
-  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, and manual consolidation.",
+  "version": "0.1.1",
+  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
   "license": "MIT",
   "author": "zhiwuli0228",
   "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
@@ -16,12 +16,14 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
+    "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "dist/index.js",
+    "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
@@ -51,11 +53,23 @@
     "manifestVersion": 1,
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "esbuild": "^0.25.9",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
     "yaml": "^2.8.1",

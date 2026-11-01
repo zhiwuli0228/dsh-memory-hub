@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.0
+// dsh-memory-hub 0.1.1
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13082,7 +13082,7 @@ function applyEvent(state, event) {
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative as relative2, sep as sep2 } from "node:path";
-var PLUGIN_VERSION = "0.1.0";
+var PLUGIN_VERSION = "0.1.1";
 var MemoryService = class {
   ctx;
   hub;
@@ -13649,6 +13649,77 @@ var MemoryService = class {
     }
     return { ...result, dryRun: args.dry_run === true };
   }
+  overview() {
+    const knowledge = [...this.store.docs.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200).map((record) => ({
+      id: record.id,
+      type: record.type,
+      status: record.status,
+      version: record.version,
+      title: record.title,
+      summary: record.summary,
+      scope: formatScope(record.scope),
+      updatedAt: record.updatedAt
+    }));
+    const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => ({
+      id: proposal.id,
+      operation: proposal.operation,
+      type: proposal.type,
+      title: proposal.title,
+      summary: proposal.summary,
+      scope: formatScope(proposal.scope),
+      taskId: proposal.taskId,
+      createdAt: proposal.createdAt
+    }));
+    const tasks = [...this.tasks.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 30).map((task) => ({
+      taskId: task.taskId,
+      sessionId: task.sessionId,
+      turn: task.turn,
+      workspaceId: task.workspaceId,
+      createdAt: task.createdAt,
+      preflight: task.preflight === null ? null : { status: task.preflight.status, hits: task.preflight.hits },
+      assessment: task.assessment
+    }));
+    return {
+      version: PLUGIN_VERSION,
+      initialized: true,
+      root: this.hub.displayRoot(),
+      readOnly: this.hub.readOnly,
+      readOnlyReason: this.hub.readOnlyReason,
+      configError: this.hub.configError,
+      counts: this.store.counts(),
+      index: {
+        documents: this.store.index.size,
+        diagnostics: this.store.diagnostics.slice(0, 20)
+      },
+      workspaces: this.hub.config.workspaces.map((workspace) => ({
+        id: workspace.id,
+        root: workspace.root,
+        domains: workspace.domains,
+        admin: workspace.admin,
+        enabled: workspace.enabled
+      })),
+      policy: {
+        preflight: this.hub.config.policy.preflight,
+        gate: this.hub.config.policy.gate,
+        evidence: this.hub.config.policy.evidence
+      },
+      knowledge,
+      pending,
+      tasks,
+      generatedAt: nowIso()
+    };
+  }
+  knowledgeDetail(id) {
+    const record = this.store.docs.get(id);
+    if (record === void 0) return null;
+    const { body, path, extra: _extra, scope, ...rest } = record;
+    void _extra;
+    return {
+      metadata: { ...rest, scope: formatScope(scope) },
+      body,
+      path: KnowledgeStore.relativePath(this.hub.root, path)
+    };
+  }
   status(agent) {
     const workspace = agent === void 0 ? null : this.sessions.get(agent.id)?.workspace ?? null;
     return {
@@ -14172,6 +14243,12 @@ var MemoryRuntime = class {
     this.listen("agent/turn-stopping", this.onTurnStopping);
     this.listen("agent/disposed", this.onAgentDisposed);
     this.listen("tools/pre-execute", this.onPreExecute);
+    this.registerHttpRoutes();
+    try {
+      this.ctx.inject(["clientModules"], () => this.warmClientModule());
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: client module injection failed: ${error.message}`);
+    }
     this.disposers.push(() => {
       for (const dispose of this.agentDisposers.values()) {
         try {
@@ -14203,6 +14280,7 @@ var MemoryRuntime = class {
       this.store = store;
       this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState });
       this.registerExistingAgents();
+      this.warmClientModule();
       this.startWatcher();
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ", read-only" : ""})`
@@ -14342,6 +14420,133 @@ var MemoryRuntime = class {
       this.ctx.logger.warn(`dsh-memory-hub: cannot inspect existing agents: ${error.message}`);
     }
   }
+  registerHttpRoutes() {
+    try {
+      this.ctx.inject(["webServer"], (scope) => {
+        const server = scope.get("webServer");
+        if (server === void 0 || typeof server.register !== "function") return;
+        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge"]) {
+          try {
+            scope.effect(
+              () => server.register({
+                kind: "exact",
+                path,
+                handler: (request, response) => this.handleHttp(request, response)
+              })
+            );
+          } catch (error) {
+            this.ctx.logger.warn(`dsh-memory-hub: cannot register ${path}: ${error.message}`);
+          }
+        }
+      });
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: web server injection failed: ${error.message}`);
+    }
+  }
+  handleHttp = async (request, response) => {
+    const method = typeof request.method === "string" ? request.method : "GET";
+    if (!isLoopbackRequest(request)) {
+      sendJson(response, 403, { error: "loopback-only" }, method);
+      return;
+    }
+    if (method !== "GET" && method !== "HEAD") {
+      sendJson(response, 405, { error: "method-not-allowed" }, method);
+      return;
+    }
+    let url;
+    try {
+      url = new URL(typeof request.url === "string" ? request.url : "/", "http://localhost");
+    } catch {
+      sendJson(response, 400, { error: "bad-request" }, method);
+      return;
+    }
+    try {
+      if (url.pathname === "/dsh-memory-hub/api/overview") {
+        let payload;
+        try {
+          const service = await this.service();
+          payload = service.overview();
+        } catch (error) {
+          payload = {
+            version: PLUGIN_VERSION,
+            initialized: false,
+            error: error.message,
+            generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+        }
+        payload.client = this.clientInfo();
+        sendJson(response, 200, payload, method);
+        return;
+      }
+      if (url.pathname === "/dsh-memory-hub/api/knowledge") {
+        const id = url.searchParams.get("id");
+        if (id === null || id === "") {
+          sendJson(response, 400, { error: "missing-id" }, method);
+          return;
+        }
+        try {
+          const service = await this.service();
+          const detail = service.knowledgeDetail(id);
+          if (detail === null) {
+            sendJson(response, 404, { error: "not-found", id }, method);
+            return;
+          }
+          sendJson(response, 200, detail, method);
+        } catch (error) {
+          sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
+        }
+        return;
+      }
+      sendJson(response, 404, { error: "not-found", path: url.pathname }, method);
+    } catch (error) {
+      sendJson(response, 500, { error: "internal", message: error.message }, method);
+    }
+  };
+  clientInfo() {
+    try {
+      const modules = this.ctx.get("clientModules");
+      if (modules === void 0) return { advertised: false, reason: "clientModules service unavailable" };
+      const path = modules.clientPath?.("dsh-memory-hub") ?? null;
+      const graph = modules.graph?.();
+      const entry = graph?.entries?.find((candidate) => candidate.id === "dsh-memory-hub") ?? null;
+      return {
+        advertised: entry !== null || path !== null,
+        url: entry?.url ?? null
+      };
+    } catch (error) {
+      return { advertised: false, error: error.message };
+    }
+  }
+  /**
+   * Best-effort compatibility shim for DSH 0.2.1-rc.5: `clientModules` caches a
+   * null package resolution when a package was first scanned before its client
+   * declaration existed, and only a restart clears that cache. Dropping the
+   * cached entry and marking the Loader name dirty recomposes the graph
+   * without a restart. Every field is guarded, so a future Host that renames
+   * them simply falls back to the restart path.
+   */
+  warmClientModule() {
+    try {
+      const modules = this.ctx.get("clientModules");
+      if (modules === void 0) return;
+      if (modules.clientPath?.("dsh-memory-hub") !== void 0) return;
+      if (!(modules.pkgMeta instanceof Map) || !(modules.dirty instanceof Set) || typeof modules.flush !== "function") return;
+      let cleared = false;
+      for (const key of [...modules.pkgMeta.keys()]) {
+        if (key.endsWith("\0dsh-memory-hub")) {
+          modules.pkgMeta.delete(key);
+          cleared = true;
+        }
+      }
+      if (!cleared) return;
+      modules.dirty.add("dsh-memory-hub");
+      modules.flush((error) => {
+        this.ctx.logger.warn(`dsh-memory-hub: client graph refresh failed: ${error.message}`);
+      });
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: client graph warm-up skipped: ${error.message}`);
+    }
+  }
   startWatcher() {
     const hub = this.hub;
     const store = this.store;
@@ -14436,6 +14641,20 @@ function extractIntent(messages) {
   };
   const preferredText = preferred === void 0 ? "" : collect([preferred]);
   return (preferredText !== "" ? preferredText : collect(messages)).slice(0, 2e3);
+}
+function isLoopbackRequest(request) {
+  const address = request.socket?.remoteAddress ?? "";
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+function sendJson(response, status, body, method) {
+  if (response.writableEnded === true) return;
+  const text = JSON.stringify(body);
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "content-length": String(Buffer.byteLength(text, "utf8"))
+  });
+  response.end(method === "HEAD" ? void 0 : text);
 }
 
 // src/index.ts

@@ -1,6 +1,6 @@
 # 宿主兼容性与验证记录
 
-日期：2026-11-01｜插件版本：`0.1.0`｜状态：Desktop 宿主冒烟通过；部分路径未验证。
+日期：2026-11-01｜插件版本：`0.1.1`｜状态：Desktop 宿主冒烟通过；Web 面板已热加载，视觉待人工确认。
 
 ## 环境
 
@@ -33,10 +33,15 @@
 | V12 | 手动预检恢复任务 | PASS | 无自动任务的会话调用 `memory_preflight` 后获得 `TSK-…`，随后 `memory_cite` 成功 |
 | V13 | `config.yaml` 热加载与工作区映射 | PASS | 运行中写入 workspace；`memory_status` 显示 `dsh-memory-hub` 已注册；预检包显示该工作区 |
 | V14 | 卸载与重装 | PASS | `remove_bundle` → `applied`，写锁释放；重装后空 Hub 正常初始化 |
-| V15 | 单元/集成测试 | PASS | 31 个测试（`vitest run`，6 个文件） |
+| V15 | 单元/集成/面板注册测试 | PASS | 32 个测试（`vitest run`，7 个文件） |
 | V16 | 构建可被 Node ESM 直接导入 | PASS | `import('./dist/index.js')` 返回 `apply,inject,name` |
+| V17 | 面板 Host API | PASS | `GET /dsh-memory-hub/api/overview` 返回 200 与完整 JSON；`/api/knowledge?id=…` 返回 200/404 |
+| V18 | 面板 bundle 可注册 | PASS | `tests/client.test.ts` 通过 `__ModuleLoader__` 装载并注册 `sidebar.panellist`（id `memory-hub`）与 `main`（key `memory-hub`）；React SSR 渲染面板与图标 |
+| V19 | 运行中热加载面板 | PASS | 安装后 `/api/overview` 返回 `client.advertised: true`；`Slots.listSubTree` 显示 `sidebar.panellist` 的 `memory-hub`（order 50）与 `main` 的 `memory-hub`，均 `active: true` |
 
 冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本在验证后已随 Hub 目录重置删除；当前安装的 Hub 为空，仅保留真实配置。
+
+> **面板可见性**：`clientModules` 会把首次扫描不到的包缓存为 null；插件启动时会清除本包的该缓存并标记 dirty，使 `client.advertised` 从 `false` 变为 `true`，无需重启即可进入启动图。若未来 Host 移除这些内部字段，插件会安全回退，用户重启一次 DSH 即可。当前侧边栏与主面板均已注册为 active；点击后的完整视觉布局仍需人工确认。
 
 ## 未验证
 
@@ -48,6 +53,7 @@
 | 外部 CLI / 多进程共享 Hub | 未测试 | 单写者锁与只读降级由单元测试覆盖 |
 | 长会话上下文累积 | 只做了两个回合 | 注入按任务替换的宿主语义需要更多观察 |
 | 5k 条索引性能 | 未做规模压测 | 设计目标未实测 |
+| Web 面板视觉效果 | 无法在本会话内截图/点击验证 | 模块、slot 与 API 已测；需确认图标、标签页与响应式布局的实际观感 |
 
 ## 安装事实
 
@@ -55,6 +61,8 @@
 - 插件 bundle 声明 `dsh.bundle.patch: ./cordis.patch.yml`；安装器插入 `include:dsh-memory-hub`。
 - 构建产物 `dist/index.js` 为 ESM，仅导入 Node 内建模块；`yaml` 的 CJS 依赖通过 `createRequire(import.meta.url)` 垫片解决（首次安装曾因 `Dynamic require of "process"` 失败，修复后重装通过）。
 - 插件不导出 `Config` schema；`config.root` 由插件自身校验，`<root>/config.yaml` 由 zod 校验，非法配置降级为只读并写入 `memory_status` 诊断。
+- 面板声明 `dsh.client`（`platform: web`，inject layout/sidebar），`client.js` 以 `window.__ModuleLoader__.load({id, factory})` 注册；数据通过两个回环 HTTP 路由读取，不经过模型工具。
+- DSH `0.2.1-rc.5` 的 `clientModules` 只增量扫描 Loader 的 `internal/plugin` 事件；若包在客户端声明出现前已被扫描，`pkgMeta` 会缓存 null。插件启动时以 best-effort 方式删除本包的缓存、标记 dirty 并调用 `flush()`，使面板无需重启进入启动图；字段缺失时安全回退到重启路径。
 
 ## 复现命令
 

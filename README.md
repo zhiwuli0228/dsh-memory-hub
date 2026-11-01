@@ -4,7 +4,9 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.1.0 已实现**，并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、卸载/重装）。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.1.1 已实现**：Host 插件 + 只读 Web 面板，并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+
+> 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
 ## 它是什么
 
@@ -21,9 +23,20 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 | 收尾 | 每个关闭任务都有评估；未评估的回合自动记 `deferred` |
 | 汇总 | 管理员手动把项目知识晋升为 global 候选；按 `promoted_from` 幂等 |
 
+## Web 面板
+
+重启后，左侧边栏出现「记忆中枢」图标，主区域提供四个标签页：
+
+- **总览**：状态、知识/候选/工作区/任务计数、9 项能力卡片、记忆闭环示意、工作区与最近知识
+- **知识**：搜索、类型/状态过滤、全文详情与来源
+- **待审批**：`pending/` 候选列表（只读，不代替 DSH 审批）
+- **活动与策略**：最近任务、预检/门禁/证据要求
+
+面板通过 Host 路由 `/dsh-memory-hub/api/overview` 与 `/dsh-memory-hub/api/knowledge` 读取数据，只允许回环请求；不会修改任何知识或绕过审批。
+
 ## 安装
 
-仓库包含构建产物 `dist/index.js`，安装本地目录或 GitHub 包时不需要再构建。
+仓库包含构建产物 `dist/index.js` 与 `client.js`，安装本地目录或 GitHub 包时不需要再构建。
 
 ### Desktop（由 Electron 管理的 Profile）
 
@@ -95,7 +108,7 @@ policy:
 ```sh
 npm install
 npm run typecheck
-npm run test        # 31 个单元/集成/插件入口测试
+npm run test        # 32 个单元/集成/插件/面板注册测试
 npm run build       # 产出 dist/index.js
 npm run check       # typecheck + build + test
 ```
@@ -105,13 +118,14 @@ npm run check       # typecheck + build + test
 ```text
 src/
   index.ts            # Cordis 入口（apply / inject）
-  runtime.ts          # 初始化、钩子、watcher、上下文注册
-  service.ts          # 预检、门禁、引用、提案、关闭、汇总
+  runtime.ts          # 初始化、钩子、watcher、上下文注册、面板 API
+  service.ts          # 预检、门禁、引用、提案、关闭、汇总、面板数据
   store.ts            # Markdown + JSONL + 序列 + 版本归档
   search.ts           # CJK 分词与倒排索引
   frontmatter.ts      # 知识/候选文件解析与序列化
   config.ts hub.ts lock.ts atomic.ts ledger.ts ...
-tests/                # 31 个测试
+client.js             # 侧边栏面板（模块加载器格式，无需构建）
+tests/                # 32 个测试
 docs/
   DESIGN.md           # V0.1 设计
   KNOWLEDGE-FORMAT.md # 知识文件格式
@@ -123,7 +137,8 @@ docs/
 - 审批**通过**路径依赖交互式审批；本机验证时审批提示被关闭，只验证了失败关闭。门禁的宿主级拒绝路径由单元测试覆盖，未在真实会话中强制触发。
 - 未验证 PTC `run_code` 嵌套调用、外部 CLI、多进程共享 Hub。
 - 上下文注入按"每个任务一份包"设计；长会话的累积效应尚未做规模测量。
-- V0.1 无 Web UI；文件就是界面。
+- Web 面板的客户端模块已在本机运行中热加载（`client.advertised: true`，`sidebar.panellist` 与 `main` 均 active）；点击后的完整视觉布局尚未在本会话中截图确认。
+- 面板只读，不提供批准按钮；提交仍需在会话中经过 DSH 审批。
 
 ## 许可
 

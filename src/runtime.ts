@@ -12,11 +12,14 @@ import type {
   Context,
   CreatedPayload,
   DisposedPayload,
+  HttpRequestLike,
+  HttpResponseLike,
   PreStepDecision,
   PreStepPayload,
   ToolRunContext,
   TurnStoppingPayload,
   UserMessage,
+  WebServerService,
 } from './host.js'
 
 const pluginConfigSchema = z.object({
@@ -68,6 +71,12 @@ export class MemoryRuntime implements ToolHost {
     this.listen('agent/turn-stopping', this.onTurnStopping)
     this.listen('agent/disposed', this.onAgentDisposed)
     this.listen('tools/pre-execute', this.onPreExecute)
+    this.registerHttpRoutes()
+    try {
+      this.ctx.inject(['clientModules'], () => this.warmClientModule())
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: client module injection failed: ${(error as Error).message}`)
+    }
     this.disposers.push(() => {
       for (const dispose of this.agentDisposers.values()) {
         try {
@@ -102,6 +111,7 @@ export class MemoryRuntime implements ToolHost {
       this.store = store
       this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState })
       this.registerExistingAgents()
+      this.warmClientModule()
       this.startWatcher()
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ', read-only' : ''})`,
@@ -257,6 +267,149 @@ export class MemoryRuntime implements ToolHost {
     }
   }
 
+  private registerHttpRoutes(): void {
+    try {
+      this.ctx.inject(['webServer'], (scope) => {
+        const server = scope.get('webServer') as WebServerService | undefined
+        if (server === undefined || typeof server.register !== 'function') return
+        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge']) {
+          try {
+            scope.effect(() =>
+              server.register({
+                kind: 'exact',
+                path,
+                handler: (request, response) => this.handleHttp(request, response),
+              }),
+            )
+          } catch (error) {
+            this.ctx.logger.warn(`dsh-memory-hub: cannot register ${path}: ${(error as Error).message}`)
+          }
+        }
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: web server injection failed: ${(error as Error).message}`)
+    }
+  }
+
+  private handleHttp = async (request: HttpRequestLike, response: HttpResponseLike): Promise<void> => {
+    const method = typeof request.method === 'string' ? request.method : 'GET'
+    if (!isLoopbackRequest(request)) {
+      sendJson(response, 403, { error: 'loopback-only' }, method)
+      return
+    }
+    if (method !== 'GET' && method !== 'HEAD') {
+      sendJson(response, 405, { error: 'method-not-allowed' }, method)
+      return
+    }
+    let url: URL
+    try {
+      url = new URL(typeof request.url === 'string' ? request.url : '/', 'http://localhost')
+    } catch {
+      sendJson(response, 400, { error: 'bad-request' }, method)
+      return
+    }
+    try {
+      if (url.pathname === '/dsh-memory-hub/api/overview') {
+        let payload: Record<string, unknown>
+        try {
+          const service = await this.service()
+          payload = service.overview()
+        } catch (error) {
+          payload = {
+            version: PLUGIN_VERSION,
+            initialized: false,
+            error: (error as Error).message,
+            generatedAt: new Date().toISOString(),
+          }
+        }
+        payload.client = this.clientInfo()
+        sendJson(response, 200, payload, method)
+        return
+      }
+      if (url.pathname === '/dsh-memory-hub/api/knowledge') {
+        const id = url.searchParams.get('id')
+        if (id === null || id === '') {
+          sendJson(response, 400, { error: 'missing-id' }, method)
+          return
+        }
+        try {
+          const service = await this.service()
+          const detail = service.knowledgeDetail(id)
+          if (detail === null) {
+            sendJson(response, 404, { error: 'not-found', id }, method)
+            return
+          }
+          sendJson(response, 200, detail, method)
+        } catch (error) {
+          sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
+        }
+        return
+      }
+      sendJson(response, 404, { error: 'not-found', path: url.pathname }, method)
+    } catch (error) {
+      sendJson(response, 500, { error: 'internal', message: (error as Error).message }, method)
+    }
+  }
+
+  private clientInfo(): Record<string, unknown> {
+    try {
+      const modules = this.ctx.get('clientModules') as
+        | {
+            clientPath?: (id: string) => string | undefined
+            graph?: () => { entries?: Array<{ id: string; url: string }> }
+          }
+        | undefined
+      if (modules === undefined) return { advertised: false, reason: 'clientModules service unavailable' }
+      const path = modules.clientPath?.('dsh-memory-hub') ?? null
+      const graph = modules.graph?.()
+      const entry = graph?.entries?.find((candidate) => candidate.id === 'dsh-memory-hub') ?? null
+      return {
+        advertised: entry !== null || path !== null,
+        url: entry?.url ?? null,
+      }
+    } catch (error) {
+      return { advertised: false, error: (error as Error).message }
+    }
+  }
+
+  /**
+   * Best-effort compatibility shim for DSH 0.2.1-rc.5: `clientModules` caches a
+   * null package resolution when a package was first scanned before its client
+   * declaration existed, and only a restart clears that cache. Dropping the
+   * cached entry and marking the Loader name dirty recomposes the graph
+   * without a restart. Every field is guarded, so a future Host that renames
+   * them simply falls back to the restart path.
+   */
+  private warmClientModule(): void {
+    try {
+      const modules = this.ctx.get('clientModules') as
+        | {
+            clientPath?: (id: string) => string | undefined
+            pkgMeta?: Map<string, unknown>
+            dirty?: Set<string>
+            flush?: (onError: (error: unknown) => void) => void
+          }
+        | undefined
+      if (modules === undefined) return
+      if (modules.clientPath?.('dsh-memory-hub') !== undefined) return
+      if (!(modules.pkgMeta instanceof Map) || !(modules.dirty instanceof Set) || typeof modules.flush !== 'function') return
+      let cleared = false
+      for (const key of [...modules.pkgMeta.keys()]) {
+        if (key.endsWith('\0dsh-memory-hub')) {
+          modules.pkgMeta.delete(key)
+          cleared = true
+        }
+      }
+      if (!cleared) return
+      modules.dirty.add('dsh-memory-hub')
+      modules.flush((error) => {
+        this.ctx.logger.warn(`dsh-memory-hub: client graph refresh failed: ${(error as Error).message}`)
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: client graph warm-up skipped: ${(error as Error).message}`)
+    }
+  }
+
   private startWatcher(): void {
     const hub = this.hub
     const store = this.store
@@ -356,4 +509,25 @@ function extractIntent(messages: readonly UserMessage[]): string {
   }
   const preferredText = preferred === undefined ? '' : collect([preferred])
   return (preferredText !== '' ? preferredText : collect(messages)).slice(0, 2000)
+}
+
+function isLoopbackRequest(request: HttpRequestLike): boolean {
+  const address = request.socket?.remoteAddress ?? ''
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
+}
+
+function sendJson(
+  response: HttpResponseLike,
+  status: number,
+  body: unknown,
+  method: string,
+): void {
+  if (response.writableEnded === true) return
+  const text = JSON.stringify(body)
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': String(Buffer.byteLength(text, 'utf8')),
+  })
+  response.end(method === 'HEAD' ? undefined : text)
 }

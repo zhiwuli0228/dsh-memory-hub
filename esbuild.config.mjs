@@ -14,7 +14,7 @@ await build({
     js: [
       "import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'",
       'const require = __dshMemoryHubCreateRequire(import.meta.url)',
-      '// dsh-memory-hub 0.1.0',
+      '// dsh-memory-hub 0.1.1',
     ].join('\n'),
   },
 })

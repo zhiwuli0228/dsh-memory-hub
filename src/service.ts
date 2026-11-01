@@ -25,7 +25,7 @@ import type {
 } from './types.js'
 import type { AgentLike, Context, PreToolDecision, ToolRunContext, WorkingDirectoryService } from './host.js'
 
-export const PLUGIN_VERSION = '0.1.0'
+export const PLUGIN_VERSION = '0.1.1'
 
 interface SessionState {
   turn: number
@@ -705,6 +705,92 @@ export class MemoryService {
       })
     }
     return { ...result, dryRun: args.dry_run === true }
+  }
+
+  overview(): Record<string, unknown> {
+    const knowledge = [...this.store.docs.values()]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, 200)
+      .map((record) => ({
+        id: record.id,
+        type: record.type,
+        status: record.status,
+        version: record.version,
+        title: record.title,
+        summary: record.summary,
+        scope: formatScope(record.scope),
+        updatedAt: record.updatedAt,
+      }))
+    const pending = [...this.store.proposals.values()]
+      .filter((proposal) => proposal.status === 'pending')
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((proposal) => ({
+        id: proposal.id,
+        operation: proposal.operation,
+        type: proposal.type,
+        title: proposal.title,
+        summary: proposal.summary,
+        scope: formatScope(proposal.scope),
+        taskId: proposal.taskId,
+        createdAt: proposal.createdAt,
+      }))
+    const tasks = [...this.tasks.values()]
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, 30)
+      .map((task) => ({
+        taskId: task.taskId,
+        sessionId: task.sessionId,
+        turn: task.turn,
+        workspaceId: task.workspaceId,
+        createdAt: task.createdAt,
+        preflight: task.preflight === null ? null : { status: task.preflight.status, hits: task.preflight.hits },
+        assessment: task.assessment,
+      }))
+    return {
+      version: PLUGIN_VERSION,
+      initialized: true,
+      root: this.hub.displayRoot(),
+      readOnly: this.hub.readOnly,
+      readOnlyReason: this.hub.readOnlyReason,
+      configError: this.hub.configError,
+      counts: this.store.counts(),
+      index: {
+        documents: this.store.index.size,
+        diagnostics: this.store.diagnostics.slice(0, 20),
+      },
+      workspaces: this.hub.config.workspaces.map((workspace) => ({
+        id: workspace.id,
+        root: workspace.root,
+        domains: workspace.domains,
+        admin: workspace.admin,
+        enabled: workspace.enabled,
+      })),
+      policy: {
+        preflight: this.hub.config.policy.preflight,
+        gate: this.hub.config.policy.gate,
+        evidence: this.hub.config.policy.evidence,
+      },
+      knowledge,
+      pending,
+      tasks,
+      generatedAt: nowIso(),
+    }
+  }
+
+  knowledgeDetail(id: string): {
+    metadata: Record<string, unknown>
+    body: string
+    path: string
+  } | null {
+    const record = this.store.docs.get(id)
+    if (record === undefined) return null
+    const { body, path, extra: _extra, scope, ...rest } = record
+    void _extra
+    return {
+      metadata: { ...rest, scope: formatScope(scope) },
+      body,
+      path: KnowledgeStore.relativePath(this.hub.root, path),
+    }
   }
 
   status(agent?: AgentLike): Record<string, unknown> {

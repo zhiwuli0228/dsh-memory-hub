@@ -152,3 +152,24 @@ export interface PluginConfigShape {
   root?: string
   readOnly?: boolean
 }
+
+export interface HttpRequestLike {
+  readonly method?: string
+  readonly url?: string
+  readonly socket?: { readonly remoteAddress?: string }
+}
+
+export interface HttpResponseLike {
+  writeHead(status: number, headers?: Record<string, string>): unknown
+  end(body?: string): unknown
+  readonly writableEnded?: boolean
+}
+
+export interface WebServerService {
+  register(route: {
+    kind: 'exact'
+    path: string
+    handler: (request: HttpRequestLike, response: HttpResponseLike) => void | Promise<void>
+  }): () => void
+  getOrigin?(): string
+}
