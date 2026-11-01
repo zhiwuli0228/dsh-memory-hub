@@ -27,10 +27,14 @@ export function formatScope(scope: Scope): string {
   }
 }
 
-export function visibilityFor(workspaceId: string | null, domains: readonly string[]): Visibility {
-  const visibility: Visibility = { global: true, domains: new Set(domains) }
-  if (workspaceId !== null) visibility.project = workspaceId
-  return visibility
+export function visibilityFor(
+  workspaceId: string | null,
+  domains: readonly string[],
+  coreWorkspaceIds: readonly string[] = [],
+): Visibility {
+  const projects = new Set<string>(coreWorkspaceIds)
+  if (workspaceId !== null) projects.add(workspaceId)
+  return { global: true, domains: new Set(domains), projects }
 }
 
 export function isScopeVisible(scope: Scope, visibility: Visibility): boolean {
@@ -40,7 +44,7 @@ export function isScopeVisible(scope: Scope, visibility: Visibility): boolean {
     case 'domain':
       return visibility.domains.has(scope.id)
     case 'project':
-      return visibility.project === scope.workspaceId
+      return visibility.projects.has(scope.workspaceId)
   }
 }
 

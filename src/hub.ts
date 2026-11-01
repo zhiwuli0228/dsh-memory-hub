@@ -15,6 +15,8 @@ export interface HubOptions {
   root?: string
   readOnly?: boolean
   lock?: boolean
+  config?: MemoryConfig
+  configPath?: string
 }
 
 export function expandHome(value: string): string {
@@ -39,49 +41,70 @@ export class Hub {
   readOnlyReason: string | null = null
 
   private lock: WriterLock | null = null
+  private readonly configSource: string | null = null
 
   private constructor(
     root: string,
     config: MemoryConfig,
     readOnly: boolean,
     readOnlyReason: string | null,
+    configSource?: string,
   ) {
     this.root = root
     this.config = config
     this.readOnly = readOnly
     this.readOnlyReason = readOnlyReason
+    this.configSource = configSource ?? null
   }
 
   static async open(options: HubOptions = {}): Promise<Hub> {
-    const root = resolveHubRoot(options.root)
-    const configPath = join(root, 'config.yaml')
-    let config = defaultConfig()
+    const isDataRoot = options.config !== undefined
+    const root = isDataRoot
+      ? resolve(expandHome(options.root ?? ''))
+      : resolveHubRoot(options.root)
+    if (root === '') {
+      throw new MemoryError('INVALID_INPUT', 'hub root must not be empty')
+    }
+
+    const externalConfigPath = options.configPath
+    let config: MemoryConfig
+    let configSource: string | undefined
     let configError: string | null = null
     let readOnly = options.readOnly === true
     let readOnlyReason: string | null = readOnly ? 'configured read-only' : null
 
-    await ensureLayout(root)
+    if (isDataRoot && options.config !== undefined) {
+      config = options.config
+      configSource = externalConfigPath ?? undefined
+      await ensureLayout(root)
+    } else {
+      const configPath = join(root, 'config.yaml')
+      config = defaultConfig()
+      configSource = configPath
 
-    if (!(await pathExists(configPath))) {
+      await ensureLayout(root)
+
+      if (!(await pathExists(configPath))) {
+        try {
+          await writeAtomic(configPath, DEFAULT_CONFIG_YAML)
+        } catch (error) {
+          configError = `cannot create config.yaml: ${(error as Error).message}`
+          readOnly = true
+          readOnlyReason = configError
+        }
+      }
+
       try {
-        await writeAtomic(configPath, DEFAULT_CONFIG_YAML)
+        const loaded = await readConfigFile(configPath)
+        if (loaded !== null) config = loaded
       } catch (error) {
-        configError = `cannot create config.yaml: ${(error as Error).message}`
+        configError = (error as Error).message
         readOnly = true
         readOnlyReason = configError
       }
     }
 
-    try {
-      const loaded = await readConfigFile(configPath)
-      if (loaded !== null) config = loaded
-    } catch (error) {
-      configError = (error as Error).message
-      readOnly = true
-      readOnlyReason = configError
-    }
-
-    const hub = new Hub(root, config, readOnly, readOnlyReason)
+    const hub = new Hub(root, config, readOnly, readOnlyReason, configSource)
     hub.configError = configError
 
     if (!readOnly && options.lock !== false) {
@@ -98,8 +121,13 @@ export class Hub {
   }
 
   async reloadConfig(): Promise<void> {
+    const path = this.configPath()
+    if (path === null) {
+      this.configError = 'no config source for this hub'
+      return
+    }
     try {
-      const loaded = await readConfigFile(this.configPath())
+      const loaded = await readConfigFile(path)
       if (loaded === null) {
         this.configError = 'config.yaml is missing'
         return
@@ -118,7 +146,8 @@ export class Hub {
     }
   }
 
-  configPath(): string {
+  configPath(): string | null {
+    if (this.configSource !== null) return this.configSource
     return join(this.root, 'config.yaml')
   }
 

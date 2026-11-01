@@ -150,5 +150,16 @@ describe('client bundle', () => {
     expect(dataHtml).toContain('memory_search')
     expect(dataHtml).toContain('backend')
     expect(dataHtml).toContain('1')
+
+    const configHtml = renderToStaticMarkup(
+      React.createElement(main?.component as React.ComponentType<{ initialData: unknown; initialTab: string }>, {
+        initialData: sample,
+        initialTab: 'config',
+      }),
+    )
+    expect(configHtml).toContain('dmh-config-body')
+    expect(configHtml).toContain('核心工作区')
+    expect(configHtml).toContain('添加核心工作区')
+    expect(configHtml).toContain('添加子工作区')
   })
 })

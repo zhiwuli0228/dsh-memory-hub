@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
 import { MemoryError } from './errors.js'
+import { configSchema, type CoreWorkspaceConfig, type MemoryConfig, type WorkspaceConfig } from './config.js'
 import type { Hub } from './hub.js'
 import type { Ledger, LedgerState } from './ledger.js'
 import { KnowledgeStore } from './store.js'
+import { writeAtomic } from './atomic.js'
+import { stringify as stringifyYaml } from 'yaml'
 import { newCitationId, newPreflightId, newTaskId } from './ids.js'
 import { formatScope, isScopeVisible, parseScope, visibilityFor } from './scope.js'
 import { nowIso } from './time.js'
@@ -25,7 +28,7 @@ import type {
 } from './types.js'
 import type { AgentLike, Context, PreToolDecision, ToolRunContext, WorkingDirectoryService } from './host.js'
 
-export const PLUGIN_VERSION = '0.1.1'
+export const PLUGIN_VERSION = '0.1.2'
 
 interface SessionState {
   turn: number
@@ -77,6 +80,7 @@ interface RuntimeOptions {
   store: KnowledgeStore
   ledger: Ledger
   ledgerState: LedgerState
+  workspaces?: WorkspaceConfig[]
 }
 
 export class MemoryService {
@@ -84,6 +88,7 @@ export class MemoryService {
   private readonly hub: Hub
   private readonly store: KnowledgeStore
   private readonly ledger: Ledger
+  private readonly customWorkspaces: WorkspaceConfig[] | undefined
   private readonly sessions = new Map<string, SessionState>()
   private readonly tasks: Map<string, TaskRecord>
   private readonly citationKeys = new Set<string>()
@@ -94,11 +99,16 @@ export class MemoryService {
     this.hub = options.hub
     this.store = options.store
     this.ledger = options.ledger
+    this.customWorkspaces = options.workspaces
     this.tasks = options.ledgerState.tasks
     this.citations = options.ledgerState.citations
     for (const citation of this.citations) {
       this.citationKeys.add(citationKey(citation.taskId, citation.knowledgeId, citation.version))
     }
+  }
+
+  get activeWorkspaces(): WorkspaceConfig[] {
+    return this.customWorkspaces ?? this.hub.config.workspaces
   }
 
   packFor(sessionId: string): string {
@@ -134,9 +144,10 @@ export class MemoryService {
       admin: false,
       path: resolved,
       registered: false,
+      coreId: null,
     }
     let bestLength = -1
-    for (const workspace of this.hub.config.workspaces) {
+    for (const workspace of this.activeWorkspaces) {
       if (!workspace.enabled) continue
       let root = workspace.root
       try {
@@ -148,6 +159,7 @@ export class MemoryService {
       if (!containsPath(rootCompared, compared)) continue
       if (rootCompared.length > bestLength) {
         bestLength = rootCompared.length
+        const coreId = workspace.core_id ?? workspace.id
         match = {
           id: workspace.id,
           root,
@@ -155,6 +167,48 @@ export class MemoryService {
           admin: workspace.admin,
           path: resolved,
           registered: true,
+          coreId,
+        }
+      }
+    }
+    return match
+  }
+
+  private matchWorkspaceSync(agent: AgentLike): WorkspaceMatch {
+    let directory = ''
+    const workingDirectory = this.ctx.get('workingDirectory') as WorkingDirectoryService | undefined
+    try {
+      directory = workingDirectory?.get(agent.session) ?? ''
+    } catch {
+      directory = ''
+    }
+    if (directory === '') directory = workingDirectory?.defaultDirectory ?? ''
+    const compared = normalizeForCompare(directory)
+
+    let match: WorkspaceMatch = {
+      id: null,
+      root: null,
+      domains: [],
+      admin: false,
+      path: directory,
+      registered: false,
+      coreId: null,
+    }
+    let bestLength = -1
+    for (const workspace of this.activeWorkspaces) {
+      if (!workspace.enabled) continue
+      const rootCompared = normalizeForCompare(workspace.root)
+      if (!containsPath(rootCompared, compared)) continue
+      if (rootCompared.length > bestLength) {
+        bestLength = rootCompared.length
+        match = {
+          id: workspace.id,
+          root: workspace.root,
+          domains: workspace.domains,
+          admin: workspace.admin,
+          path: directory,
+          registered: true,
+          coreId: workspace.core_id ?? workspace.id,
         }
       }
     }
@@ -162,7 +216,8 @@ export class MemoryService {
   }
 
   visibilityFor(workspace: WorkspaceMatch): Visibility {
-    return visibilityFor(workspace.id, workspace.domains)
+    const coreIds = workspace.coreId === null ? [] : [workspace.coreId]
+    return visibilityFor(workspace.id, workspace.domains, coreIds)
   }
 
   async preflightForTurn(agent: AgentLike, turn: number, intent: string): Promise<void> {
@@ -474,9 +529,16 @@ export class MemoryService {
     const state = this.sessions.get(agent.id)
     if (state === undefined) throw new MemoryError('NO_TASK', 'no open task for this session')
     if (state.closed) throw new MemoryError('INVALID_STATE', 'task is already closed')
-    const scope = parseScope(args.scope)
+    const coreId = state.workspace.coreId
+    const rawScope = args.scope === 'core'
+      ? (coreId === null ? null : `project:${coreId}`)
+      : args.scope
+    if (rawScope === null) {
+      throw new MemoryError('INVALID_INPUT', 'scope "core" is only available inside a configured core workspace')
+    }
+    const scope = parseScope(rawScope)
     if (!isScopeVisible(scope, state.visibility)) {
-      throw new MemoryError('SCOPE_FORBIDDEN', `scope ${args.scope} is not visible from this workspace`)
+      throw new MemoryError('SCOPE_FORBIDDEN', `scope ${rawScope} is not visible from this workspace`)
     }
     const pending = this.store.pendingForTask(state.taskId)
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
@@ -501,7 +563,7 @@ export class MemoryService {
       {
         operation: args.operation,
         type: args.type,
-        scope: args.scope,
+        scope: rawScope,
         title: args.title,
         summary: args.summary,
         ...(args.content === undefined ? {} : { content: args.content }),
@@ -538,7 +600,10 @@ export class MemoryService {
     }
     const precheck = this.precheckCommit(proposal)
     if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason)
-    const result = await this.store.commit(proposalId)
+    const result = await this.store.commit(
+      proposalId,
+      this.approvalMode() === 'auto' ? 'test:auto' : 'dsh:approval',
+    )
     return {
       knowledgeId: result.record.id,
       version: result.record.version,
@@ -676,9 +741,9 @@ export class MemoryService {
     if (!workspace.admin) {
       throw new MemoryError('SCOPE_FORBIDDEN', 'consolidation requires an admin workspace')
     }
-    const workspaceIds = args.workspace_ids ?? this.hub.config.workspaces.filter((entry) => entry.enabled).map((entry) => entry.id)
+    const workspaceIds = args.workspace_ids ?? this.activeWorkspaces.filter((entry) => entry.enabled).map((entry) => entry.id)
     for (const id of workspaceIds) {
-      if (!this.hub.config.workspaces.some((entry) => entry.id === id && entry.enabled)) {
+      if (!this.activeWorkspaces.some((entry) => entry.id === id && entry.enabled)) {
         throw new MemoryError('INVALID_INPUT', `unknown workspace ${id}`)
       }
     }
@@ -758,14 +823,21 @@ export class MemoryService {
         documents: this.store.index.size,
         diagnostics: this.store.diagnostics.slice(0, 20),
       },
-      workspaces: this.hub.config.workspaces.map((workspace) => ({
+      core_workspaces: this.hub.config.core_workspaces.map((core) => ({
+        id: core.id,
+        name: core.name,
+        root: core.root,
+      })),
+      workspaces: this.activeWorkspaces.map((workspace) => ({
         id: workspace.id,
+        core_id: workspace.core_id,
         root: workspace.root,
         domains: workspace.domains,
         admin: workspace.admin,
         enabled: workspace.enabled,
       })),
       policy: {
+        approval: this.hub.config.policy.approval,
         preflight: this.hub.config.policy.preflight,
         gate: this.hub.config.policy.gate,
         evidence: this.hub.config.policy.evidence,
@@ -793,8 +865,64 @@ export class MemoryService {
     }
   }
 
+  config(): Record<string, unknown> {
+    return {
+      readOnly: this.hub.readOnly,
+      configError: this.hub.configError,
+      core_workspaces: this.hub.config.core_workspaces.map((core) => ({
+        id: core.id,
+        name: core.name,
+        root: core.root,
+      })),
+      workspaces: this.hub.config.workspaces.map((workspace) => ({
+        id: workspace.id,
+        core_id: workspace.core_id,
+        root: workspace.root,
+        domains: workspace.domains,
+        admin: workspace.admin,
+        enabled: workspace.enabled,
+      })),
+    }
+  }
+
+  async updateConfig(patch: { core_workspaces?: unknown; workspaces?: unknown }): Promise<Record<string, unknown>> {
+    if (this.hub.readOnly) {
+      throw new MemoryError('INVALID_STATE', 'memory hub is read-only')
+    }
+
+    const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces
+    const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces
+
+    const validCoreIds = new Set(core_workspaces.map((core: CoreWorkspaceConfig) => core.id))
+    for (const workspace of workspaces) {
+      if (workspace.core_id !== null && workspace.core_id !== undefined && !validCoreIds.has(workspace.core_id)) {
+        throw new MemoryError('INVALID_INPUT', `workspace ${workspace.id} references unknown core ${workspace.core_id}`)
+      }
+    }
+
+    const next: MemoryConfig = configSchema.parse({
+      ...this.hub.config,
+      core_workspaces,
+      workspaces,
+    })
+
+    try {
+      const configPath = this.hub.configPath()
+      if (configPath === null) {
+        throw new MemoryError('INVALID_STATE', 'data hub has no config source')
+      }
+      await writeAtomic(configPath, stringifyYaml(next))
+      await this.hub.reloadConfig()
+      return this.config()
+    } catch (error) {
+      throw new MemoryError('STORAGE_ERROR', `cannot write config: ${(error as Error).message}`)
+    }
+  }
+
   status(agent?: AgentLike): Record<string, unknown> {
-    const workspace = agent === undefined ? null : this.sessions.get(agent.id)?.workspace ?? null
+    const workspace = agent === undefined
+      ? null
+      : this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent)
     return {
       version: PLUGIN_VERSION,
       initialized: true,
@@ -802,7 +930,7 @@ export class MemoryService {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       configError: this.hub.configError,
-      workspace: workspace === null
+      workspace: workspace === null || !workspace.registered
         ? null
         : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
       counts: this.store.counts(),
@@ -811,6 +939,7 @@ export class MemoryService {
         diagnostics: this.store.diagnostics.slice(0, 20),
       },
       policy: {
+        approval: this.hub.config.policy.approval,
         preflight: this.hub.config.policy.preflight,
         gate: {
           mode: this.hub.config.policy.preflight.mode === 'off' ? 'off' : this.hub.config.policy.gate.mode,
@@ -819,6 +948,10 @@ export class MemoryService {
         },
       },
     }
+  }
+
+  approvalMode(): 'manual' | 'auto' {
+    return this.hub.config.policy.approval.mode
   }
 
   async gate(exec: ToolRunContext): Promise<PreToolDecision> {

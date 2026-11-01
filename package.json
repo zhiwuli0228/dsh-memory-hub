@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory-hub",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
   "license": "MIT",
   "author": "zhiwuli0228",
@@ -32,7 +32,11 @@
     "docs/*.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.5"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "node esbuild.config.mjs",

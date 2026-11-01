@@ -21,6 +21,15 @@ export interface Harness {
   seed: (input: SeedInput) => Promise<string>
 }
 
+export interface WorkspaceConfig {
+  id: string
+  root: string
+  domains: string[]
+  admin: boolean
+  enabled: boolean
+  core_id?: string
+}
+
 export interface SeedInput {
   type?: KnowledgeType
   scope?: string
@@ -31,13 +40,16 @@ export interface SeedInput {
   tags?: string[]
 }
 
-export async function createHarness(): Promise<Harness> {
+export async function createHarness(workspaces?: WorkspaceConfig[]): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-test-'))
   const hub = await Hub.open({ root, lock: false })
   const ledger = new Ledger(hub.ledgerPath())
   const ledgerState = await ledger.load()
   const store = new KnowledgeStore(hub, ledger)
   await store.load()
+  if (workspaces !== undefined) {
+    hub.config.workspaces = workspaces
+  }
 
   let directory = root
   const ctx: Context = {
@@ -67,7 +79,7 @@ export async function createHarness(): Promise<Harness> {
     },
   }
 
-  const service = new MemoryService({ ctx, hub, store, ledger, ledgerState })
+  const service = new MemoryService({ ctx, hub, store, ledger, ledgerState, workspaces })
   const agent: AgentLike = {
     id: 'session-test',
     ctx,

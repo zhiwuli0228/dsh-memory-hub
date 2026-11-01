@@ -13,6 +13,8 @@
   const PANEL_ID = 'memory-hub';
   const API_OVERVIEW = '/dsh-memory-hub/api/overview';
   const API_KNOWLEDGE = '/dsh-memory-hub/api/knowledge';
+  const API_CONFIG = '/dsh-memory-hub/api/config';
+  const API_HUBS = '/dsh-memory-hub/api/hubs';
 
   const ZH = {
     title: '记忆中枢',
@@ -74,6 +76,7 @@
     'knowledge.body': '正文',
     'knowledge.sources': '来源',
     'knowledge.updated': '更新于',
+    'knowledge.core': '核心共享',
     'pending.empty': '没有待审批候选',
     'pending.emptyHint': '新的候选会出现在这里，等待你在对话中调用 memory_commit 并批准。',
     'pending.hint': '本面板只读，不能代替 DSH 审批。请在会话中提交，或在文件系统里直接编辑 pending/。',
@@ -97,8 +100,40 @@
     'workspace.disabled': '已禁用',
     'workspace.domains': '领域',
     'badge.readonly': '只读模式',
+    'approval.auto': '测试模式：memory_commit 自动提交，不弹审批；账本 approvalRef 记为 test:auto。',
     'badge.config': '配置错误',
     'badge.unregistered': '当前会话未匹配工作区',
+    'tab.config': '配置',
+    'tab.capabilities': '能力',
+    'hub.select': '记忆仓库',
+    'hub.fallback': '默认仓库',
+    'config.title': '配置',
+    'config.coreTitle': '核心工作区',
+    'config.coreHint': '核心工作区是子工作区的逻辑分组；选择后右侧只显示该核心下的子工作区。',
+    'config.noCore': '还没有核心工作区',
+    'config.noCoreHint': '点击下方的表单添加第一个核心工作区。',
+    'config.add': '添加',
+    'config.collapse': '收起',
+    'config.addCore': '添加核心工作区',
+    'config.selectCore': '选择核心工作区',
+    'config.subTitle': '子工作区',
+    'config.subHint': '属于当前核心工作区的工作区，可以重复添加多个。',
+    'config.noSub': '当前核心下还没有子工作区',
+    'config.unassigned': '未分配工作区',
+    'config.unassignedHint': '未归属到任何核心工作区的工作区。',
+    'config.addSub': '添加子工作区',
+    'config.id': '标识',
+    'config.name': '名称',
+    'config.root': '根目录',
+    'config.domains': '领域',
+    'config.admin': '管理员',
+    'config.enabled': '启用',
+    'config.save': '保存',
+    'config.readonly': '当前为只读模式，无法保存配置。',
+    'config.saved': '已保存',
+    'config.error': '保存失败',
+    'config.emptyId': '标识不能为空',
+    'config.emptyRoot': '子工作区需要根目录',
   };
 
   const EN = {
@@ -108,6 +143,10 @@
     'tab.knowledge': 'Knowledge',
     'tab.pending': 'Pending',
     'tab.activity': 'Activity & policy',
+    'tab.config': 'Config',
+    'tab.capabilities': 'Capabilities',
+    'hub.select': 'Memory hub',
+    'hub.fallback': 'Default hub',
     'status.live': 'Live',
     'status.readonly': 'Read-only',
     'status.degraded': 'Degraded',
@@ -161,6 +200,7 @@
     'knowledge.body': 'Body',
     'knowledge.sources': 'Sources',
     'knowledge.updated': 'Updated',
+    'knowledge.core': 'Core shared',
     'pending.empty': 'No pending proposals',
     'pending.emptyHint': 'New candidates appear here and wait for memory_commit plus approval.',
     'pending.hint': 'This panel is read-only and cannot replace DSH approval. Commit in a session, or edit pending/ directly.',
@@ -184,8 +224,36 @@
     'workspace.disabled': 'disabled',
     'workspace.domains': 'domains',
     'badge.readonly': 'Read-only mode',
+    'approval.auto': 'Test mode: memory_commit commits without approval; the ledger records approvalRef test:auto.',
     'badge.config': 'Config error',
     'badge.unregistered': 'Current session has no workspace match',
+    'config.title': 'Configuration',
+    'config.coreTitle': 'Core workspaces',
+    'config.coreHint': 'Core workspaces are logical groups; selecting one filters the sub-workspaces on the right.',
+    'config.noCore': 'No core workspaces yet',
+    'config.noCoreHint': 'Add your first core workspace using the form below.',
+    'config.add': 'Add',
+    'config.collapse': 'Collapse',
+    'config.addCore': 'Add core workspace',
+    'config.selectCore': 'Select core workspace',
+    'config.subTitle': 'Sub-workspaces',
+    'config.subHint': 'Workspaces belonging to the selected core workspace; add as many as you need.',
+    'config.noSub': 'No sub-workspaces under this core',
+    'config.unassigned': 'Unassigned workspaces',
+    'config.unassignedHint': 'Workspaces not attached to any core workspace.',
+    'config.addSub': 'Add sub-workspace',
+    'config.id': 'Id',
+    'config.name': 'Name',
+    'config.root': 'Root',
+    'config.domains': 'Domains',
+    'config.admin': 'Admin',
+    'config.enabled': 'Enabled',
+    'config.save': 'Save',
+    'config.readonly': 'Read-only mode; configuration cannot be saved.',
+    'config.saved': 'Saved',
+    'config.error': 'Save failed',
+    'config.emptyId': 'Id is required',
+    'config.emptyRoot': 'Sub-workspace requires a root path',
   };
 
   const CAPABILITIES = [
@@ -269,7 +337,17 @@
 .dmh-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .dmh-spin{display:inline-block;width:12px;height:12px;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);border-radius:50%;animation:dmh-spin .8s linear infinite}
 @keyframes dmh-spin{to{transform:rotate(360deg)}}
-@media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}}
+.dmh-config{display:flex;flex-direction:column;gap:14px}
+.dmh-config-body{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.dmh-config-forms{display:flex;flex-direction:column;gap:14px}
+.dmh-form{display:flex;flex-direction:column;gap:10px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:11px;padding:12px 14px}
+.dmh-form-row{display:flex;gap:8px;flex-wrap:wrap}
+.dmh-form-actions{display:flex;justify-content:flex-end;gap:8px}
+.dmh-form-checks{display:flex;gap:12px;flex-wrap:wrap}
+.dmh-check{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.dmh-check input{cursor:pointer}
+.dmh-hub-select{max-width:260px}
+@media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-config-body{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}.dmh-hub-select{max-width:none}}
 `;
 
   function formatTime(value) {
@@ -305,24 +383,42 @@
     const h = React.createElement;
     const { useCallback, useEffect, useMemo, useState } = React;
 
-    function useOverview(initialData) {
+    function useOverview(core, initialData) {
       const [state, setState] = useState(initialData
         ? { phase: 'ready', data: initialData, error: null }
         : { phase: 'loading', data: null, error: null });
       const load = useCallback(async () => {
         setState((current) => ({ ...current, phase: current.data === null ? 'loading' : 'refreshing' }));
         try {
-          const response = await fetch(API_OVERVIEW, { cache: 'no-store' });
+          const url = core ? `${API_OVERVIEW}?core=${encodeURIComponent(core)}` : API_OVERVIEW;
+          const response = await fetch(url, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const data = await response.json();
           setState({ phase: 'ready', data, error: null });
         } catch (error) {
           setState({ phase: 'error', data: null, error: error instanceof Error ? error.message : String(error) });
         }
-      }, []);
+      }, [core]);
       useEffect(() => {
         void load();
       }, [load]);
+      return { state, load };
+    }
+
+    function useHubs() {
+      const [state, setState] = useState({ phase: 'loading', cores: [], error: null });
+      const load = useCallback(async () => {
+        setState((current) => ({ ...current, phase: current.cores.length === 0 ? 'loading' : 'refreshing' }));
+        try {
+          const response = await fetch(API_HUBS, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          setState({ phase: 'ready', cores: Array.isArray(data.cores) ? data.cores : [], error: null });
+        } catch (error) {
+          setState({ phase: 'error', cores: [], error: error instanceof Error ? error.message : String(error) });
+        }
+      }, []);
+      useEffect(() => { void load(); }, [load]);
       return { state, load };
     }
 
@@ -354,10 +450,12 @@
 
     function KnowledgeRow(props) {
       const item = props.item;
+      const isCore = props.core && item.scope === `project:${props.core}`;
       const tags = [
         h(Tag, { key: 'type' }, item.type),
         h(Tag, { key: 'status', tone: statusTone(item.status) }, item.status),
         h(Tag, { key: 'scope' }, item.scope),
+        isCore ? h(Tag, { key: 'core', tone: 'ok' }, t('knowledge.core')) : null,
       ];
       return h('button', {
         type: 'button',
@@ -392,7 +490,10 @@
         h('div', { className: 'dmh-meta' },
           h(Tag, null, `${metadata.id || ''}@v${metadata.version ?? '?'}`),
           h(Tag, { tone: statusTone(metadata.status) }, String(metadata.status || '')),
-          h(Tag, null, String(metadata.scope || ''))),
+          h(Tag, null, String(metadata.scope || '')),
+          props.core && metadata.scope === `project:${props.core}`
+            ? h(Tag, { tone: 'ok' }, t('knowledge.core'))
+            : null),
         h('div', { className: 'dmh-row-summary' }, metadata.summary || ''),
         h('div', { className: 'dmh-section-title' }, t('knowledge.body')),
         h('pre', { className: 'dmh-body' }, detail.body || ''),
@@ -412,10 +513,8 @@
       const workspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
       const tasks = Array.isArray(data.tasks) ? data.tasks : [];
 
-      const capabilityCards = CAPABILITIES.map((capability) =>
-        h('div', { key: capability.name, className: 'dmh-card dmh-cap' },
-          h('div', { className: 'dmh-cap-name' }, capability.name),
-          h('div', { className: 'dmh-cap-desc' }, t(capability.key))));
+      const capabilityTags = CAPABILITIES.map((capability) =>
+        h(Tag, { key: capability.name }, capability.name));
 
       const flowSteps = [];
       ['1', '2', '3', '4', '5', '6'].forEach((step, index) => {
@@ -460,7 +559,7 @@
           h(Stat, { label: t('stat.tasks'), value: tasks.length })),
         h('section', { className: 'dmh-section' },
           h(SectionHead, { title: t('section.capabilities'), hint: t('section.capabilities.hint') }),
-          h('div', { className: 'dmh-grid' }, capabilityCards)),
+          h('div', { className: 'dmh-meta' }, capabilityTags)),
         h('section', { className: 'dmh-section' },
           h(SectionHead, { title: t('section.flow') }),
           h('div', { className: 'dmh-flow' }, flowSteps)),
@@ -498,13 +597,14 @@
         setSelected(id);
         setDetail({ phase: 'loading', data: null, error: null });
         try {
-          const response = await fetch(`${API_KNOWLEDGE}?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
+          const coreParam = props.core ? `&core=${encodeURIComponent(props.core)}` : '';
+          const response = await fetch(`${API_KNOWLEDGE}?id=${encodeURIComponent(id)}${coreParam}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           setDetail({ phase: 'ready', data: await response.json(), error: null });
         } catch (error) {
           setDetail({ phase: 'error', data: null, error: error instanceof Error ? error.message : String(error) });
         }
-      }, []);
+      }, [props.core]);
 
       useEffect(() => {
         if (props.openRequest !== null && typeof props.openRequest.id === 'string') {
@@ -532,9 +632,10 @@
           ? h(Empty, { title: t('knowledge.empty'), hint: t('knowledge.emptyHint') })
           : h('div', { className: selected === null ? 'dmh-split' : 'dmh-split has-detail' },
             h('div', { className: 'dmh-list' }, filtered.map((item) =>
-              h(KnowledgeRow, { key: item.id, item, selected: selected === item.id, onOpen: open }))),
+              h(KnowledgeRow, { key: item.id, item, core: props.core, selected: selected === item.id, onOpen: open }))),
             selected === null ? null : h(KnowledgeDetail, {
               state: detail,
+              core: props.core,
               onClose: () => {
                 setSelected(null);
                 setDetail({ phase: 'idle', data: null, error: null });
@@ -607,9 +708,239 @@
                   `${t('activity.session')} ${shortId(task.sessionId)} · ${t('activity.workspace')} ${task.workspaceId || '—'} · ${formatTime(task.createdAt)}`)))));
     }
 
+    function CapabilitiesTab() {
+      return h(React.Fragment, null,
+        h('section', { className: 'dmh-section' },
+          h(SectionHead, { title: t('section.capabilities'), hint: t('section.capabilities.hint') }),
+          h('div', { className: 'dmh-grid' }, CAPABILITIES.map((capability) =>
+            h('div', { key: capability.name, className: 'dmh-card dmh-cap' },
+              h('div', { className: 'dmh-cap-name' }, capability.name),
+              h('div', { className: 'dmh-cap-desc' }, t(capability.key)))))));
+    }
+
+    function useConfig() {
+      const [state, setState] = useState({ phase: 'loading', data: null, error: null });
+      const load = useCallback(async () => {
+        setState((current) => ({ ...current, phase: current.data === null ? 'loading' : 'refreshing' }));
+        try {
+          const response = await fetch(API_CONFIG, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          setState({ phase: 'ready', data, error: null });
+          return data;
+        } catch (error) {
+          setState({ phase: 'error', data: null, error: error instanceof Error ? error.message : String(error) });
+          return null;
+        }
+      }, []);
+      const save = useCallback(async (payload) => {
+        setState((current) => ({ ...current, phase: 'saving' }));
+        try {
+          const response = await fetch(API_CONFIG, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+          setState({ phase: 'ready', data, error: null });
+          return data;
+        } catch (error) {
+          setState((current) => ({ ...current, phase: current.data === null ? 'error' : 'ready', error: error instanceof Error ? error.message : String(error) }));
+          throw error;
+        }
+      }, []);
+      useEffect(() => { void load(); }, [load]);
+      return { state, load, save };
+    }
+
+    function ConfigTab() {
+      const { state, load, save } = useConfig();
+      const data = state.data || { core_workspaces: [], workspaces: [], readOnly: false };
+      const coreWorkspaces = Array.isArray(data.core_workspaces) ? data.core_workspaces : [];
+      const workspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
+      const [selectedCore, setSelectedCore] = useState('');
+      const [subCore, setSubCore] = useState(null);
+      const [message, setMessage] = useState(null);
+
+      const [coreId, setCoreId] = useState('');
+      const [coreName, setCoreName] = useState('');
+      const [coreRoot, setCoreRoot] = useState('');
+      const [subId, setSubId] = useState('');
+      const [subRoot, setSubRoot] = useState('');
+      const [subDomains, setSubDomains] = useState('');
+      const [subAdmin, setSubAdmin] = useState(false);
+      const [subEnabled, setSubEnabled] = useState(true);
+      const [showCoreForm, setShowCoreForm] = useState(false);
+      const [showSubForm, setShowSubForm] = useState(false);
+
+      const activeCore = selectedCore !== '' ? selectedCore : (coreWorkspaces[0] ? coreWorkspaces[0].id : '');
+      const targetCore = subCore === null ? activeCore : subCore;
+      const selectedSubs = useMemo(() => workspaces.filter((w) => w.core_id === activeCore), [workspaces, activeCore]);
+      const unassigned = useMemo(() => workspaces.filter((w) => !w.core_id), [workspaces]);
+
+      useEffect(() => {
+        if (selectedCore !== '' && !coreWorkspaces.some((core) => core.id === selectedCore)) {
+          setSelectedCore('');
+        }
+      }, [coreWorkspaces, selectedCore]);
+
+      const showMessage = (text, isError) => {
+        setMessage({ text, isError });
+        setTimeout(() => setMessage(null), 3000);
+      };
+
+      const handleAddCore = async (event) => {
+        event.preventDefault();
+        if (!coreId.trim()) {
+          showMessage(t('config.emptyId'), true);
+          return;
+        }
+        const nextCore = { id: coreId.trim(), name: coreName.trim() || coreId.trim(), root: coreRoot.trim() || undefined };
+        if (coreWorkspaces.some((c) => c.id === nextCore.id)) {
+          showMessage(t('config.error'), true);
+          return;
+        }
+        try {
+          await save({ core_workspaces: [...coreWorkspaces, nextCore] });
+          setCoreId('');
+          setCoreName('');
+          setCoreRoot('');
+          showMessage(t('config.saved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
+      const handleAddSub = async (event) => {
+        event.preventDefault();
+        if (!subId.trim()) {
+          showMessage(t('config.emptyId'), true);
+          return;
+        }
+        if (!subRoot.trim()) {
+          showMessage(t('config.emptyRoot'), true);
+          return;
+        }
+        const nextSub = {
+          id: subId.trim(),
+          core_id: targetCore || null,
+          root: subRoot.trim(),
+          domains: subDomains.split(',').map((s) => s.trim()).filter(Boolean),
+          admin: subAdmin,
+          enabled: subEnabled,
+        };
+        if (workspaces.some((w) => w.id === nextSub.id)) {
+          showMessage(t('config.error'), true);
+          return;
+        }
+        try {
+          await save({ workspaces: [...workspaces, nextSub] });
+          setSubId('');
+          setSubRoot('');
+          setSubDomains('');
+          setSubAdmin(false);
+          setSubEnabled(true);
+          showMessage(t('config.saved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
+      const readOnly = data.readOnly === true;
+
+      const coreForm = h('form', { className: 'dmh-form', onSubmit: handleAddCore },
+        h('div', { className: 'dmh-form-row' },
+          h('input', { className: 'dmh-input', placeholder: t('config.id'), value: coreId, onChange: (e) => setCoreId(e.target.value), required: true }),
+          h('input', { className: 'dmh-input', placeholder: t('config.name'), value: coreName, onChange: (e) => setCoreName(e.target.value) })),
+        h('div', { className: 'dmh-form-row' },
+          h('input', { className: 'dmh-input', placeholder: t('config.root'), value: coreRoot, onChange: (e) => setCoreRoot(e.target.value) })),
+        h('button', { type: 'submit', className: 'dmh-btn', disabled: readOnly || state.phase === 'saving' }, t('config.save')));
+
+      const subForm = h('form', { className: 'dmh-form', onSubmit: handleAddSub },
+        h('div', { className: 'dmh-form-row' },
+          h('input', { className: 'dmh-input', placeholder: t('config.id'), value: subId, onChange: (e) => setSubId(e.target.value), required: true }),
+          h('input', { className: 'dmh-input', placeholder: t('config.root'), value: subRoot, onChange: (e) => setSubRoot(e.target.value), required: true })),
+        h('div', { className: 'dmh-form-row' },
+          h('input', { className: 'dmh-input', placeholder: t('config.domains'), value: subDomains, onChange: (e) => setSubDomains(e.target.value) }),
+          h('select', { className: 'dmh-select', value: targetCore, onChange: (e) => setSubCore(e.target.value) },
+            h('option', { value: '' }, t('config.unassigned')),
+            coreWorkspaces.map((core) => h('option', { key: core.id, value: core.id }, core.name || core.id)))),
+        h('div', { className: 'dmh-form-checks' },
+          h('label', { className: 'dmh-check' },
+            h('input', { type: 'checkbox', checked: subAdmin, onChange: (e) => setSubAdmin(e.target.checked) }),
+            t('config.admin')),
+          h('label', { className: 'dmh-check' },
+            h('input', { type: 'checkbox', checked: subEnabled, onChange: (e) => setSubEnabled(e.target.checked) }),
+            t('config.enabled'))),
+        h('button', { type: 'submit', className: 'dmh-btn', disabled: readOnly || state.phase === 'saving' }, t('config.add')));
+
+      const coreSection = h('section', { className: 'dmh-section' },
+        h(SectionHead, { title: t('config.coreTitle'), hint: t('config.coreHint') }),
+        coreWorkspaces.length === 0
+          ? h(Empty, { title: t('config.noCore'), hint: t('config.noCoreHint') })
+          : h('div', { className: 'dmh-list' }, coreWorkspaces.map((core) =>
+            h('button', {
+              key: core.id,
+              type: 'button',
+              className: 'dmh-row',
+              'data-selected': activeCore === core.id ? 'true' : 'false',
+              onClick: () => {
+                setSelectedCore(core.id);
+                setSubCore(null);
+              },
+            },
+              h('div', { className: 'dmh-row-title' }, core.name || core.id),
+              h('div', { className: 'dmh-row-id dmh-mono' }, core.id),
+              core.root ? h('div', { className: 'dmh-row-summary' }, core.root) : null))),
+        h('div', { className: 'dmh-form-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            onClick: () => setShowCoreForm((value) => !value),
+          }, showCoreForm ? t('config.collapse') : t('config.addCore'))),
+        showCoreForm ? coreForm : null);
+
+      const renderWorkspace = (workspace) => h('div', { key: workspace.id, className: 'dmh-card' },
+        h('div', { className: 'dmh-row-top' },
+          h('span', { className: 'dmh-row-title' }, workspace.id),
+          workspace.admin === true ? h(Tag, { tone: 'ok' }, t('workspace.admin')) : null,
+          workspace.enabled === false ? h(Tag, { tone: 'warn' }, t('workspace.disabled')) : null),
+        h('div', { className: 'dmh-row-id dmh-mono' }, workspace.root),
+        (workspace.domains || []).length === 0
+          ? null
+          : h('div', { className: 'dmh-row-id' }, `${t('workspace.domains')}: ${(workspace.domains || []).join(', ')}`));
+
+      const subSection = h('section', { className: 'dmh-section' },
+        h(SectionHead, { title: t('config.subTitle'), hint: t('config.subHint') }),
+        selectedSubs.length === 0
+          ? h(Empty, { title: t('config.noSub'), hint: t('config.unassignedHint') })
+          : h('div', { className: 'dmh-list' }, selectedSubs.map(renderWorkspace)),
+        h('div', { className: 'dmh-form-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            onClick: () => setShowSubForm((value) => !value),
+          }, showSubForm ? t('config.collapse') : t('config.addSub'))),
+        showSubForm ? subForm : null);
+
+      const unassignedSection = h('section', { className: 'dmh-section' },
+        h(SectionHead, { title: t('config.unassigned'), hint: t('config.unassignedHint') }),
+        unassigned.length === 0
+          ? h(Empty, { title: t('config.unassigned'), hint: t('config.unassignedHint') })
+          : h('div', { className: 'dmh-list' }, unassigned.map(renderWorkspace)));
+
+      return h('div', { className: 'dmh-config' },
+        message ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text) : null,
+        readOnly ? h('div', { className: 'dmh-banner err' }, t('config.readonly')) : null,
+        h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection));
+    }
+
     function Panel(props) {
-      const { state, load } = useOverview(props && props.initialData ? props.initialData : null);
-      const [tab, setTab] = useState('overview');
+      const [selectedCore, setSelectedCore] = useState('');
+      const { state, load } = useOverview(selectedCore, props && props.initialData ? props.initialData : null);
+      const hubs = useHubs();
+      const [tab, setTab] = useState(props && props.initialTab ? props.initialTab : 'overview');
       const [openRequest, setOpenRequest] = useState(null);
       const data = state.data;
       const error = state.error;
@@ -619,12 +950,30 @@
       const root = data === null ? '' : data.root || '';
       const version = data === null ? '' : data.version || '';
       const generatedAt = data === null ? '' : data.generatedAt || '';
+      const cores = Array.isArray(hubs.state.cores) ? hubs.state.cores : [];
+      useEffect(() => {
+        if (selectedCore === '' && cores.length > 0 && !cores.some((core) => core.id === selectedCore)) {
+          setSelectedCore(cores[0].id);
+        }
+      }, [cores, selectedCore]);
       const tabs = [
         ['overview', t('tab.overview')],
+        ['config', t('tab.config')],
         ['knowledge', t('tab.knowledge')],
         ['pending', t('tab.pending')],
         ['activity', t('tab.activity')],
+        ['capabilities', t('tab.capabilities')],
       ];
+      const hubSelector = cores.length <= 1
+        ? null
+        : h('select', {
+            className: 'dmh-select dmh-hub-select',
+            value: selectedCore,
+            onChange: (event) => setSelectedCore(event.target.value),
+            'aria-label': t('hub.select'),
+          },
+          cores.map((core) => h('option', { key: core.id, value: core.id },
+            core.id === '' ? t('hub.fallback') : `${core.id} (${core.root})`)));
       return h('div', { className: 'dmh-root' },
         h('style', null, CSS),
         h('div', { className: 'dmh-shell' },
@@ -638,6 +987,7 @@
                   ? h(Pill, { tone: 'warn' }, t('status.readonly'))
                   : h(Pill, { tone: 'ok' }, t('status.live')))
                 : h(Pill, { tone: 'err' }, t('status.error')),
+              hubSelector,
               h('button', {
                 type: 'button',
                 className: 'dmh-btn',
@@ -652,6 +1002,9 @@
             `${t('status.error')}: ${data && data.error ? data.error : t('error.hint')}`),
           readOnly ? h('div', { className: 'dmh-banner' }, `${t('badge.readonly')}${data && data.readOnlyReason ? `: ${data.readOnlyReason}` : ''}`) : null,
           configError ? h('div', { className: 'dmh-banner err' }, `${t('badge.config')}: ${configError}`) : null,
+          data !== null && data.policy && data.policy.approval && data.policy.approval.mode === 'auto'
+            ? h('div', { className: 'dmh-banner err' }, t('approval.auto'))
+            : null,
           h('nav', { className: 'dmh-tabs', role: 'tablist' }, tabs.map(([id, label]) =>
             h('button', {
               key: id,
@@ -672,9 +1025,11 @@
                   setTab('knowledge');
                 },
               })
-                : tab === 'knowledge' ? h(KnowledgeTab, { data, openRequest })
-                  : tab === 'pending' ? h(PendingTab, { data })
-                    : h(ActivityTab, { data })
+                : tab === 'config' ? h(ConfigTab)
+                  : tab === 'knowledge' ? h(KnowledgeTab, { data, openRequest, core: selectedCore })
+                    : tab === 'pending' ? h(PendingTab, { data })
+                      : tab === 'activity' ? h(ActivityTab, { data })
+                        : h(CapabilitiesTab)
             )),
           h('footer', { className: 'dmh-footer' },
             h('span', { className: 'dmh-mono' }, root === '' ? '' : `${t('root')}: ${root}`),

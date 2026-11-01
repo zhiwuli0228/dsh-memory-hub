@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename3, join as join4 } from "node:path";
+import { basename as basename3, join as join4, relative as relative3, resolve as resolve2 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -11443,7 +11443,7 @@ function daysSince(iso) {
   return Math.max(0, (Date.now() - then) / 864e5);
 }
 function sleep(ms) {
-  return new Promise((resolve2) => setTimeout(resolve2, ms));
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 
 // src/ids.ts
@@ -11582,8 +11582,14 @@ var DEFAULT_EXEMPT_TOOLS = [
   "memory_close_task",
   "memory_consolidate"
 ];
+var coreWorkspaceSchema = external_exports.object({
+  id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "core workspace id must be a slug (letters, digits, dot, underscore, dash)"),
+  name: external_exports.string().min(1).optional(),
+  root: external_exports.string().min(1).optional()
+});
 var workspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "workspace id must be a slug (letters, digits, dot, underscore, dash)"),
+  core_id: external_exports.string().optional().nullable(),
   root: external_exports.string().min(1),
   domains: external_exports.array(external_exports.string().min(1)).default([]),
   admin: external_exports.boolean().default(false),
@@ -11610,8 +11616,12 @@ var limitsSchema = external_exports.object({
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
+  core_workspaces: external_exports.array(coreWorkspaceSchema).default([]),
   workspaces: external_exports.array(workspaceSchema).default([]),
   policy: external_exports.object({
+    approval: external_exports.object({
+      mode: external_exports.enum(["manual", "auto"]).default("manual")
+    }).default({}),
     preflight: preflightSchema,
     gate: gateSchema,
     evidence: external_exports.object({
@@ -11642,17 +11652,28 @@ version: 1
 hub:
   id: primary
 
+# Core workspaces are memory hubs. If a core workspace has a root, it becomes
+# an independent memory hub; sessions whose working directory is under that root
+# use that hub. Sub-workspaces (core_id below) live inside the same hub.
+core_workspaces: []
+#  - id: product
+#    name: '\u4EA7\u54C1\u4E3B\u4ED3\u5E93'
+#    root: 'D:/projects/product'
+
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
 # entries; other sessions see global + domain entries only.
 workspaces: []
 #  - id: backend
-#    root: 'D:/projects/backend'
+#    core_id: product
+#    root: 'D:/projects/product/backend'
 #    domains: [backend]
 #    admin: true
 #    enabled: true
 
 policy:
+  approval:
+    mode: manual          # manual | auto (auto is for local testing only: commits are logged as test:auto)
   preflight:
     mode: per-turn        # per-turn | off
     pack_tokens: 600
@@ -11813,38 +11834,54 @@ var Hub = class _Hub {
   readOnly;
   readOnlyReason = null;
   lock = null;
-  constructor(root, config, readOnly, readOnlyReason) {
+  configSource = null;
+  constructor(root, config, readOnly, readOnlyReason, configSource) {
     this.root = root;
     this.config = config;
     this.readOnly = readOnly;
     this.readOnlyReason = readOnlyReason;
+    this.configSource = configSource ?? null;
   }
   static async open(options = {}) {
-    const root = resolveHubRoot(options.root);
-    const configPath = join2(root, "config.yaml");
-    let config = defaultConfig();
+    const isDataRoot = options.config !== void 0;
+    const root = isDataRoot ? resolve(expandHome(options.root ?? "")) : resolveHubRoot(options.root);
+    if (root === "") {
+      throw new MemoryError("INVALID_INPUT", "hub root must not be empty");
+    }
+    const externalConfigPath = options.configPath;
+    let config;
+    let configSource;
     let configError = null;
     let readOnly = options.readOnly === true;
     let readOnlyReason = readOnly ? "configured read-only" : null;
-    await ensureLayout(root);
-    if (!await pathExists(configPath)) {
+    if (isDataRoot && options.config !== void 0) {
+      config = options.config;
+      configSource = externalConfigPath ?? void 0;
+      await ensureLayout(root);
+    } else {
+      const configPath = join2(root, "config.yaml");
+      config = defaultConfig();
+      configSource = configPath;
+      await ensureLayout(root);
+      if (!await pathExists(configPath)) {
+        try {
+          await writeAtomic(configPath, DEFAULT_CONFIG_YAML);
+        } catch (error) {
+          configError = `cannot create config.yaml: ${error.message}`;
+          readOnly = true;
+          readOnlyReason = configError;
+        }
+      }
       try {
-        await writeAtomic(configPath, DEFAULT_CONFIG_YAML);
+        const loaded = await readConfigFile(configPath);
+        if (loaded !== null) config = loaded;
       } catch (error) {
-        configError = `cannot create config.yaml: ${error.message}`;
+        configError = error.message;
         readOnly = true;
         readOnlyReason = configError;
       }
     }
-    try {
-      const loaded = await readConfigFile(configPath);
-      if (loaded !== null) config = loaded;
-    } catch (error) {
-      configError = error.message;
-      readOnly = true;
-      readOnlyReason = configError;
-    }
-    const hub = new _Hub(root, config, readOnly, readOnlyReason);
+    const hub = new _Hub(root, config, readOnly, readOnlyReason, configSource);
     hub.configError = configError;
     if (!readOnly && options.lock !== false) {
       const lock = await WriterLock.acquire(hub.lockPath(), config.storage.lock_stale_ms);
@@ -11858,8 +11895,13 @@ var Hub = class _Hub {
     return hub;
   }
   async reloadConfig() {
+    const path = this.configPath();
+    if (path === null) {
+      this.configError = "no config source for this hub";
+      return;
+    }
     try {
-      const loaded = await readConfigFile(this.configPath());
+      const loaded = await readConfigFile(path);
       if (loaded === null) {
         this.configError = "config.yaml is missing";
         return;
@@ -11877,6 +11919,7 @@ var Hub = class _Hub {
     }
   }
   configPath() {
+    if (this.configSource !== null) return this.configSource;
     return join2(this.root, "config.yaml");
   }
   lockPath() {
@@ -11938,7 +11981,7 @@ async function ensureLayout(root) {
 }
 
 // src/store.ts
-import { readdir, readFile as readFile4 } from "node:fs/promises";
+import { readdir, readFile as readFile4, stat as stat2 } from "node:fs/promises";
 import { basename as basename2, join as join3, relative, sep } from "node:path";
 
 // src/frontmatter.ts
@@ -11967,10 +12010,10 @@ function formatScope(scope) {
       return `project:${scope.workspaceId}`;
   }
 }
-function visibilityFor(workspaceId, domains) {
-  const visibility = { global: true, domains: new Set(domains) };
-  if (workspaceId !== null) visibility.project = workspaceId;
-  return visibility;
+function visibilityFor(workspaceId, domains, coreWorkspaceIds = []) {
+  const projects = new Set(coreWorkspaceIds);
+  if (workspaceId !== null) projects.add(workspaceId);
+  return { global: true, domains: new Set(domains), projects };
 }
 function isScopeVisible(scope, visibility) {
   switch (scope.level) {
@@ -11979,7 +12022,7 @@ function isScopeVisible(scope, visibility) {
     case "domain":
       return visibility.domains.has(scope.id);
     case "project":
-      return visibility.project === scope.workspaceId;
+      return visibility.projects.has(scope.workspaceId);
   }
 }
 
@@ -12637,7 +12680,7 @@ var KnowledgeStore = class {
     this.proposals.set(id, proposal);
     return proposal;
   }
-  async commit(proposalId) {
+  async commit(proposalId, approvalRef = "dsh:approval") {
     this.assertWritable();
     const proposal = this.proposals.get(proposalId);
     if (proposal === void 0) {
@@ -12681,7 +12724,7 @@ var KnowledgeStore = class {
       proposalId: proposal.id,
       knowledgeId: record.id,
       version: record.version,
-      approvalRef: "dsh:approval"
+      approvalRef
     });
     await this.archiveProposal(proposal, "committed", `${record.id}@${record.version}`);
     return { record, superseded };
@@ -12878,10 +12921,12 @@ var KnowledgeStore = class {
     };
   }
   async refreshPath(path) {
-    if (!await pathExists(path)) {
+    const info = await stat2(path).catch(() => null);
+    if (info === null) {
       this.removePath(path);
       return;
     }
+    if (!info.isFile()) return;
     if (isUnder(this.hub.pendingDir(), path) && !isUnder(this.hub.pendingArchiveDir(), path)) {
       try {
         const proposal = parseProposalFile(await readFile4(path, "utf8"), path);
@@ -13082,12 +13127,14 @@ function applyEvent(state, event) {
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative as relative2, sep as sep2 } from "node:path";
-var PLUGIN_VERSION = "0.1.1";
+var import_yaml3 = __toESM(require_dist(), 1);
+var PLUGIN_VERSION = "0.1.2";
 var MemoryService = class {
   ctx;
   hub;
   store;
   ledger;
+  customWorkspaces;
   sessions = /* @__PURE__ */ new Map();
   tasks;
   citationKeys = /* @__PURE__ */ new Set();
@@ -13097,11 +13144,15 @@ var MemoryService = class {
     this.hub = options.hub;
     this.store = options.store;
     this.ledger = options.ledger;
+    this.customWorkspaces = options.workspaces;
     this.tasks = options.ledgerState.tasks;
     this.citations = options.ledgerState.citations;
     for (const citation of this.citations) {
       this.citationKeys.add(citationKey(citation.taskId, citation.knowledgeId, citation.version));
     }
+  }
+  get activeWorkspaces() {
+    return this.customWorkspaces ?? this.hub.config.workspaces;
   }
   packFor(sessionId) {
     return this.sessions.get(sessionId)?.pack ?? "";
@@ -13130,10 +13181,11 @@ var MemoryService = class {
       domains: [],
       admin: false,
       path: resolved,
-      registered: false
+      registered: false,
+      coreId: null
     };
     let bestLength = -1;
-    for (const workspace of this.hub.config.workspaces) {
+    for (const workspace of this.activeWorkspaces) {
       if (!workspace.enabled) continue;
       let root = workspace.root;
       try {
@@ -13144,20 +13196,62 @@ var MemoryService = class {
       if (!containsPath(rootCompared, compared)) continue;
       if (rootCompared.length > bestLength) {
         bestLength = rootCompared.length;
+        const coreId = workspace.core_id ?? workspace.id;
         match = {
           id: workspace.id,
           root,
           domains: workspace.domains,
           admin: workspace.admin,
           path: resolved,
-          registered: true
+          registered: true,
+          coreId
+        };
+      }
+    }
+    return match;
+  }
+  matchWorkspaceSync(agent) {
+    let directory = "";
+    const workingDirectory = this.ctx.get("workingDirectory");
+    try {
+      directory = workingDirectory?.get(agent.session) ?? "";
+    } catch {
+      directory = "";
+    }
+    if (directory === "") directory = workingDirectory?.defaultDirectory ?? "";
+    const compared = normalizeForCompare(directory);
+    let match = {
+      id: null,
+      root: null,
+      domains: [],
+      admin: false,
+      path: directory,
+      registered: false,
+      coreId: null
+    };
+    let bestLength = -1;
+    for (const workspace of this.activeWorkspaces) {
+      if (!workspace.enabled) continue;
+      const rootCompared = normalizeForCompare(workspace.root);
+      if (!containsPath(rootCompared, compared)) continue;
+      if (rootCompared.length > bestLength) {
+        bestLength = rootCompared.length;
+        match = {
+          id: workspace.id,
+          root: workspace.root,
+          domains: workspace.domains,
+          admin: workspace.admin,
+          path: directory,
+          registered: true,
+          coreId: workspace.core_id ?? workspace.id
         };
       }
     }
     return match;
   }
   visibilityFor(workspace) {
-    return visibilityFor(workspace.id, workspace.domains);
+    const coreIds = workspace.coreId === null ? [] : [workspace.coreId];
+    return visibilityFor(workspace.id, workspace.domains, coreIds);
   }
   async preflightForTurn(agent, turn, intent) {
     if (this.hub.config.policy.preflight.mode === "off") return;
@@ -13441,9 +13535,14 @@ var MemoryService = class {
     const state = this.sessions.get(agent.id);
     if (state === void 0) throw new MemoryError("NO_TASK", "no open task for this session");
     if (state.closed) throw new MemoryError("INVALID_STATE", "task is already closed");
-    const scope = parseScope(args.scope);
+    const coreId = state.workspace.coreId;
+    const rawScope = args.scope === "core" ? coreId === null ? null : `project:${coreId}` : args.scope;
+    if (rawScope === null) {
+      throw new MemoryError("INVALID_INPUT", 'scope "core" is only available inside a configured core workspace');
+    }
+    const scope = parseScope(rawScope);
     if (!isScopeVisible(scope, state.visibility)) {
-      throw new MemoryError("SCOPE_FORBIDDEN", `scope ${args.scope} is not visible from this workspace`);
+      throw new MemoryError("SCOPE_FORBIDDEN", `scope ${rawScope} is not visible from this workspace`);
     }
     const pending = this.store.pendingForTask(state.taskId);
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
@@ -13462,7 +13561,7 @@ var MemoryService = class {
       {
         operation: args.operation,
         type: args.type,
-        scope: args.scope,
+        scope: rawScope,
         title: args.title,
         summary: args.summary,
         ...args.content === void 0 ? {} : { content: args.content },
@@ -13493,7 +13592,10 @@ var MemoryService = class {
     }
     const precheck = this.precheckCommit(proposal);
     if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason);
-    const result = await this.store.commit(proposalId);
+    const result = await this.store.commit(
+      proposalId,
+      this.approvalMode() === "auto" ? "test:auto" : "dsh:approval"
+    );
     return {
       knowledgeId: result.record.id,
       version: result.record.version,
@@ -13619,9 +13721,9 @@ var MemoryService = class {
     if (!workspace.admin) {
       throw new MemoryError("SCOPE_FORBIDDEN", "consolidation requires an admin workspace");
     }
-    const workspaceIds = args.workspace_ids ?? this.hub.config.workspaces.filter((entry) => entry.enabled).map((entry) => entry.id);
+    const workspaceIds = args.workspace_ids ?? this.activeWorkspaces.filter((entry) => entry.enabled).map((entry) => entry.id);
     for (const id of workspaceIds) {
-      if (!this.hub.config.workspaces.some((entry) => entry.id === id && entry.enabled)) {
+      if (!this.activeWorkspaces.some((entry) => entry.id === id && entry.enabled)) {
         throw new MemoryError("INVALID_INPUT", `unknown workspace ${id}`);
       }
     }
@@ -13691,14 +13793,21 @@ var MemoryService = class {
         documents: this.store.index.size,
         diagnostics: this.store.diagnostics.slice(0, 20)
       },
-      workspaces: this.hub.config.workspaces.map((workspace) => ({
+      core_workspaces: this.hub.config.core_workspaces.map((core) => ({
+        id: core.id,
+        name: core.name,
+        root: core.root
+      })),
+      workspaces: this.activeWorkspaces.map((workspace) => ({
         id: workspace.id,
+        core_id: workspace.core_id,
         root: workspace.root,
         domains: workspace.domains,
         admin: workspace.admin,
         enabled: workspace.enabled
       })),
       policy: {
+        approval: this.hub.config.policy.approval,
         preflight: this.hub.config.policy.preflight,
         gate: this.hub.config.policy.gate,
         evidence: this.hub.config.policy.evidence
@@ -13720,8 +13829,56 @@ var MemoryService = class {
       path: KnowledgeStore.relativePath(this.hub.root, path)
     };
   }
+  config() {
+    return {
+      readOnly: this.hub.readOnly,
+      configError: this.hub.configError,
+      core_workspaces: this.hub.config.core_workspaces.map((core) => ({
+        id: core.id,
+        name: core.name,
+        root: core.root
+      })),
+      workspaces: this.hub.config.workspaces.map((workspace) => ({
+        id: workspace.id,
+        core_id: workspace.core_id,
+        root: workspace.root,
+        domains: workspace.domains,
+        admin: workspace.admin,
+        enabled: workspace.enabled
+      }))
+    };
+  }
+  async updateConfig(patch) {
+    if (this.hub.readOnly) {
+      throw new MemoryError("INVALID_STATE", "memory hub is read-only");
+    }
+    const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces;
+    const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces;
+    const validCoreIds = new Set(core_workspaces.map((core) => core.id));
+    for (const workspace of workspaces) {
+      if (workspace.core_id !== null && workspace.core_id !== void 0 && !validCoreIds.has(workspace.core_id)) {
+        throw new MemoryError("INVALID_INPUT", `workspace ${workspace.id} references unknown core ${workspace.core_id}`);
+      }
+    }
+    const next = configSchema.parse({
+      ...this.hub.config,
+      core_workspaces,
+      workspaces
+    });
+    try {
+      const configPath = this.hub.configPath();
+      if (configPath === null) {
+        throw new MemoryError("INVALID_STATE", "data hub has no config source");
+      }
+      await writeAtomic(configPath, (0, import_yaml3.stringify)(next));
+      await this.hub.reloadConfig();
+      return this.config();
+    } catch (error) {
+      throw new MemoryError("STORAGE_ERROR", `cannot write config: ${error.message}`);
+    }
+  }
   status(agent) {
-    const workspace = agent === void 0 ? null : this.sessions.get(agent.id)?.workspace ?? null;
+    const workspace = agent === void 0 ? null : this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent);
     return {
       version: PLUGIN_VERSION,
       initialized: true,
@@ -13729,13 +13886,14 @@ var MemoryService = class {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       configError: this.hub.configError,
-      workspace: workspace === null ? null : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
+      workspace: workspace === null || !workspace.registered ? null : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
         diagnostics: this.store.diagnostics.slice(0, 20)
       },
       policy: {
+        approval: this.hub.config.policy.approval,
         preflight: this.hub.config.policy.preflight,
         gate: {
           mode: this.hub.config.policy.preflight.mode === "off" ? "off" : this.hub.config.policy.gate.mode,
@@ -13744,6 +13902,9 @@ var MemoryService = class {
         }
       }
     };
+  }
+  approvalMode() {
+    return this.hub.config.policy.approval.mode;
   }
   async gate(exec) {
     if (this.hub.config.policy.preflight.mode === "off") return { kind: "allow" };
@@ -14003,7 +14164,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.search(requireAgent(exec), {
           query: input.query,
           ...input.types === void 0 ? {} : { types: input.types },
@@ -14026,7 +14187,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.get(requireAgent(exec), input.id, input.version);
       }
     }),
@@ -14037,7 +14198,7 @@ function createTools(host) {
       parameters: objectSchema({}),
       async execute(_args, exec) {
         try {
-          const service = await host.service();
+          const service = await host.service(requireAgent(exec));
           return service.status(exec.agent);
         } catch {
           return host.status(exec.agent);
@@ -14056,7 +14217,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.manualPreflight(requireAgent(exec), input.intent, input.force === true);
       }
     }),
@@ -14074,7 +14235,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.cite(requireAgent(exec), {
           knowledge_id: input.knowledge_id,
           ...input.version === void 0 ? {} : { version: input.version },
@@ -14090,7 +14251,7 @@ function createTools(host) {
         {
           operation: { type: "string", enum: ["create", "update", "deprecate"], description: "What to do with the knowledge." },
           type: { type: "string", enum: [...KNOWLEDGE_TYPES], description: "Knowledge type." },
-          scope: { type: "string", description: "global, domain:<id>, or project:<workspace-id> visible from this workspace." },
+          scope: { type: "string", description: "global, domain:<id>, project:<workspace-id>, or core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge)." },
           title: { type: "string", description: "Short title, at most 200 characters." },
           summary: { type: "string", description: "One-sentence conclusion, at most 240 characters." },
           content: { type: "string", description: "Markdown body for create/update; optional for deprecate." },
@@ -14118,7 +14279,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.propose(requireAgent(exec), {
           operation: input.operation,
           type: input.type,
@@ -14139,14 +14300,14 @@ function createTools(host) {
     }),
     tool({
       name: "memory_commit",
-      description: "Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself.",
+      description: "Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto.",
       parameters: objectSchema(
         { proposal_id: { type: "string", description: "Pending proposal id, for example PRO-000001." } },
         ["proposal_id"]
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.commit(requireAgent(exec), input.proposal_id);
       }
     }),
@@ -14162,7 +14323,7 @@ function createTools(host) {
       ),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         return service.closeTask(requireAgent(exec), normalizeAssessment(input.assessment), input.task_id);
       }
     }),
@@ -14176,7 +14337,7 @@ function createTools(host) {
       }),
       async execute(args, exec) {
         const input = args;
-        const service = await host.service();
+        const service = await host.service(requireAgent(exec));
         const result = await service.consolidate(requireAgent(exec), {
           ...input.workspace_ids === void 0 ? {} : { workspace_ids: input.workspace_ids },
           ...input.types === void 0 ? {} : { types: input.types },
@@ -14210,12 +14371,11 @@ var MemoryRuntime = class {
   config;
   disposers = [];
   agentDisposers = /* @__PURE__ */ new Map();
-  hub = null;
-  store = null;
-  ledger = null;
-  serviceInstance = null;
+  configHub = null;
+  fallback = null;
+  cores = /* @__PURE__ */ new Map();
   initError = null;
-  watchHandle = null;
+  watchHandles = /* @__PURE__ */ new Map();
   watchTimers = /* @__PURE__ */ new Map();
   started = false;
   disposed = false;
@@ -14225,8 +14385,8 @@ var MemoryRuntime = class {
     this.ctx = ctx;
     const parsed = pluginConfigSchema.safeParse(config ?? {});
     this.config = parsed.success ? parsed.data : {};
-    this.ready = new Promise((resolve2) => {
-      this.resolveReady = resolve2;
+    this.ready = new Promise((resolve3) => {
+      this.resolveReady = resolve3;
     });
   }
   register() {
@@ -14270,20 +14430,29 @@ var MemoryRuntime = class {
     if (this.started) return;
     this.started = true;
     try {
-      const hub = await Hub.open({ root: this.config.root, readOnly: this.config.readOnly === true });
-      this.hub = hub;
-      const ledger = new Ledger(hub.ledgerPath());
-      const ledgerState = await ledger.load({ repair: !hub.readOnly });
-      const store = new KnowledgeStore(hub, ledger);
-      await store.load();
-      this.ledger = ledger;
-      this.store = store;
-      this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState });
+      const configRoot = this.config.root ?? "";
+      const configHub = await Hub.open({ root: configRoot, readOnly: this.config.readOnly === true });
+      this.configHub = configHub;
+      const globalConfig = configHub.config;
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig));
+      for (const core of globalConfig.core_workspaces) {
+        if (core.root === void 0) continue;
+        const root = resolve2(expandHome(core.root));
+        const dataHub = await Hub.open({
+          root,
+          readOnly: configHub.readOnly,
+          config: globalConfig,
+          configPath: configHub.configPath() ?? void 0
+        });
+        const pack = await this.openServicePack(dataHub, globalConfig, this.coreWorkspaces(globalConfig, core.id, root));
+        this.cores.set(core.id, pack);
+      }
       this.registerExistingAgents();
       this.warmClientModule();
       this.startWatcher();
+      const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0);
       this.ctx.logger.info(
-        `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ", read-only" : ""})`
+        `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`
       );
     } catch (error) {
       this.initError = error instanceof Error ? error : new Error(String(error));
@@ -14296,26 +14465,119 @@ var MemoryRuntime = class {
       this.resolveReady = null;
     }
   }
-  async service() {
+  async service(agent) {
     await this.ready;
     if (this.initError !== null) {
       throw new MemoryError("NOT_CONFIGURED", `memory hub initialization failed: ${this.initError.message}`);
     }
-    if (this.serviceInstance === null) {
-      throw new MemoryError("NOT_CONFIGURED", "memory hub is not initialized");
+    const pack = this.serviceFor(agent);
+    if (pack === null) {
+      throw new MemoryError("NOT_CONFIGURED", "no memory hub matches the current workspace");
     }
-    return this.serviceInstance;
+    return pack.service;
   }
   status(agent) {
-    if (this.serviceInstance !== null) return this.serviceInstance.status(agent);
-    return {
-      version: PLUGIN_VERSION,
-      initialized: false,
-      error: this.initError?.message ?? null,
-      root: this.hub?.displayRoot() ?? null,
-      readOnly: this.hub?.readOnly ?? null,
-      readOnlyReason: this.hub?.readOnlyReason ?? null
+    if (this.initError !== null) {
+      return {
+        version: PLUGIN_VERSION,
+        initialized: false,
+        error: this.initError.message,
+        root: this.configHub?.displayRoot() ?? null,
+        readOnly: this.configHub?.readOnly ?? null,
+        readOnlyReason: this.configHub?.readOnlyReason ?? null
+      };
+    }
+    if (agent === void 0) {
+      return this.fallback?.service.status() ?? { version: PLUGIN_VERSION, initialized: false };
+    }
+    const pack = this.serviceFor(agent);
+    if (pack === null) return { version: PLUGIN_VERSION, initialized: false, error: "no matching hub" };
+    return pack.service.status(agent);
+  }
+  async openServicePack(hub, config, workspaces) {
+    const ledger = new Ledger(hub.ledgerPath());
+    const ledgerState = await ledger.load({ repair: !hub.readOnly });
+    const store = new KnowledgeStore(hub, ledger);
+    await store.load();
+    const service = new MemoryService({
+      ctx: this.ctx,
+      hub,
+      store,
+      ledger,
+      ledgerState,
+      workspaces
+    });
+    return { hub, store, ledger, service, workspaces };
+  }
+  standaloneWorkspaces(config) {
+    return config.workspaces.filter((workspace) => !workspace.core_id);
+  }
+  coreWorkspaces(config, coreId, coreRoot) {
+    const subWorkspaces = config.workspaces.filter((workspace) => workspace.core_id === coreId);
+    const coreWorkspace = {
+      id: coreId,
+      root: coreRoot,
+      domains: [],
+      admin: false,
+      enabled: true
     };
+    if (subWorkspaces.length === 0) {
+      return [coreWorkspace];
+    }
+    return [coreWorkspace, ...subWorkspaces];
+  }
+  getWorkingDirectory(agent) {
+    let directory = "";
+    try {
+      const workingDirectory = this.ctx.get("workingDirectory");
+      if (workingDirectory !== void 0 && agent !== void 0) {
+        directory = workingDirectory.get(agent.session);
+      }
+    } catch {
+      directory = "";
+    }
+    if (directory === "") {
+      try {
+        const workingDirectory = this.ctx.get("workingDirectory");
+        directory = workingDirectory?.defaultDirectory ?? "";
+      } catch {
+        directory = "";
+      }
+    }
+    return directory;
+  }
+  serviceFor(agent) {
+    if (this.fallback === null) return null;
+    if (agent === void 0) return this.fallback;
+    const directory = this.getWorkingDirectory(agent);
+    if (directory === "") return this.fallback;
+    const compared = normalizeForCompare2(directory);
+    let bestCore = null;
+    let bestLength = -1;
+    for (const [id, pack2] of this.cores) {
+      for (const workspace of pack2.service.activeWorkspaces) {
+        const rootCompared = normalizeForCompare2(workspace.root);
+        if (!containsPath2(rootCompared, compared)) continue;
+        if (rootCompared.length > bestLength) {
+          bestLength = rootCompared.length;
+          bestCore = { id, root: workspace.root };
+        }
+      }
+    }
+    if (bestCore === null) return this.fallback;
+    const pack = this.cores.get(bestCore.id);
+    return pack ?? this.fallback;
+  }
+  getPackFromQuery(url) {
+    const coreId = url.searchParams.get("core");
+    if (coreId !== null && coreId !== "") {
+      const pack = this.cores.get(coreId);
+      if (pack !== void 0) return pack;
+    }
+    if (this.fallback === null) {
+      throw new MemoryError("NOT_CONFIGURED", "memory hub is not initialized");
+    }
+    return this.fallback;
   }
   onAgentCreated = (payload) => {
     const agent = payload?.agent;
@@ -14328,7 +14590,7 @@ var MemoryRuntime = class {
         order: AGENT_CONTEXT_ORDER,
         text: () => {
           try {
-            return this.serviceInstance?.packFor(agent.id) ?? "";
+            return this.serviceFor(agent)?.service.packFor(agent.id) ?? "";
           } catch {
             return "";
           }
@@ -14349,8 +14611,9 @@ var MemoryRuntime = class {
       dispose();
       this.agentDisposers.delete(agent.id);
     }
-    if (this.serviceInstance !== null) {
-      void this.serviceInstance.closeDeferred(agent.id).catch(() => {
+    const pack = this.serviceFor(agent);
+    if (pack !== null) {
+      void pack.service.closeDeferred(agent.id).catch(() => {
       });
     }
   };
@@ -14369,7 +14632,7 @@ var MemoryRuntime = class {
       if (!Array.isArray(messages) || messages.length === 0) return decision;
       const intent = extractIntent(messages);
       if (intent === "") return decision;
-      const service = await this.service();
+      const service = await this.service(payload.agent);
       const state = service.stateFor(payload.agent.id);
       if (state !== void 0 && state.turn === payload.turn && !state.closed) return decision;
       await service.preflightForTurn(payload.agent, payload.turn, intent);
@@ -14380,8 +14643,9 @@ var MemoryRuntime = class {
   };
   onTurnStopping = async (payload) => {
     try {
-      if (this.serviceInstance === null) return;
-      await this.serviceInstance.closeDeferred(payload.agent.id, payload.turn);
+      const pack = this.serviceFor(payload.agent);
+      if (pack === null) return;
+      await pack.service.closeDeferred(payload.agent.id, payload.turn);
     } catch (error) {
       this.ctx.logger.warn(`dsh-memory-hub: turn close failed: ${error.message}`);
     }
@@ -14392,11 +14656,15 @@ var MemoryRuntime = class {
     if (exec.name === "memory_commit") {
       let reason = { reason: "Commit a memory proposal", displayReason: { en: "Commit a memory proposal", zh: "\u63D0\u4EA4\u8BB0\u5FC6\u63D0\u6848" } };
       try {
-        const service = await this.service();
+        const service = exec.agent === void 0 ? null : await this.service(exec.agent);
         const proposalId = readProposalId(exec.arguments);
-        if (proposalId !== null) {
+        if (service !== null && proposalId !== null) {
           const precheck = service.precheckProposal(proposalId);
           if (!precheck.ok) return { kind: "deny", reason: precheck.reason };
+          if (service.approvalMode() === "auto") {
+            this.ctx.logger.warn(`dsh-memory-hub: approval mode is auto; committing ${proposalId} without approval`);
+            return base;
+          }
           reason = service.describeCommit(proposalId);
         }
       } catch {
@@ -14404,7 +14672,8 @@ var MemoryRuntime = class {
       return { kind: "ask", reason: reason.reason, displayReason: reason.displayReason };
     }
     try {
-      const service = await this.service();
+      if (exec.agent === void 0) return base;
+      const service = await this.service(exec.agent);
       return await service.gate(exec);
     } catch {
       return base;
@@ -14425,7 +14694,7 @@ var MemoryRuntime = class {
       this.ctx.inject(["webServer"], (scope) => {
         const server = scope.get("webServer");
         if (server === void 0 || typeof server.register !== "function") return;
-        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge"]) {
+        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge", "/dsh-memory-hub/api/config", "/dsh-memory-hub/api/hubs"]) {
           try {
             scope.effect(
               () => server.register({
@@ -14449,7 +14718,7 @@ var MemoryRuntime = class {
       sendJson(response, 403, { error: "loopback-only" }, method);
       return;
     }
-    if (method !== "GET" && method !== "HEAD") {
+    if (method !== "GET" && method !== "HEAD" && method !== "POST") {
       sendJson(response, 405, { error: "method-not-allowed" }, method);
       return;
     }
@@ -14464,8 +14733,8 @@ var MemoryRuntime = class {
       if (url.pathname === "/dsh-memory-hub/api/overview") {
         let payload;
         try {
-          const service = await this.service();
-          payload = service.overview();
+          const pack = this.getPackFromQuery(url);
+          payload = pack.service.overview();
         } catch (error) {
           payload = {
             version: PLUGIN_VERSION,
@@ -14485,8 +14754,8 @@ var MemoryRuntime = class {
           return;
         }
         try {
-          const service = await this.service();
-          const detail = service.knowledgeDetail(id);
+          const pack = this.getPackFromQuery(url);
+          const detail = pack.service.knowledgeDetail(id);
           if (detail === null) {
             sendJson(response, 404, { error: "not-found", id }, method);
             return;
@@ -14496,6 +14765,37 @@ var MemoryRuntime = class {
           sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
         }
         return;
+      }
+      if (url.pathname === "/dsh-memory-hub/api/hubs") {
+        const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }));
+        if (this.fallback !== null) {
+          cores.unshift({ id: "", root: this.fallback.hub.root });
+        }
+        sendJson(response, 200, { cores }, method);
+        return;
+      }
+      if (url.pathname === "/dsh-memory-hub/api/config") {
+        if (method === "GET" || method === "HEAD") {
+          try {
+            if (this.fallback === null) throw new Error("not initialized");
+            sendJson(response, 200, this.fallback.service.config(), method);
+          } catch (error) {
+            sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
+          }
+          return;
+        }
+        if (method === "POST") {
+          try {
+            if (this.fallback === null) throw new Error("not initialized");
+            const body = await readJsonBody(request);
+            const payload = await this.fallback.service.updateConfig(body);
+            sendJson(response, 200, payload, method);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            sendJson(response, 400, { error: "invalid-config", message }, method);
+          }
+          return;
+        }
       }
       sendJson(response, 404, { error: "not-found", path: url.pathname }, method);
     } catch (error) {
@@ -14548,21 +14848,25 @@ var MemoryRuntime = class {
     }
   }
   startWatcher() {
-    const hub = this.hub;
-    const store = this.store;
-    if (hub === null || store === null) return;
-    if (!hub.config.storage.watch) return;
-    try {
-      this.watchHandle = watch(hub.root, { recursive: true }, (_event, filename) => {
-        if (filename === null) return;
-        const path = join4(hub.root, filename);
-        this.schedule(path);
-      });
-      this.watchHandle.on("error", (error) => {
-        this.ctx.logger.warn(`dsh-memory-hub: watcher error: ${error.message}`);
-      });
-    } catch (error) {
-      this.ctx.logger.warn(`dsh-memory-hub: watcher unavailable: ${error.message}`);
+    const watchConfig = this.configHub?.config.storage.watch ?? true;
+    if (!watchConfig) return;
+    const roots = /* @__PURE__ */ new Set();
+    if (this.fallback !== null) roots.add(this.fallback.hub.root);
+    for (const pack of this.cores.values()) roots.add(pack.hub.root);
+    for (const root of roots) {
+      try {
+        const handle = watch(root, { recursive: true }, (_event, filename) => {
+          if (filename === null) return;
+          const path = join4(root, filename);
+          this.schedule(path);
+        });
+        handle.on("error", (error) => {
+          this.ctx.logger.warn(`dsh-memory-hub: watcher error: ${error.message}`);
+        });
+        this.watchHandles.set(root, handle);
+      } catch (error) {
+        this.ctx.logger.warn(`dsh-memory-hub: watcher unavailable for ${root}: ${error.message}`);
+      }
     }
   }
   schedule(path) {
@@ -14576,23 +14880,32 @@ var MemoryRuntime = class {
     this.watchTimers.set(path, timer);
   }
   async handleChange(path) {
-    if (this.hub === null || this.store === null) return;
+    if (this.configHub === null) return;
     if (basename3(path) === "config.yaml") {
-      await this.hub.reloadConfig();
+      if (this.configHub.configPath() === path) {
+        await this.configHub.reloadConfig();
+      }
       return;
     }
     const normalized = path.replace(/\\/g, "/");
-    if (normalized.includes("/knowledge/") || normalized.includes("/pending/")) {
-      await this.store.refreshPath(path);
-      return;
+    if (!normalized.includes("/knowledge/") && !normalized.includes("/pending/")) return;
+    const allPacks = [this.fallback, ...this.cores.values()].filter((pack) => pack !== null);
+    for (const pack of allPacks) {
+      if (path.startsWith(pack.hub.root)) {
+        await pack.store.refreshPath(path);
+        return;
+      }
     }
   }
   async dispose() {
     this.disposed = true;
-    if (this.watchHandle !== null) {
-      this.watchHandle.close();
-      this.watchHandle = null;
+    for (const handle of this.watchHandles.values()) {
+      try {
+        handle.close();
+      } catch {
+      }
     }
+    this.watchHandles.clear();
     for (const timer of this.watchTimers.values()) clearTimeout(timer);
     this.watchTimers.clear();
     for (const dispose of this.agentDisposers.values()) {
@@ -14608,16 +14921,21 @@ var MemoryRuntime = class {
       } catch {
       }
     }
-    if (this.ledger !== null) {
-      await this.ledger.close().catch(() => {
-      });
-      this.ledger = null;
+    const allPacks = [this.fallback, ...this.cores.values()].filter((pack) => pack !== null);
+    for (const pack of allPacks) {
+      try {
+        await pack.ledger.close().catch(() => {
+        });
+      } catch {
+      }
+      try {
+        await pack.hub.close().catch(() => {
+        });
+      } catch {
+      }
     }
-    if (this.hub !== null) {
-      await this.hub.close().catch(() => {
-      });
-      this.hub = null;
-    }
+    this.fallback = null;
+    this.cores.clear();
   }
 };
 function readProposalId(args) {
@@ -14642,6 +14960,20 @@ function extractIntent(messages) {
   const preferredText = preferred === void 0 ? "" : collect([preferred]);
   return (preferredText !== "" ? preferredText : collect(messages)).slice(0, 2e3);
 }
+function normalizeForCompare2(path) {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function containsPath2(root, child) {
+  if (root === "") return false;
+  if (child === root) return true;
+  const rel = relative3(root.replace(/\\/g, "/"), child.replace(/\\/g, "/"));
+  return rel !== "" && !rel.startsWith("..") && !rel.startsWith("/") && !relativeIsEscape(rel);
+}
+function relativeIsEscape(rel) {
+  const parts = rel.split(/[/\\]/);
+  return parts.some((part) => part === "..");
+}
 function isLoopbackRequest(request) {
   const address = request.socket?.remoteAddress ?? "";
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
@@ -14655,6 +14987,24 @@ function sendJson(response, status, body, method) {
     "content-length": String(Buffer.byteLength(text, "utf8"))
   });
   response.end(method === "HEAD" ? void 0 : text);
+}
+function readJsonBody(request) {
+  return new Promise((resolve3, reject) => {
+    const chunks = [];
+    const readable = request;
+    readable.on("data", (chunk) => {
+      if (Buffer.isBuffer(chunk)) chunks.push(chunk);
+    });
+    readable.on("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
+    readable.on("end", () => {
+      try {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve3(text === "" ? {} : JSON.parse(text));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
 }
 
 // src/index.ts

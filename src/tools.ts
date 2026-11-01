@@ -4,7 +4,7 @@ import type { MemoryService } from './service.js'
 import { KNOWLEDGE_STATUSES, KNOWLEDGE_TYPES, type WritebackAssessment } from './types.js'
 
 export interface ToolHost {
-  service(): Promise<MemoryService>
+  service(agent: AgentLike): Promise<MemoryService>
   status(agent?: AgentLike): Record<string, unknown>
 }
 
@@ -128,7 +128,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as { query: string; types?: string[]; scope?: string; status?: string[]; limit?: number }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.search(requireAgent(exec), {
           query: input.query,
           ...(input.types === undefined ? {} : { types: input.types as never }),
@@ -153,7 +153,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as { id: string; version?: number }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.get(requireAgent(exec), input.id, input.version)
       },
     }),
@@ -166,7 +166,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       parameters: objectSchema({}),
       async execute(_args, exec) {
         try {
-          const service = await host.service()
+          const service = await host.service(requireAgent(exec))
           return service.status(exec.agent)
         } catch {
           return host.status(exec.agent)
@@ -187,7 +187,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as { intent: string; force?: boolean }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.manualPreflight(requireAgent(exec), input.intent, input.force === true)
       },
     }),
@@ -207,7 +207,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as { knowledge_id: string; version?: number; purpose: string; task_id?: string }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.cite(requireAgent(exec), {
           knowledge_id: input.knowledge_id,
           ...(input.version === undefined ? {} : { version: input.version }),
@@ -225,7 +225,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
         {
           operation: { type: 'string', enum: ['create', 'update', 'deprecate'], description: 'What to do with the knowledge.' },
           type: { type: 'string', enum: [...KNOWLEDGE_TYPES], description: 'Knowledge type.' },
-          scope: { type: 'string', description: 'global, domain:<id>, or project:<workspace-id> visible from this workspace.' },
+          scope: { type: 'string', description: 'global, domain:<id>, project:<workspace-id>, or core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge).' },
           title: { type: 'string', description: 'Short title, at most 200 characters.' },
           summary: { type: 'string', description: 'One-sentence conclusion, at most 240 characters.' },
           content: { type: 'string', description: 'Markdown body for create/update; optional for deprecate.' },
@@ -253,7 +253,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as Record<string, unknown>
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.propose(requireAgent(exec), {
           operation: input.operation as never,
           type: input.type as never,
@@ -276,14 +276,14 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     tool({
       name: 'memory_commit',
       description:
-        'Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself.',
+        'Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto.',
       parameters: objectSchema(
         { proposal_id: { type: 'string', description: 'Pending proposal id, for example PRO-000001.' } },
         ['proposal_id'],
       ),
       async execute(args, exec) {
         const input = args as { proposal_id: string }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.commit(requireAgent(exec), input.proposal_id)
       },
     }),
@@ -301,7 +301,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       ),
       async execute(args, exec) {
         const input = args as { assessment: unknown; task_id?: string }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         return service.closeTask(requireAgent(exec), normalizeAssessment(input.assessment), input.task_id)
       },
     }),
@@ -317,7 +317,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       }),
       async execute(args, exec) {
         const input = args as { workspace_ids?: string[]; types?: string[]; dry_run?: boolean }
-        const service = await host.service()
+        const service = await host.service(requireAgent(exec))
         const result = await service.consolidate(requireAgent(exec), {
           ...(input.workspace_ids === undefined ? {} : { workspace_ids: input.workspace_ids }),
           ...(input.types === undefined ? {} : { types: input.types as never }),

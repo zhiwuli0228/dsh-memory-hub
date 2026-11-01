@@ -63,7 +63,7 @@ describe('knowledge index', () => {
     }))
 
     const hits = index.search('缓存 广播 版本号', {
-      visibility: { global: true, domains: new Set() },
+      visibility: { global: true, domains: new Set(), projects: new Set() },
     })
     expect(hits[0]?.id).toBe('DEC-000001')
     expect(hits[0]?.summary).toContain('版本号')
@@ -82,23 +82,23 @@ describe('knowledge index', () => {
     index.add(record({ id: 'CON-000001', type: 'constraint', title: '缓存广播约束', summary: '约束' }))
 
     const globalOnly = index.search('缓存广播', {
-      visibility: { global: true, domains: new Set() },
+      visibility: { global: true, domains: new Set(), projects: new Set() },
     })
     expect(globalOnly.map((hit) => hit.id).sort()).toEqual(['CON-000001', 'DEC-000001'])
 
     const project = index.search('缓存广播', {
-      visibility: { global: true, domains: new Set(), project: 'backend' },
+      visibility: { global: true, domains: new Set(), projects: new Set(['backend']) },
     })
     expect(project.some((hit) => hit.id === 'DEC-000002')).toBe(true)
 
     const constraints = index.search('缓存广播', {
-      visibility: { global: true, domains: new Set() },
+      visibility: { global: true, domains: new Set(), projects: new Set() },
       types: new Set(['constraint']),
     })
     expect(constraints.map((hit) => hit.id)).toEqual(['CON-000001'])
 
     const deprecated = index.search('缓存广播', {
-      visibility: { global: true, domains: new Set() },
+      visibility: { global: true, domains: new Set(), projects: new Set() },
       statuses: new Set(['deprecated']),
     })
     expect(deprecated.map((hit) => hit.id)).toEqual(['DEC-000003'])
@@ -107,7 +107,7 @@ describe('knowledge index', () => {
   it('returns no hits for an empty or unmatchable query', () => {
     const index = new KnowledgeIndex()
     index.add(record({ id: 'DEC-000001', title: '缓存广播' }))
-    expect(index.search('', { visibility: { global: true, domains: new Set() } })).toEqual([])
-    expect(index.search('zzzzzz', { visibility: { global: true, domains: new Set() } })).toEqual([])
+    expect(index.search('', { visibility: { global: true, domains: new Set(), projects: new Set() } })).toEqual([])
+    expect(index.search('zzzzzz', { visibility: { global: true, domains: new Set(), projects: new Set() } })).toEqual([])
   })
 })

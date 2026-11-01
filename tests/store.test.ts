@@ -37,6 +37,17 @@ describe('knowledge store', () => {
     }
   })
 
+  it('ignores directory paths during refresh', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.store.refreshPath(harness.hub.knowledgeDir('api-catalog'))
+      await harness.store.refreshPath(harness.hub.pendingArchiveDir())
+      expect(harness.store.diagnostics).toHaveLength(0)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('increments versions, archives the old file, and rejects stale expected versions', async () => {
     const harness = await createHarness()
     try {

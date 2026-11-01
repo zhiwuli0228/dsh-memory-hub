@@ -157,6 +157,7 @@ export interface HttpRequestLike {
   readonly method?: string
   readonly url?: string
   readonly socket?: { readonly remoteAddress?: string }
+  on?(event: string, listener: (...args: any[]) => void): this
 }
 
 export interface HttpResponseLike {

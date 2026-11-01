@@ -170,4 +170,116 @@ describe('plugin entry', () => {
     }
     await rm(root, { recursive: true, force: true })
   })
+
+  it('routes sessions to per-core-workspace hubs', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-config-'))
+    const coreA = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-core-a-'))
+    const coreB = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-core-b-'))
+    const subA = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-sub-a-'))
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: core-a
+    name: Core A
+    root: '${coreA.replace(/\\/g, '/')}'
+  - id: core-b
+    name: Core B
+    root: '${coreB.replace(/\\/g, '/')}'
+workspaces:
+  - id: sub-a
+    core_id: core-a
+    root: '${subA.replace(/\\/g, '/')}'
+    domains: []
+    admin: false
+    enabled: true
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    const directories = new Map<string, string>()
+    directories.set('session-a', coreA)
+    directories.set('session-b', coreB)
+    directories.set('session-sub', subA)
+
+    const tools = new Map<string, ToolDefinition>()
+    const listeners = new Map<string, Array<(...args: any[]) => unknown>>()
+    const disposers: Array<() => void> = []
+    const workingDirectoryService = {
+      defaultDirectory: configRoot,
+      get: (session: { id: string }) => directories.get(session.id) ?? configRoot,
+    }
+    const ctx: Context = {
+      tools: {
+        register(definition) {
+          tools.set(definition.name, definition)
+          return () => tools.delete(definition.name)
+        },
+        get(name) {
+          return tools.get(name)
+        },
+      },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      get(name: string) {
+        if (name === 'workingDirectory') return workingDirectoryService
+        return undefined
+      },
+      on(name, listener) {
+        const list = listeners.get(name) ?? []
+        list.push(listener)
+        listeners.set(name, list)
+        return () => {
+          const index = list.indexOf(listener)
+          if (index >= 0) list.splice(index, 1)
+        }
+      },
+      effect(execute) {
+        const result = execute()
+        if (typeof result === 'function') disposers.push(result)
+        return result ?? (() => {})
+      },
+      inject: () => {},
+      workingDirectory: workingDirectoryService,
+      tokenMeter: {
+        estimateMessage: (message: unknown) => Math.max(1, Math.ceil(JSON.stringify(message).length / 3.2)),
+      },
+    }
+
+    apply(ctx, { root: configRoot })
+
+    // Give runtime a moment to open the hubs.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const makeAgentFor = (id: string): AgentLike => ({
+      id,
+      ctx,
+      session: { id, seq: 0 },
+    })
+
+    const statusA = (await invoke('memory_status', { ctx, tools, listeners, disposers, contexts: [] }, {}, makeAgentFor('session-a'))) as {
+      root: string
+    }
+    expect(statusA.root).toContain('core-a')
+
+    const statusB = (await invoke('memory_status', { ctx, tools, listeners, disposers, contexts: [] }, {}, makeAgentFor('session-b'))) as {
+      root: string
+    }
+    expect(statusB.root).toContain('core-b')
+
+    const statusSub = (await invoke(
+      'memory_status',
+      { ctx, tools, listeners, disposers, contexts: [] },
+      {},
+      makeAgentFor('session-sub'),
+    )) as { root: string; workspace: { id: string } | null }
+    expect(statusSub.root).toContain('core-a')
+    expect(statusSub.workspace?.id).toBe('sub-a')
+
+    for (const dispose of disposers.reverse()) {
+      await dispose()
+    }
+    await rm(configRoot, { recursive: true, force: true })
+    await rm(coreA, { recursive: true, force: true })
+    await rm(coreB, { recursive: true, force: true })
+    await rm(subA, { recursive: true, force: true })
+  })
 })

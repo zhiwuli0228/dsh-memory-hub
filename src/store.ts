@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'node:path'
 import { ensureDir, pathExists, readTextOrNull, removeFile, writeAtomic } from './atomic.js'
 import { MemoryError } from './errors.js'
@@ -318,7 +318,7 @@ export class KnowledgeStore {
     return proposal
   }
 
-  async commit(proposalId: string): Promise<CommitResult> {
+  async commit(proposalId: string, approvalRef = 'dsh:approval'): Promise<CommitResult> {
     this.assertWritable()
     const proposal = this.proposals.get(proposalId)
     if (proposal === undefined) {
@@ -365,7 +365,7 @@ export class KnowledgeStore {
       proposalId: proposal.id,
       knowledgeId: record.id,
       version: record.version,
-      approvalRef: 'dsh:approval',
+      approvalRef,
     })
     await this.archiveProposal(proposal, 'committed', `${record.id}@${record.version}`)
     return { record, superseded }
@@ -577,10 +577,12 @@ export class KnowledgeStore {
   }
 
   async refreshPath(path: string): Promise<void> {
-    if (!(await pathExists(path))) {
+    const info = await stat(path).catch(() => null)
+    if (info === null) {
       this.removePath(path)
       return
     }
+    if (!info.isFile()) return
     if (isUnder(this.hub.pendingDir(), path) && !isUnder(this.hub.pendingArchiveDir(), path)) {
       try {
         const proposal = parseProposalFile(await readFile(path, 'utf8'), path)

@@ -4,7 +4,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.1.1 已实现**：Host 插件 + 只读 Web 面板，并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.1.2 已实现**：Host 插件 + Web 面板（含核心/子工作区配置），并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
@@ -25,14 +25,16 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 ## Web 面板
 
-重启后，左侧边栏出现「记忆中枢」图标，主区域提供四个标签页：
+重启后，左侧边栏出现「记忆中枢」图标，主区域提供六个标签页：
 
-- **总览**：状态、知识/候选/工作区/任务计数、9 项能力卡片、记忆闭环示意、工作区与最近知识
+- **总览**：状态、计数、精简的能力标签、记忆闭环示意、工作区与最近知识
+- **配置**：核心工作区与子工作区（一对多）管理；可添加核心、添加子工作区并实时保存到 `config.yaml`
 - **知识**：搜索、类型/状态过滤、全文详情与来源
 - **待审批**：`pending/` 候选列表（只读，不代替 DSH 审批）
 - **活动与策略**：最近任务、预检/门禁/证据要求
+- **能力**：9 个 `memory_*` 工具的详细说明
 
-面板通过 Host 路由 `/dsh-memory-hub/api/overview` 与 `/dsh-memory-hub/api/knowledge` 读取数据，只允许回环请求；不会修改任何知识或绕过审批。
+面板通过 Host 路由 `/dsh-memory-hub/api/overview`、 `/dsh-memory-hub/api/knowledge` 和 `/dsh-memory-hub/api/config` 读取/保存数据，只允许回环请求；知识审批仍走 DSH 原生流程，面板不绕过。
 
 ## 安装
 
@@ -56,8 +58,12 @@ Hub 根目录默认是 `$DSH_HOME/memory-hub`，也可以在插件行的 `config
 
 ```yaml
 version: 1
+core_workspaces:
+  - id: product
+    name: '产品主仓库'
 workspaces:
   - id: backend
+    core_id: product     # 归属到核心工作区 product（可选）
     root: 'D:/projects/backend'
     domains: [backend]
     admin: true          # 允许运行汇总
@@ -108,7 +114,7 @@ policy:
 ```sh
 npm install
 npm run typecheck
-npm run test        # 32 个单元/集成/插件/面板注册测试
+npm run test        # 33 个单元/集成/插件/面板注册测试
 npm run build       # 产出 dist/index.js
 npm run check       # typecheck + build + test
 ```

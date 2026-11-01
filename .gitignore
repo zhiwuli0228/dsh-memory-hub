@@ -7,6 +7,14 @@ Thumbs.db
 .idea/
 *.tsbuildinfo
 .vitest/
+*.tgz
+
+# local memory-hub runtime data (never commit)
+knowledge/
+pending/
+records/
+history/
+index/
 
 .env
 .env.*

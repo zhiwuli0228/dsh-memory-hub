@@ -1,12 +1,13 @@
 import { watch, type FSWatcher } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
-import { Hub } from './hub.js'
+import { expandHome, Hub, resolveHubRoot } from './hub.js'
 import { KnowledgeStore } from './store.js'
 import { Ledger } from './ledger.js'
 import { MemoryError } from './errors.js'
 import { MemoryService, PLUGIN_VERSION } from './service.js'
 import { createTools, type ToolHost } from './tools.js'
+import type { MemoryConfig, WorkspaceConfig } from './config.js'
 import type {
   AgentLike,
   Context,
@@ -30,17 +31,24 @@ const pluginConfigSchema = z.object({
 const AGENT_CONTEXT_NAME = 'memory:pack'
 const AGENT_CONTEXT_ORDER = 130
 
+interface ServicePack {
+  hub: Hub
+  store: KnowledgeStore
+  ledger: Ledger
+  service: MemoryService
+  workspaces: WorkspaceConfig[]
+}
+
 export class MemoryRuntime implements ToolHost {
   private readonly ctx: Context
   private readonly config: { root?: string; readOnly?: boolean }
   private readonly disposers: Array<() => void> = []
   private readonly agentDisposers = new Map<string, () => void>()
-  private hub: Hub | null = null
-  private store: KnowledgeStore | null = null
-  private ledger: Ledger | null = null
-  private serviceInstance: MemoryService | null = null
+  private configHub: Hub | null = null
+  private fallback: ServicePack | null = null
+  private readonly cores = new Map<string, ServicePack>()
   private initError: Error | null = null
-  private watchHandle: FSWatcher | null = null
+  private readonly watchHandles = new Map<string, FSWatcher>()
   private readonly watchTimers = new Map<string, NodeJS.Timeout>()
   private started = false
   private disposed = false
@@ -101,20 +109,32 @@ export class MemoryRuntime implements ToolHost {
     if (this.started) return
     this.started = true
     try {
-      const hub = await Hub.open({ root: this.config.root, readOnly: this.config.readOnly === true })
-      this.hub = hub
-      const ledger = new Ledger(hub.ledgerPath())
-      const ledgerState = await ledger.load({ repair: !hub.readOnly })
-      const store = new KnowledgeStore(hub, ledger)
-      await store.load()
-      this.ledger = ledger
-      this.store = store
-      this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState })
+      const configRoot = this.config.root ?? ''
+      const configHub = await Hub.open({ root: configRoot, readOnly: this.config.readOnly === true })
+      this.configHub = configHub
+
+      const globalConfig = configHub.config
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig))
+
+      for (const core of globalConfig.core_workspaces) {
+        if (core.root === undefined) continue
+        const root = resolve(expandHome(core.root))
+        const dataHub = await Hub.open({
+          root,
+          readOnly: configHub.readOnly,
+          config: globalConfig,
+          configPath: configHub.configPath() ?? undefined,
+        })
+        const pack = await this.openServicePack(dataHub, globalConfig, this.coreWorkspaces(globalConfig, core.id, root))
+        this.cores.set(core.id, pack)
+      }
+
       this.registerExistingAgents()
       this.warmClientModule()
       this.startWatcher()
+      const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0)
       this.ctx.logger.info(
-        `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ', read-only' : ''})`,
+        `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`,
       )
     } catch (error) {
       this.initError = error instanceof Error ? error : new Error(String(error))
@@ -128,27 +148,130 @@ export class MemoryRuntime implements ToolHost {
     }
   }
 
-  async service(): Promise<MemoryService> {
+  async service(agent: AgentLike): Promise<MemoryService> {
     await this.ready
     if (this.initError !== null) {
       throw new MemoryError('NOT_CONFIGURED', `memory hub initialization failed: ${this.initError.message}`)
     }
-    if (this.serviceInstance === null) {
-      throw new MemoryError('NOT_CONFIGURED', 'memory hub is not initialized')
+    const pack = this.serviceFor(agent)
+    if (pack === null) {
+      throw new MemoryError('NOT_CONFIGURED', 'no memory hub matches the current workspace')
     }
-    return this.serviceInstance
+    return pack.service
   }
 
   status(agent?: AgentLike): Record<string, unknown> {
-    if (this.serviceInstance !== null) return this.serviceInstance.status(agent)
-    return {
-      version: PLUGIN_VERSION,
-      initialized: false,
-      error: this.initError?.message ?? null,
-      root: this.hub?.displayRoot() ?? null,
-      readOnly: this.hub?.readOnly ?? null,
-      readOnlyReason: this.hub?.readOnlyReason ?? null,
+    if (this.initError !== null) {
+      return {
+        version: PLUGIN_VERSION,
+        initialized: false,
+        error: this.initError.message,
+        root: this.configHub?.displayRoot() ?? null,
+        readOnly: this.configHub?.readOnly ?? null,
+        readOnlyReason: this.configHub?.readOnlyReason ?? null,
+      }
     }
+    if (agent === undefined) {
+      return this.fallback?.service.status() ?? { version: PLUGIN_VERSION, initialized: false }
+    }
+    const pack = this.serviceFor(agent)
+    if (pack === null) return { version: PLUGIN_VERSION, initialized: false, error: 'no matching hub' }
+    return pack.service.status(agent)
+  }
+
+  private async openServicePack(hub: Hub, config: MemoryConfig, workspaces: WorkspaceConfig[]): Promise<ServicePack> {
+    const ledger = new Ledger(hub.ledgerPath())
+    const ledgerState = await ledger.load({ repair: !hub.readOnly })
+    const store = new KnowledgeStore(hub, ledger)
+    await store.load()
+    const service = new MemoryService({
+      ctx: this.ctx,
+      hub,
+      store,
+      ledger,
+      ledgerState,
+      workspaces,
+    })
+    return { hub, store, ledger, service, workspaces }
+  }
+
+  private standaloneWorkspaces(config: MemoryConfig): WorkspaceConfig[] {
+    return config.workspaces.filter((workspace) => !workspace.core_id)
+  }
+
+  private coreWorkspaces(config: MemoryConfig, coreId: string, coreRoot: string): WorkspaceConfig[] {
+    const subWorkspaces = config.workspaces.filter((workspace) => workspace.core_id === coreId)
+    const coreWorkspace: WorkspaceConfig = {
+      id: coreId,
+      root: coreRoot,
+      domains: [],
+      admin: false,
+      enabled: true,
+    }
+    if (subWorkspaces.length === 0) {
+      // 没有子工作区时，核心仓本身作为一个项目作用域。
+      return [coreWorkspace]
+    }
+    // 有子工作区时，核心仓本身也作为可见的项目作用域，让子工作区能反向查找主仓知识。
+    return [coreWorkspace, ...subWorkspaces]
+  }
+
+  private getWorkingDirectory(agent?: AgentLike): string {
+    let directory = ''
+    try {
+      const workingDirectory = this.ctx.get('workingDirectory') as { get: (session: { id: string }) => string } | undefined
+      if (workingDirectory !== undefined && agent !== undefined) {
+        directory = workingDirectory.get(agent.session)
+      }
+    } catch {
+      directory = ''
+    }
+    if (directory === '') {
+      try {
+        const workingDirectory = this.ctx.get('workingDirectory') as { defaultDirectory?: string } | undefined
+        directory = workingDirectory?.defaultDirectory ?? ''
+      } catch {
+        directory = ''
+      }
+    }
+    return directory
+  }
+
+  private serviceFor(agent: AgentLike | undefined): ServicePack | null {
+    if (this.fallback === null) return null
+    if (agent === undefined) return this.fallback
+    const directory = this.getWorkingDirectory(agent)
+    if (directory === '') return this.fallback
+
+    const compared = normalizeForCompare(directory)
+    let bestCore: { id: string; root: string } | null = null
+    let bestLength = -1
+    for (const [id, pack] of this.cores) {
+      for (const workspace of pack.service.activeWorkspaces) {
+        const rootCompared = normalizeForCompare(workspace.root)
+        if (!containsPath(rootCompared, compared)) continue
+        if (rootCompared.length > bestLength) {
+          bestLength = rootCompared.length
+          bestCore = { id, root: workspace.root }
+        }
+      }
+    }
+
+    if (bestCore === null) return this.fallback
+    const pack = this.cores.get(bestCore.id)
+    return pack ?? this.fallback
+  }
+
+  private getPackFromQuery(url: URL): ServicePack {
+    const coreId = url.searchParams.get('core')
+    if (coreId !== null && coreId !== '') {
+      const pack = this.cores.get(coreId)
+      if (pack !== undefined) return pack
+    }
+    if (this.fallback === null) {
+      throw new MemoryError('NOT_CONFIGURED', 'memory hub is not initialized')
+    }
+    return this.fallback
   }
 
   private onAgentCreated = (payload: CreatedPayload): void => {
@@ -164,7 +287,7 @@ export class MemoryRuntime implements ToolHost {
         order: AGENT_CONTEXT_ORDER,
         text: () => {
           try {
-            return this.serviceInstance?.packFor(agent.id) ?? ''
+            return this.serviceFor(agent)?.service.packFor(agent.id) ?? ''
           } catch {
             return ''
           }
@@ -186,8 +309,9 @@ export class MemoryRuntime implements ToolHost {
       dispose()
       this.agentDisposers.delete(agent.id)
     }
-    if (this.serviceInstance !== null) {
-      void this.serviceInstance.closeDeferred(agent.id).catch(() => {})
+    const pack = this.serviceFor(agent)
+    if (pack !== null) {
+      void pack.service.closeDeferred(agent.id).catch(() => {})
     }
   }
 
@@ -206,7 +330,7 @@ export class MemoryRuntime implements ToolHost {
       if (!Array.isArray(messages) || messages.length === 0) return decision
       const intent = extractIntent(messages)
       if (intent === '') return decision
-      const service = await this.service()
+      const service = await this.service(payload.agent)
       const state = service.stateFor(payload.agent.id)
       if (state !== undefined && state.turn === payload.turn && !state.closed) return decision
       await service.preflightForTurn(payload.agent, payload.turn, intent)
@@ -218,8 +342,9 @@ export class MemoryRuntime implements ToolHost {
 
   private onTurnStopping = async (payload: TurnStoppingPayload): Promise<void> => {
     try {
-      if (this.serviceInstance === null) return
-      await this.serviceInstance.closeDeferred(payload.agent.id, payload.turn)
+      const pack = this.serviceFor(payload.agent)
+      if (pack === null) return
+      await pack.service.closeDeferred(payload.agent.id, payload.turn)
     } catch (error) {
       this.ctx.logger.warn(`dsh-memory-hub: turn close failed: ${(error as Error).message}`)
     }
@@ -235,11 +360,15 @@ export class MemoryRuntime implements ToolHost {
     if (exec.name === 'memory_commit') {
       let reason = { reason: 'Commit a memory proposal', displayReason: { en: 'Commit a memory proposal', zh: '提交记忆提案' } }
       try {
-        const service = await this.service()
+        const service = exec.agent === undefined ? null : await this.service(exec.agent)
         const proposalId = readProposalId(exec.arguments)
-        if (proposalId !== null) {
+        if (service !== null && proposalId !== null) {
           const precheck = service.precheckProposal(proposalId)
           if (!precheck.ok) return { kind: 'deny', reason: precheck.reason }
+          if (service.approvalMode() === 'auto') {
+            this.ctx.logger.warn(`dsh-memory-hub: approval mode is auto; committing ${proposalId} without approval`)
+            return base
+          }
           reason = service.describeCommit(proposalId)
         }
       } catch {
@@ -249,7 +378,8 @@ export class MemoryRuntime implements ToolHost {
     }
 
     try {
-      const service = await this.service()
+      if (exec.agent === undefined) return base
+      const service = await this.service(exec.agent)
       return await service.gate(exec)
     } catch {
       return base
@@ -272,7 +402,7 @@ export class MemoryRuntime implements ToolHost {
       this.ctx.inject(['webServer'], (scope) => {
         const server = scope.get('webServer') as WebServerService | undefined
         if (server === undefined || typeof server.register !== 'function') return
-        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge']) {
+        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge', '/dsh-memory-hub/api/config', '/dsh-memory-hub/api/hubs']) {
           try {
             scope.effect(() =>
               server.register({
@@ -297,7 +427,7 @@ export class MemoryRuntime implements ToolHost {
       sendJson(response, 403, { error: 'loopback-only' }, method)
       return
     }
-    if (method !== 'GET' && method !== 'HEAD') {
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
       sendJson(response, 405, { error: 'method-not-allowed' }, method)
       return
     }
@@ -312,8 +442,8 @@ export class MemoryRuntime implements ToolHost {
       if (url.pathname === '/dsh-memory-hub/api/overview') {
         let payload: Record<string, unknown>
         try {
-          const service = await this.service()
-          payload = service.overview()
+          const pack = this.getPackFromQuery(url)
+          payload = pack.service.overview()
         } catch (error) {
           payload = {
             version: PLUGIN_VERSION,
@@ -333,8 +463,8 @@ export class MemoryRuntime implements ToolHost {
           return
         }
         try {
-          const service = await this.service()
-          const detail = service.knowledgeDetail(id)
+          const pack = this.getPackFromQuery(url)
+          const detail = pack.service.knowledgeDetail(id)
           if (detail === null) {
             sendJson(response, 404, { error: 'not-found', id }, method)
             return
@@ -344,6 +474,37 @@ export class MemoryRuntime implements ToolHost {
           sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
         }
         return
+      }
+      if (url.pathname === '/dsh-memory-hub/api/hubs') {
+        const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }))
+        if (this.fallback !== null) {
+          cores.unshift({ id: '', root: this.fallback.hub.root })
+        }
+        sendJson(response, 200, { cores }, method)
+        return
+      }
+      if (url.pathname === '/dsh-memory-hub/api/config') {
+        if (method === 'GET' || method === 'HEAD') {
+          try {
+            if (this.fallback === null) throw new Error('not initialized')
+            sendJson(response, 200, this.fallback.service.config(), method)
+          } catch (error) {
+            sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
+          }
+          return
+        }
+        if (method === 'POST') {
+          try {
+            if (this.fallback === null) throw new Error('not initialized')
+            const body = await readJsonBody(request)
+            const payload = await this.fallback.service.updateConfig(body as { core_workspaces?: unknown; workspaces?: unknown })
+            sendJson(response, 200, payload, method)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            sendJson(response, 400, { error: 'invalid-config', message }, method)
+          }
+          return
+        }
       }
       sendJson(response, 404, { error: 'not-found', path: url.pathname }, method)
     } catch (error) {
@@ -411,21 +572,25 @@ export class MemoryRuntime implements ToolHost {
   }
 
   private startWatcher(): void {
-    const hub = this.hub
-    const store = this.store
-    if (hub === null || store === null) return
-    if (!hub.config.storage.watch) return
-    try {
-      this.watchHandle = watch(hub.root, { recursive: true }, (_event, filename) => {
-        if (filename === null) return
-        const path = join(hub.root, filename)
-        this.schedule(path)
-      })
-      this.watchHandle.on('error', (error) => {
-        this.ctx.logger.warn(`dsh-memory-hub: watcher error: ${error.message}`)
-      })
-    } catch (error) {
-      this.ctx.logger.warn(`dsh-memory-hub: watcher unavailable: ${(error as Error).message}`)
+    const watchConfig = this.configHub?.config.storage.watch ?? true
+    if (!watchConfig) return
+    const roots = new Set<string>()
+    if (this.fallback !== null) roots.add(this.fallback.hub.root)
+    for (const pack of this.cores.values()) roots.add(pack.hub.root)
+    for (const root of roots) {
+      try {
+        const handle = watch(root, { recursive: true }, (_event, filename) => {
+          if (filename === null) return
+          const path = join(root, filename)
+          this.schedule(path)
+        })
+        handle.on('error', (error) => {
+          this.ctx.logger.warn(`dsh-memory-hub: watcher error: ${error.message}`)
+        })
+        this.watchHandles.set(root, handle)
+      } catch (error) {
+        this.ctx.logger.warn(`dsh-memory-hub: watcher unavailable for ${root}: ${(error as Error).message}`)
+      }
     }
   }
 
@@ -441,24 +606,34 @@ export class MemoryRuntime implements ToolHost {
   }
 
   private async handleChange(path: string): Promise<void> {
-    if (this.hub === null || this.store === null) return
+    if (this.configHub === null) return
     if (basename(path) === 'config.yaml') {
-      await this.hub.reloadConfig()
+      if (this.configHub.configPath() === path) {
+        await this.configHub.reloadConfig()
+      }
       return
     }
     const normalized = path.replace(/\\/g, '/')
-    if (normalized.includes('/knowledge/') || normalized.includes('/pending/')) {
-      await this.store.refreshPath(path)
-      return
+    if (!normalized.includes('/knowledge/') && !normalized.includes('/pending/')) return
+    const allPacks = [this.fallback, ...this.cores.values()].filter((pack): pack is ServicePack => pack !== null)
+    for (const pack of allPacks) {
+      if (path.startsWith(pack.hub.root)) {
+        await pack.store.refreshPath(path)
+        return
+      }
     }
   }
 
   async dispose(): Promise<void> {
     this.disposed = true
-    if (this.watchHandle !== null) {
-      this.watchHandle.close()
-      this.watchHandle = null
+    for (const handle of this.watchHandles.values()) {
+      try {
+        handle.close()
+      } catch {
+        // ignore
+      }
     }
+    this.watchHandles.clear()
     for (const timer of this.watchTimers.values()) clearTimeout(timer)
     this.watchTimers.clear()
     for (const dispose of this.agentDisposers.values()) {
@@ -476,14 +651,21 @@ export class MemoryRuntime implements ToolHost {
         // ignore
       }
     }
-    if (this.ledger !== null) {
-      await this.ledger.close().catch(() => {})
-      this.ledger = null
+    const allPacks = [this.fallback, ...this.cores.values()].filter((pack): pack is ServicePack => pack !== null)
+    for (const pack of allPacks) {
+      try {
+        await pack.ledger.close().catch(() => {})
+      } catch {
+        // ignore
+      }
+      try {
+        await pack.hub.close().catch(() => {})
+      } catch {
+        // ignore
+      }
     }
-    if (this.hub !== null) {
-      await this.hub.close().catch(() => {})
-      this.hub = null
-    }
+    this.fallback = null
+    this.cores.clear()
   }
 }
 
@@ -511,6 +693,23 @@ function extractIntent(messages: readonly UserMessage[]): string {
   return (preferredText !== '' ? preferredText : collect(messages)).slice(0, 2000)
 }
 
+function normalizeForCompare(path: string): string {
+  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized
+}
+
+function containsPath(root: string, child: string): boolean {
+  if (root === '') return false
+  if (child === root) return true
+  const rel = relative(root.replace(/\\/g, '/'), child.replace(/\\/g, '/'))
+  return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/') && !relativeIsEscape(rel)
+}
+
+function relativeIsEscape(rel: string): boolean {
+  const parts = rel.split(/[/\\]/)
+  return parts.some((part) => part === '..')
+}
+
 function isLoopbackRequest(request: HttpRequestLike): boolean {
   const address = request.socket?.remoteAddress ?? ''
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
@@ -530,4 +729,23 @@ function sendJson(
     'content-length': String(Buffer.byteLength(text, 'utf8')),
   })
   response.end(method === 'HEAD' ? undefined : text)
+}
+
+function readJsonBody(request: HttpRequestLike): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    const readable = request as unknown as { on: (event: string, listener: (...args: unknown[]) => void) => void }
+    readable.on('data', (chunk: unknown) => {
+      if (Buffer.isBuffer(chunk)) chunks.push(chunk)
+    })
+    readable.on('error', (error: unknown) => reject(error instanceof Error ? error : new Error(String(error))))
+    readable.on('end', () => {
+      try {
+        const text = Buffer.concat(chunks).toString('utf8')
+        resolve(text === '' ? {} : JSON.parse(text))
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  })
 }

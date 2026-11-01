@@ -24,8 +24,15 @@ export const DEFAULT_EXEMPT_TOOLS = [
   'memory_consolidate',
 ]
 
+const coreWorkspaceSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'core workspace id must be a slug (letters, digits, dot, underscore, dash)'),
+  name: z.string().min(1).optional(),
+  root: z.string().min(1).optional(),
+})
+
 const workspaceSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'workspace id must be a slug (letters, digits, dot, underscore, dash)'),
+  core_id: z.string().optional().nullable(),
   root: z.string().min(1),
   domains: z.array(z.string().min(1)).default([]),
   admin: z.boolean().default(false),
@@ -56,8 +63,12 @@ const limitsSchema = z.object({
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
+  core_workspaces: z.array(coreWorkspaceSchema).default([]),
   workspaces: z.array(workspaceSchema).default([]),
   policy: z.object({
+    approval: z.object({
+      mode: z.enum(['manual', 'auto']).default('manual'),
+    }).default({}),
     preflight: preflightSchema,
     gate: gateSchema,
     evidence: z.object({
@@ -82,6 +93,7 @@ export const configSchema = z.object({
   }).default({}),
 })
 
+export type CoreWorkspaceConfig = z.infer<typeof coreWorkspaceSchema>
 export type WorkspaceConfig = z.infer<typeof workspaceSchema>
 export type MemoryConfig = z.infer<typeof configSchema>
 
@@ -92,17 +104,28 @@ version: 1
 hub:
   id: primary
 
+# Core workspaces are memory hubs. If a core workspace has a root, it becomes
+# an independent memory hub; sessions whose working directory is under that root
+# use that hub. Sub-workspaces (core_id below) live inside the same hub.
+core_workspaces: []
+#  - id: product
+#    name: '产品主仓库'
+#    root: 'D:/projects/product'
+
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
 # entries; other sessions see global + domain entries only.
 workspaces: []
 #  - id: backend
-#    root: 'D:/projects/backend'
+#    core_id: product
+#    root: 'D:/projects/product/backend'
 #    domains: [backend]
 #    admin: true
 #    enabled: true
 
 policy:
+  approval:
+    mode: manual          # manual | auto (auto is for local testing only: commits are logged as test:auto)
   preflight:
     mode: per-turn        # per-turn | off
     pack_tokens: 600

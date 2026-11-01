@@ -158,7 +158,7 @@ export interface TaskRecord {
 export interface Visibility {
   global: boolean
   domains: Set<string>
-  project?: string
+  projects: Set<string>
 }
 
 export interface WorkspaceMatch {
@@ -168,4 +168,5 @@ export interface WorkspaceMatch {
   admin: boolean
   path: string
   registered: boolean
+  coreId: string | null
 }
