@@ -31,8 +31,10 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 子工作区根目录参与路由：子工作区即使不在核心仓根目录下，也能路由到所属核心仓
 - [x] 测试模式 `policy.approval.mode: auto`：跳过 DSH 审批，账本 `approvalRef` 记为 `test:auto`（默认仍为 `manual`）
 - [x] 核心共享：`memory_propose` 支持 `scope: "core"` 别名，子工作区可把可复用知识回填到 `project:<core-id>`
-- [x] `dsh-plugin-dev` 核心工作区已写入 8 条插件开发基线（入口、工具、客户端、开发循环、常见坑、回填检查清单、npm 发布踩坑、发布 checklist）
+- [x] `dsh-plugin-dev` 核心工作区已写入 9 条插件开发基线（入口、工具、客户端、开发循环、常见坑、回填检查清单、npm 发布踩坑、发布 checklist、预检采用率诊断）
 - [x] 发布经验已回填核心：`KNO-000002`（npm 发布/Trusted Publisher/市场索引踩坑）、`PRC-000003`（发布 checklist）
+- [x] 预检采用率经验已回填核心：`KNO-000003`（预检运行≠被使用，先修相关性/指令/可见性，再考虑行为门禁）
+- [x] 本仓本地决策：`DEC-000002`（min_score=1.0、local_boost=1.2）
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
