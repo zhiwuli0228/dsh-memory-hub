@@ -64,6 +64,7 @@ workflow 使用 npm Trusted Publisher + OIDC，不需要 `NPM_TOKEN`。前提是
 - `npm publish --access public --provenance` 使用 OIDC 授权，并生成 provenance。
 - 不需要 `NPM_TOKEN` secret，也不需要 `.npmrc`。
 - 如果 npm 侧未绑定，发布会失败（`ENEEDAUTH` / `EOTP`），不会创建 GitHub Release。
+- 已验证：`v0.1.3` 由 GitHub Actions 无 token 发布，npm 记录 provenance（run `41316616352`）。
 
 ### 备选：NPM_TOKEN
 

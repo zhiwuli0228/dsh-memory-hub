@@ -24,6 +24,12 @@
 - `config.yaml` 热加载
 - 宿主冒烟验证更新
 
+## V0.1.3（已发布）
+
+- GitHub Actions Trusted Publisher/OIDC 自动发布（无需 `NPM_TOKEN`）
+- `PLUGIN_VERSION` 与 `package.json` 使用单一版本源
+- 39 个测试
+
 ## V0.2（候选）
 
 - 索引落盘与增量重建，减少启动扫描

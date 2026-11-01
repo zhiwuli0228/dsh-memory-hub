@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.2` 已上架，仓库同时提供自托管插件市场索引。
+V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.3` 已上架，仓库同时提供自托管插件市场索引。
 
 ## 已实现
 
@@ -30,10 +30,11 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
 - [x] 39 个 vitest 测试（7 个文件）
-- [x] npm 发布：`dsh-memory-hub@0.1.2`（2026-11-01，`latest`）
-- [x] GitHub release `v0.1.2`，仓库 homepage 指向 npm 包页
+- [x] npm 发布：`dsh-memory-hub@0.1.3`（2026-11-01，`latest`）
+- [x] GitHub release `v0.1.3`，仓库 homepage 指向 npm 包页
 - [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，Trusted Publisher/OIDC 发布 npm，自动创建 Release 并上传 tarball）
-- [x] Release workflow 已实测通过（`workflow_dispatch` + `v0.1.2`）；现使用 Trusted Publisher，无需 `NPM_TOKEN`
+- [x] Trusted Publisher 端到端验证：`v0.1.3` 由 GitHub Actions 无 token 发布，npm 记录 SLSA provenance
+- [x] Release workflow 已实测通过（tag push + `v0.1.3`）；无需 `NPM_TOKEN`
 - [x] 发布说明：`docs/06-operations/release.md`
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] `PLUGIN_VERSION` 直接读取 `package.json`，构建 banner 同步版本，避免发布时版本漂移
@@ -60,7 +61,6 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
-- GitHub Actions 的 npm 自动发布使用 Trusted Publisher；npm 侧绑定（仓库 `zhiwuli0228/dsh-memory-hub` + workflow `release.yml`）尚未完成，未绑定前发布会失败。
 
 ## 当前目录
 
