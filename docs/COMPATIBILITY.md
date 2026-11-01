@@ -44,7 +44,7 @@
 | V23 | `memory_maintenance` 工具与报告 | PASS | `memory_maintenance({apply:"report"})` 扫描 `product` / `dsh-plugin-dev` / fallback，分别写 `reports/<timestamp>.md` 与 `latest.md`；13 条知识、0 pending、0 候选；随后 `all_cores:false, apply:"propose"` 运行无错误、无候选 |
 | V24 | 夜间定时器与补跑 | PASS | `policy.maintenance.enabled: true` + `time: '03:00'` 后重载插件；当天 23:29 因“已过 03:00 且当天未跑”补跑一次，写 `records/maintenance-state.json`（`lastRunDate: 2026-11-01`）和报告；未产生 pending，未提交任何知识 |
 
-早期冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本已随 Hub 目录重置删除；当前安装的 Hub 保留真实知识（13 条 accepted），并在 `reports/` 下保留维护报告。
+早期冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本已随 Hub 目录重置删除；当前安装的 Hub 保留真实知识（13 条 accepted、1 条 pending `PRO-000016`），并在 `reports/` 下保留维护报告。
 
 > **面板可见性**：`clientModules` 会把首次扫描不到的包缓存为 null；插件启动时会清除本包的该缓存并标记 dirty，使 `client.advertised` 从 `false` 变为 `true`，无需重启即可进入启动图。若未来 Host 移除这些内部字段，插件会安全回退，用户重启一次 DSH 即可。当前侧边栏与主面板均已注册为 active；点击后的完整视觉布局仍需人工确认。
 
