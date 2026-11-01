@@ -606,7 +606,7 @@ task_id: TSK-20261101-4f2a9c
 
 ### 8.1 查询构造
 
-- 预检查询 = 当前回合首个用户消息的文本块（最多 2000 字符）+ 工作区/领域提示词。
+- 预检查询 = 当前回合首个 `source.kind === 'user'` 的用户消息文本（最多 2000 字符）+ 工作区/领域提示词。没有该来源时（子 Agent、注入消息、恢复会话），取消息批次中第一个非空文本块。
 - 显式 `memory_search` 使用调用方给的 `query`，可叠加 `types/scope/status/limit`。
 - 查询为空或只有停用词 → 直接 `no_match`。
 
@@ -732,6 +732,8 @@ agent/pre-step (step=1, messages 非空, turn 变化)
 ### 9.4 门禁
 
 触发条件：`tools/pre-execute` 中工具属于"变更类"，且 `gate.mode = enforce`。
+
+若 `preflight.mode = off`，门禁失去判定依据：`gate` 自动降为 `off`，`memory_status` 明确标注，避免"永远拒绝"的配置陷阱。
 
 判定顺序：
 
