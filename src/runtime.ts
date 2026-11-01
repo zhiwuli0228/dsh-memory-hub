@@ -1,12 +1,14 @@
 import { watch, type FSWatcher } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
+import { readTextOrNull, writeAtomic } from './atomic.js'
 import { expandHome, Hub, resolveHubRoot } from './hub.js'
 import { KnowledgeStore } from './store.js'
 import { Ledger } from './ledger.js'
 import { MemoryError } from './errors.js'
 import { MemoryService, PLUGIN_VERSION } from './service.js'
-import { createTools, type ToolHost } from './tools.js'
+import { localDateKey, maintenanceDue } from './maintenance-schedule.js'
+import { createTools, type MaintenanceToolArgs, type ToolHost } from './tools.js'
 import { registerMemorySkill } from './skill.js'
 import type { MemoryConfig, WorkspaceConfig } from './config.js'
 import type {
@@ -38,6 +40,7 @@ interface ServicePack {
   ledger: Ledger
   service: MemoryService
   workspaces: WorkspaceConfig[]
+  coreId: string | null
 }
 
 export class MemoryRuntime implements ToolHost {
@@ -53,6 +56,9 @@ export class MemoryRuntime implements ToolHost {
   private readonly watchTimers = new Map<string, NodeJS.Timeout>()
   private started = false
   private disposed = false
+  private maintenanceTimer: NodeJS.Timeout | null = null
+  private maintenanceRunning = false
+  private maintenanceLastDate: string | null = null
   private readonly ready: Promise<void>
   private resolveReady: (() => void) | null = null
 
@@ -132,7 +138,7 @@ export class MemoryRuntime implements ToolHost {
       this.configHub = configHub
 
       const globalConfig = configHub.config
-      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig))
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null)
 
       for (const core of globalConfig.core_workspaces) {
         if (core.root === undefined) continue
@@ -143,13 +149,19 @@ export class MemoryRuntime implements ToolHost {
           config: globalConfig,
           configPath: configHub.configPath() ?? undefined,
         })
-        const pack = await this.openServicePack(dataHub, globalConfig, this.coreWorkspaces(globalConfig, core.id, root))
+        const pack = await this.openServicePack(
+          dataHub,
+          globalConfig,
+          this.coreWorkspaces(globalConfig, core.id, root),
+          core.id,
+        )
         this.cores.set(core.id, pack)
       }
 
       this.registerExistingAgents()
       this.warmClientModule()
       this.startWatcher()
+      this.startMaintenanceTimer()
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0)
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`,
@@ -197,7 +209,146 @@ export class MemoryRuntime implements ToolHost {
     return pack.service.status(agent)
   }
 
-  private async openServicePack(hub: Hub, config: MemoryConfig, workspaces: WorkspaceConfig[]): Promise<ServicePack> {
+  private startMaintenanceTimer(): void {
+    if (this.configHub === null) return
+    // Keep the timer alive even when disabled so enabling it in config.yaml
+    // takes effect without a plugin reload; runScheduledMaintenance checks the flag.
+    const tick = (): void => {
+      void this.runScheduledMaintenance()
+    }
+    const timer = setInterval(tick, 60_000)
+    timer.unref?.()
+    this.maintenanceTimer = timer
+    this.disposers.push(() => {
+      if (this.maintenanceTimer !== null) {
+        clearInterval(this.maintenanceTimer)
+        this.maintenanceTimer = null
+      }
+    })
+    tick()
+  }
+
+  private async runScheduledMaintenance(): Promise<void> {
+    if (this.disposed || this.maintenanceRunning || this.configHub === null) return
+    const policy = this.configHub.config.policy.maintenance
+    if (policy.enabled !== true) return
+    const now = new Date()
+    if (!maintenanceDue(policy.time, now)) return
+    const today = localDateKey(now)
+    if (this.maintenanceLastDate === today) return
+    const last = await this.readMaintenanceState()
+    if (last === today) {
+      this.maintenanceLastDate = today
+      return
+    }
+
+    this.maintenanceRunning = true
+    try {
+      const packs = policy.all_cores
+        ? [...this.cores.values(), ...(this.fallback === null ? [] : [this.fallback])]
+        : this.fallback === null
+          ? []
+          : [this.fallback]
+      const seen = new Set<string>()
+      for (const pack of packs) {
+        const key = pack.hub.root.replace(/\\/g, '/').toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        try {
+          await pack.service.maintenance({
+            admin: true,
+            coreId: pack.coreId,
+            apply: policy.apply,
+            maxProposals: policy.max_proposals,
+            stalePendingDays: policy.stale_pending_days,
+            staleCitationDays: policy.stale_citation_days,
+          })
+        } catch (error) {
+          this.ctx.logger.warn(
+            `dsh-memory-hub: scheduled maintenance failed for ${pack.coreId ?? pack.hub.displayRoot()}: ${(error as Error).message}`,
+          )
+        }
+      }
+      this.maintenanceLastDate = today
+      await writeAtomic(this.maintenanceStatePath(), JSON.stringify({ lastRunDate: today, completedAt: now.toISOString() }, null, 2))
+      this.ctx.logger.info(`dsh-memory-hub: scheduled maintenance completed for ${today}`)
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot record maintenance state: ${(error as Error).message}`)
+    } finally {
+      this.maintenanceRunning = false
+    }
+  }
+
+  private maintenanceStatePath(): string {
+    return join(this.configHub?.root ?? '', 'records', 'maintenance-state.json')
+  }
+
+  private async readMaintenanceState(): Promise<string | null> {
+    try {
+      const raw = await readTextOrNull(this.maintenanceStatePath())
+      if (raw === null) return null
+      const parsed = JSON.parse(raw) as { lastRunDate?: unknown }
+      return typeof parsed.lastRunDate === 'string' ? parsed.lastRunDate : null
+    } catch {
+      return null
+    }
+  }
+
+  async maintenance(agent: AgentLike, args: MaintenanceToolArgs): Promise<unknown> {
+    await this.ready
+    if (this.initError !== null) {
+      throw new MemoryError('NOT_CONFIGURED', `memory hub initialization failed: ${this.initError.message}`)
+    }
+    const current = this.serviceFor(agent)
+    if (current === null) throw new MemoryError('NOT_CONFIGURED', 'no memory hub matches the current workspace')
+    const workspace = await current.service.resolveWorkspace(agent)
+    if (!workspace.admin) {
+      throw new MemoryError('SCOPE_FORBIDDEN', 'memory maintenance requires an admin workspace')
+    }
+
+    const allCores = args.all_cores !== false
+    const packs = allCores
+      ? [...this.cores.values(), ...(this.fallback === null ? [] : [this.fallback])]
+      : [current]
+    const seen = new Set<string>()
+    const hubs: unknown[] = []
+    for (const pack of packs) {
+      const key = pack.hub.root.replace(/\\/g, '/').toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      try {
+        hubs.push(
+          await pack.service.maintenance({
+            admin: true,
+            coreId: pack.coreId,
+            ...(args.apply === undefined ? {} : { apply: args.apply }),
+            ...(args.max_proposals === undefined ? {} : { maxProposals: args.max_proposals }),
+            ...(args.stale_pending_days === undefined ? {} : { stalePendingDays: args.stale_pending_days }),
+            ...(args.stale_citation_days === undefined ? {} : { staleCitationDays: args.stale_citation_days }),
+          }),
+        )
+      } catch (error) {
+        hubs.push({
+          coreId: pack.coreId,
+          root: pack.hub.displayRoot(),
+          error: (error as Error).message,
+        })
+      }
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      allCores,
+      hubs,
+    }
+  }
+
+  private async openServicePack(
+    hub: Hub,
+    config: MemoryConfig,
+    workspaces: WorkspaceConfig[],
+    coreId: string | null,
+  ): Promise<ServicePack> {
     const ledger = new Ledger(hub.ledgerPath())
     const ledgerState = await ledger.load({ repair: !hub.readOnly })
     const store = new KnowledgeStore(hub, ledger)
@@ -210,7 +361,7 @@ export class MemoryRuntime implements ToolHost {
       ledgerState,
       workspaces,
     })
-    return { hub, store, ledger, service, workspaces }
+    return { hub, store, ledger, service, workspaces, coreId }
   }
 
   private standaloneWorkspaces(config: MemoryConfig): WorkspaceConfig[] {

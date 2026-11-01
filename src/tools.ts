@@ -3,9 +3,18 @@ import type { AgentLike, ContentBlock, ToolDefinition, ToolRunContext } from './
 import type { MemoryService } from './service.js'
 import { KNOWLEDGE_STATUSES, KNOWLEDGE_TYPES, type WritebackAssessment } from './types.js'
 
+export interface MaintenanceToolArgs {
+  all_cores?: boolean
+  apply?: 'report' | 'propose'
+  max_proposals?: number
+  stale_pending_days?: number
+  stale_citation_days?: number
+}
+
 export interface ToolHost {
   service(agent: AgentLike): Promise<MemoryService>
   status(agent?: AgentLike): Record<string, unknown>
+  maintenance(agent: AgentLike, args: MaintenanceToolArgs): Promise<unknown>
 }
 
 function renderJson(_args: unknown, value: unknown): ContentBlock[] {
@@ -303,6 +312,45 @@ export function createTools(host: ToolHost): ToolDefinition[] {
         const input = args as { assessment: unknown; task_id?: string }
         const service = await host.service(requireAgent(exec))
         return service.closeTask(requireAgent(exec), normalizeAssessment(input.assessment), input.task_id)
+      },
+    }),
+
+    tool({
+      name: 'memory_maintenance',
+      description:
+        'Run deterministic memory maintenance: scan the current hub (or all cores), write a Markdown report, and optionally create pending proposals for exact duplicates and explicitly reusable project knowledge. It never commits, deletes, or rewrites knowledge. Use it for a nightly review; review the pending proposals in the morning. Requires an admin workspace.',
+      parameters: objectSchema({
+        apply: {
+          type: 'string',
+          enum: ['report', 'propose'],
+          description: 'report (default) writes only the report; propose also creates pending proposals.',
+        },
+        all_cores: {
+          type: 'boolean',
+          description: 'Scan every configured core hub, not only the current one; defaults to true.',
+        },
+        max_proposals: {
+          type: 'number',
+          description: 'Maximum pending proposals to create this run, 1..20; defaults to 10.',
+        },
+        stale_pending_days: {
+          type: 'number',
+          description: 'Report pending proposals older than this many days; defaults to 30.',
+        },
+        stale_citation_days: {
+          type: 'number',
+          description: 'Report accepted entries not cited for this many days; defaults to 90.',
+        },
+      }),
+      async execute(args, exec) {
+        const input = args as MaintenanceToolArgs
+        return host.maintenance(requireAgent(exec), {
+          ...(input.all_cores === undefined ? {} : { all_cores: input.all_cores }),
+          ...(input.apply === undefined ? {} : { apply: input.apply }),
+          ...(input.max_proposals === undefined ? {} : { max_proposals: input.max_proposals }),
+          ...(input.stale_pending_days === undefined ? {} : { stale_pending_days: input.stale_pending_days }),
+          ...(input.stale_citation_days === undefined ? {} : { stale_citation_days: input.stale_citation_days }),
+        })
       },
     }),
 

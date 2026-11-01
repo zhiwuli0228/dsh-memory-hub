@@ -40,7 +40,7 @@
     'stat.workspaces': '工作区',
     'stat.tasks': '最近任务',
     'section.capabilities': '能力',
-    'section.capabilities.hint': '模型可调用的 9 个 memory_* 工具',
+    'section.capabilities.hint': '模型可调用的 10 个 memory_* 工具',
     'section.flow': '记忆闭环',
     'section.workspaces': '工作区',
     'section.workspaces.hint': '会话工作目录落在这些根目录内时，才使用对应的 project 作用域。',
@@ -65,6 +65,7 @@
     'cap.commit': '请求 DSH 审批并提交候选；审批不可用时失败关闭。',
     'cap.close': '关闭任务并给出回写评估：proposed / no_new_knowledge / needs_evidence / deferred。',
     'cap.consolidate': '管理员手动把项目知识晋升为 global 候选；幂等、不覆盖下游。',
+    'cap.maintenance': '确定性巡检所有 core / 子工作区，写报告并按需生成 pending 提案；不自动提交、不删除。',
     'knowledge.search': '搜索标题、摘要、ID…',
     'knowledge.allTypes': '全部类型',
     'knowledge.allStatuses': '全部状态',
@@ -168,7 +169,7 @@
     'stat.workspaces': 'Workspaces',
     'stat.tasks': 'Recent tasks',
     'section.capabilities': 'Capabilities',
-    'section.capabilities.hint': '9 memory_* tools the model can call',
+    'section.capabilities.hint': '10 memory_* tools the model can call',
     'section.flow': 'Memory loop',
     'section.workspaces': 'Workspaces',
     'section.workspaces.hint': 'A session maps to a project scope only when its directory is inside one of these roots.',
@@ -193,6 +194,7 @@
     'cap.commit': 'Ask DSH for approval and commit the candidate; fails closed without an approver.',
     'cap.close': 'Close the task with an assessment: proposed / no_new_knowledge / needs_evidence / deferred.',
     'cap.consolidate': 'Admin-only promotion of project knowledge into global candidates; idempotent and non-destructive.',
+    'cap.maintenance': 'Deterministic scan of every core / sub-workspace; writes reports and optional pending proposals without committing or deleting.',
     'knowledge.search': 'Search title, summary, id…',
     'knowledge.allTypes': 'All types',
     'knowledge.allStatuses': 'All statuses',
@@ -274,6 +276,7 @@
     { name: 'memory_commit', key: 'cap.commit' },
     { name: 'memory_close_task', key: 'cap.close' },
     { name: 'memory_consolidate', key: 'cap.consolidate' },
+    { name: 'memory_maintenance', key: 'cap.maintenance' },
   ];
 
   const CSS = `

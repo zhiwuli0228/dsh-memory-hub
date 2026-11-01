@@ -45,6 +45,7 @@ describe('memory-hub skill', () => {
     expect(skill.content).toContain('memory_get')
     expect(skill.content).toContain('memory_cite')
     expect(skill.content).toContain('memory_close_task')
+    expect(skill.content).toContain('memory_maintenance')
     expect(skill.content).toContain('scope: "core"')
     expect(skill.content).toContain('project:<当前工作区>')
   })

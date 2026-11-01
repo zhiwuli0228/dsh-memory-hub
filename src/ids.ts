@@ -13,6 +13,10 @@ export function newPreflightId(): string {
   return `PF-${randomHex(4)}`
 }
 
+export function newMaintenanceTaskId(): string {
+  return `MAINT-${dateStamp()}-${randomHex(3)}`
+}
+
 export function newCitationId(): string {
   return `CIT-${randomHex(6)}`
 }

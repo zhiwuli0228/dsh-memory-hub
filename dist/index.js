@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename3, join as join4, relative as relative3, resolve as resolve2 } from "node:path";
+import { basename as basename3, join as join5, relative as relative3, resolve as resolve2 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -11412,10 +11412,6 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// src/hub.ts
-import { homedir } from "node:os";
-import { join as join2, resolve } from "node:path";
-
 // src/atomic.ts
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -11455,6 +11451,9 @@ function newTaskId() {
 }
 function newPreflightId() {
   return `PF-${randomHex(4)}`;
+}
+function newMaintenanceTaskId() {
+  return `MAINT-${dateStamp()}-${randomHex(3)}`;
 }
 function newCitationId() {
   return `CIT-${randomHex(6)}`;
@@ -11514,6 +11513,10 @@ async function writeAtomic(path, content) {
 async function removeFile(path) {
   await rm(path, { force: true });
 }
+
+// src/hub.ts
+import { homedir } from "node:os";
+import { join as join2, resolve } from "node:path";
 
 // src/config.ts
 var import_yaml = __toESM(require_dist(), 1);
@@ -11580,7 +11583,8 @@ var DEFAULT_EXEMPT_TOOLS = [
   "memory_propose",
   "memory_commit",
   "memory_close_task",
-  "memory_consolidate"
+  "memory_consolidate",
+  "memory_maintenance"
 ];
 var coreWorkspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "core workspace id must be a slug (letters, digits, dot, underscore, dash)"),
@@ -11617,6 +11621,15 @@ var limitsSchema = external_exports.object({
   max_body_bytes: external_exports.number().int().min(1024).max(1048576).default(65536),
   max_source_refs: external_exports.number().int().min(0).max(100).default(20)
 }).default({});
+var maintenanceSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  time: external_exports.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "maintenance time must be HH:mm").default("03:00"),
+  apply: external_exports.enum(["report", "propose"]).default("propose"),
+  all_cores: external_exports.boolean().default(true),
+  max_proposals: external_exports.number().int().min(1).max(20).default(10),
+  stale_pending_days: external_exports.number().int().min(1).max(3650).default(30),
+  stale_citation_days: external_exports.number().int().min(1).max(3650).default(90)
+}).default({});
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
@@ -11638,7 +11651,8 @@ var configSchema = external_exports.object({
         "playbooks"
       ])
     }).default({}),
-    limits: limitsSchema
+    limits: limitsSchema,
+    maintenance: maintenanceSchema
   }).default({}),
   consolidation: external_exports.object({
     mode: external_exports.literal("manual").default("manual"),
@@ -11699,6 +11713,14 @@ policy:
     max_pending_per_task: 20
     max_body_bytes: 65536
     max_source_refs: 20
+  maintenance:
+    enabled: false        # true = run the deterministic nightly maintenance timer
+    time: '03:00'         # local HH:mm; missed runs execute on the next Host start
+    apply: propose        # report | propose (propose only creates pending; never commits)
+    all_cores: true
+    max_proposals: 10
+    stale_pending_days: 30
+    stale_citation_days: 90
 
 consolidation:
   mode: manual
@@ -13134,14 +13156,14 @@ function applyEvent(state, event) {
 }
 
 // src/service.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
   version: "0.1.4",
-  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
+  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
   homepage: "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
@@ -13222,8 +13244,316 @@ var package_default = {
 };
 
 // src/service.ts
-import { isAbsolute, relative as relative2, sep as sep2 } from "node:path";
+import { isAbsolute, join as join4, relative as relative2, sep as sep2 } from "node:path";
 var import_yaml3 = __toESM(require_dist(), 1);
+
+// src/maintenance.ts
+import { createHash } from "node:crypto";
+var PROMOTE_TAGS = /* @__PURE__ */ new Set(["core", "shared", "reusable", "promote"]);
+var NEAR_TITLE_THRESHOLD = 0.82;
+function maintenanceToken(fingerprint) {
+  return `maint-${createHash("sha256").update(fingerprint).digest("hex").slice(0, 12)}`;
+}
+function analyzeMaintenance(store, options) {
+  const now = options.now ?? /* @__PURE__ */ new Date();
+  const nowMs = now.getTime();
+  const accepted = [...store.docs.values()].filter((record) => record.status === "accepted");
+  const pending = [...store.proposals.values()].filter((proposal) => proposal.status === "pending");
+  const workspaceIds = new Set(options.workspaces.map((workspace) => workspace.id));
+  const issues = [];
+  const candidates = [];
+  const duplicateGroups = /* @__PURE__ */ new Map();
+  for (const record of accepted) {
+    const key = [
+      record.type,
+      normalizeText2(record.title),
+      normalizeText2(record.summary),
+      sha256(record.body.trim())
+    ].join("|");
+    const group = duplicateGroups.get(key) ?? [];
+    group.push(record);
+    duplicateGroups.set(key, group);
+  }
+  for (const group of duplicateGroups.values()) {
+    if (group.length < 2) continue;
+    const ordered = [...group].sort(
+      (left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
+    );
+    const keeper = ordered[0];
+    for (const duplicate of ordered.slice(1)) {
+      const fingerprint = `duplicate:${duplicate.id}@${duplicate.version}:${keeper.id}`;
+      const token = maintenanceToken(fingerprint);
+      const issue = {
+        code: "duplicate-exact",
+        severity: "warn",
+        message: `${duplicate.id} \u4E0E ${keeper.id} \u7684\u6807\u9898\u3001\u6458\u8981\u548C\u6B63\u6587\u5B8C\u5168\u76F8\u540C\u3002`,
+        ids: [duplicate.id, keeper.id]
+      };
+      issues.push(issue);
+      candidates.push({
+        kind: "duplicate",
+        fingerprint,
+        issue,
+        input: {
+          operation: "deprecate",
+          type: duplicate.type,
+          scope: formatScope(duplicate.scope),
+          title: truncate2(`[\u7EF4\u62A4] \u5E9F\u5F03\u91CD\u590D\uFF1A${duplicate.id}`, 200),
+          summary: truncate2(`${duplicate.id} \u4E0E ${keeper.id} \u5B8C\u5168\u76F8\u540C\uFF0C\u5EFA\u8BAE\u5E9F\u5F03\u91CD\u590D\u9879\u3002`, 240),
+          target: duplicate.id,
+          expectedVersion: duplicate.version,
+          reason: `exact duplicate of ${keeper.id}`,
+          sourceRefs: [`note:maintenance duplicate ${duplicate.id}@v${duplicate.version} == ${keeper.id}@v${keeper.version}`],
+          tags: mergeTags(duplicate.tags, ["maintenance", token, "duplicate"]),
+          related: [keeper.id]
+        }
+      });
+    }
+  }
+  const nearPairs = findNearDuplicateTitles(accepted);
+  for (const [left, right] of nearPairs) {
+    issues.push({
+      code: "duplicate-near",
+      severity: "info",
+      message: `${left.id}\uFF08${left.title}\uFF09\u4E0E ${right.id}\uFF08${right.title}\uFF09\u6807\u9898\u9AD8\u5EA6\u76F8\u4F3C\uFF0C\u9700\u4EBA\u5DE5\u5224\u65AD\u662F\u5426\u5408\u5E76\u3002`,
+      ids: [left.id, right.id]
+    });
+  }
+  for (const proposal of pending) {
+    const age = ageDays(proposal.createdAt, nowMs);
+    if (age !== null && age >= options.stalePendingDays) {
+      issues.push({
+        code: "stale-pending",
+        severity: "info",
+        message: `${proposal.id} \u5DF2 pending ${age} \u5929\uFF1A${proposal.title}`,
+        ids: [proposal.id]
+      });
+    }
+  }
+  let uncited = 0;
+  for (const record of accepted) {
+    if (options.citations.has(record.id)) continue;
+    const age = ageDays(record.updatedAt, nowMs);
+    if (age === null || age < options.staleCitationDays) continue;
+    uncited += 1;
+    if (uncited > 20) continue;
+    issues.push({
+      code: "uncited",
+      severity: "info",
+      message: `${record.id} \u5DF2 ${age} \u5929\u672A\u88AB\u5F15\u7528\uFF1A${record.title}`,
+      ids: [record.id]
+    });
+  }
+  for (const diagnostic of store.diagnostics) {
+    issues.push({
+      code: "load-diagnostic",
+      severity: "warn",
+      message: `${diagnostic.path}: ${diagnostic.message}`,
+      ids: []
+    });
+  }
+  for (const record of accepted) {
+    if (Buffer.byteLength(record.body, "utf8") > options.maxBodyBytes) {
+      issues.push({
+        code: "oversized-body",
+        severity: "info",
+        message: `${record.id} \u6B63\u6587\u8D85\u8FC7 ${options.maxBodyBytes} bytes\uFF0C\u5EFA\u8BAE\u62C6\u5206\u3002`,
+        ids: [record.id]
+      });
+    }
+    if (record.scope.level === "project" && !workspaceIds.has(record.scope.workspaceId)) {
+      issues.push({
+        code: "scope-mismatch",
+        severity: "warn",
+        message: `${record.id} \u4F7F\u7528\u672A\u6CE8\u518C\u4F5C\u7528\u57DF project:${record.scope.workspaceId}\u3002`,
+        ids: [record.id]
+      });
+    }
+  }
+  const coreId = options.coreId;
+  if (coreId !== null) {
+    const alreadyPromoted = /* @__PURE__ */ new Set();
+    for (const record of store.docs.values()) {
+      if (record.promotedFrom !== null) alreadyPromoted.add(record.promotedFrom);
+    }
+    for (const proposal of store.proposals.values()) {
+      if (proposal.promotedFrom !== null) alreadyPromoted.add(proposal.promotedFrom);
+    }
+    const coreTitles = new Set(
+      accepted.filter((record) => record.scope.level === "project" && record.scope.workspaceId === coreId).map((record) => `${normalizeText2(record.title)}\0${normalizeText2(record.summary)}`)
+    );
+    for (const record of accepted) {
+      if (record.scope.level !== "project" || record.scope.workspaceId === coreId) continue;
+      if (!record.tags.some((tag) => PROMOTE_TAGS.has(tag))) continue;
+      const key = `project:${record.scope.workspaceId}/${record.id}@${record.version}`;
+      if (alreadyPromoted.has(key)) continue;
+      if (coreTitles.has(`${normalizeText2(record.title)}\0${normalizeText2(record.summary)}`)) continue;
+      const fingerprint = `promotion:${key}`;
+      const token = maintenanceToken(fingerprint);
+      const issue = {
+        code: "promotion-candidate",
+        severity: "info",
+        message: `${record.id} \u5E26\u6709\u590D\u7528\u6807\u8BB0\uFF0C\u53EF\u664B\u5347\u5230\u6838\u5FC3\u4F5C\u7528\u57DF\u3002`,
+        ids: [record.id]
+      };
+      candidates.push({
+        kind: "promotion",
+        fingerprint,
+        issue,
+        input: {
+          operation: "create",
+          type: record.type,
+          scope: `project:${coreId}`,
+          title: truncate2(`[promoted] ${record.title}`, 200),
+          summary: truncate2(`[promoted] ${record.summary}`, 240),
+          content: record.body,
+          sourceRefs: [`note:${key}`, ...record.sourceRefs].slice(0, 20),
+          tags: mergeTags(record.tags, ["maintenance", token, "promoted"]),
+          related: record.related,
+          promotedFrom: key
+        }
+      });
+    }
+  }
+  const workspaceStats = options.workspaces.map((workspace) => ({
+    id: workspace.id,
+    accepted: accepted.filter(
+      (record) => record.scope.level === "project" && record.scope.workspaceId === workspace.id
+    ).length,
+    pending: pending.filter(
+      (proposal) => proposal.scope.level === "project" && proposal.scope.workspaceId === workspace.id
+    ).length
+  }));
+  candidates.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === "duplicate" ? -1 : 1;
+    return left.fingerprint.localeCompare(right.fingerprint);
+  });
+  return {
+    issues,
+    candidates,
+    workspaceStats,
+    totals: {
+      knowledge: store.docs.size,
+      pending: pending.length,
+      accepted: accepted.length,
+      proposalsExisting: store.proposals.size
+    }
+  };
+}
+function renderMaintenanceReport(input) {
+  const lines = [
+    "# Memory Hub Maintenance",
+    "",
+    `- Generated: ${input.generatedAt}`,
+    `- Mode: ${input.apply}`,
+    `- Hub: ${input.root}`,
+    `- Core: ${input.coreId ?? "(fallback)"}`,
+    `- Report: ${input.reportPath ?? "(not written)"}`,
+    "",
+    "## Summary",
+    "",
+    `- knowledge: ${input.analysis.totals.knowledge} (accepted ${input.analysis.totals.accepted})`,
+    `- pending: ${input.analysis.totals.pending}`,
+    `- issues: ${input.analysis.issues.length}`,
+    `- candidates: ${input.analysis.candidates.length}`,
+    `- proposals created: ${input.created.length}`,
+    `- skipped (already pending): ${input.skipped}`,
+    `- max proposals: ${input.maxProposals}`,
+    "",
+    "## Workspaces",
+    "",
+    "| workspace | accepted | pending |",
+    "| --- | ---: | ---: |",
+    ...input.analysis.workspaceStats.map((stat3) => `| ${stat3.id} | ${stat3.accepted} | ${stat3.pending} |`),
+    "",
+    "## Created proposals",
+    "",
+    ...input.created.length === 0 ? ["- none"] : input.created.map(
+      (proposal) => `- ${proposal.id} \xB7 ${proposal.operation} \xB7 ${formatScope(proposal.scope)} \xB7 ${proposal.title}`
+    ),
+    "",
+    "## Issues",
+    ""
+  ];
+  const byCode = /* @__PURE__ */ new Map();
+  for (const issue of input.analysis.issues) {
+    const list = byCode.get(issue.code) ?? [];
+    list.push(issue);
+    byCode.set(issue.code, list);
+  }
+  if (byCode.size === 0) {
+    lines.push("- none", "");
+  } else {
+    for (const [code, list] of [...byCode.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      lines.push(`### ${code} (${list.length})`, "");
+      for (const issue of list.slice(0, 20)) lines.push(`- ${issue.message}`);
+      if (list.length > 20) lines.push(`- (+${list.length - 20} more)`);
+      lines.push("");
+    }
+  }
+  lines.push(
+    "## Guardrails",
+    "",
+    "- This report is not authoritative knowledge.",
+    "- Proposals are pending; nothing was committed, deleted, or rewritten.",
+    "- Exact duplicates become deprecate proposals; project knowledge is promoted only with an explicit reuse tag.",
+    "- Review pending proposals in the Web panel or with memory_get, then commit intentionally.",
+    ""
+  );
+  return lines.join("\n");
+}
+function findNearDuplicateTitles(records) {
+  const pairs = [];
+  for (let index = 0; index < records.length; index += 1) {
+    const left = records[index];
+    const leftGrams = bigrams(left.title);
+    for (let other = index + 1; other < records.length; other += 1) {
+      const right = records[other];
+      if (left.type !== right.type) continue;
+      if (normalizeText2(left.title) === normalizeText2(right.title)) continue;
+      const score = jaccard(leftGrams, bigrams(right.title));
+      if (score >= NEAR_TITLE_THRESHOLD) pairs.push([left, right]);
+    }
+  }
+  return pairs;
+}
+function bigrams(value) {
+  const chars = Array.from(normalizeText2(value));
+  const grams = /* @__PURE__ */ new Set();
+  if (chars.length < 2) {
+    if (chars.length === 1) grams.add(chars[0]);
+    return grams;
+  }
+  for (let index = 0; index < chars.length - 1; index += 1) {
+    grams.add(`${chars[index]}${chars[index + 1]}`);
+  }
+  return grams;
+}
+function jaccard(left, right) {
+  if (left.size === 0 || right.size === 0) return 0;
+  let intersection = 0;
+  for (const value of left) if (right.has(value)) intersection += 1;
+  return intersection / (left.size + right.size - intersection);
+}
+function normalizeText2(value) {
+  return value.trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+function ageDays(value, nowMs) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.floor((nowMs - timestamp) / 864e5);
+}
+function mergeTags(existing, extra) {
+  return [.../* @__PURE__ */ new Set([...extra, ...existing])].slice(0, 12);
+}
+function truncate2(value, max) {
+  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+
+// src/service.ts
 var PLUGIN_VERSION = package_default.version;
 var MemoryService = class {
   ctx;
@@ -13861,6 +14191,127 @@ var MemoryService = class {
     }
     return { ...result, dryRun: args.dry_run === true };
   }
+  async maintenance(args) {
+    if (args.admin !== true) {
+      throw new MemoryError("SCOPE_FORBIDDEN", "maintenance requires an admin workspace");
+    }
+    const apply2 = args.apply === "propose" ? "propose" : "report";
+    const maxProposals = Math.min(20, Math.max(1, Math.trunc(args.maxProposals ?? 10)));
+    const stalePendingDays = Math.min(3650, Math.max(1, Math.trunc(args.stalePendingDays ?? 30)));
+    const staleCitationDays = Math.min(3650, Math.max(1, Math.trunc(args.staleCitationDays ?? 90)));
+    const analysis = analyzeMaintenance(this.store, {
+      coreId: args.coreId,
+      workspaces: this.activeWorkspaces.map((workspace) => ({
+        id: workspace.id,
+        root: workspace.root,
+        coreId: workspace.core_id ?? null,
+        admin: workspace.admin,
+        enabled: workspace.enabled
+      })),
+      citations: new Set(this.citations.map((citation) => citation.knowledgeId)),
+      stalePendingDays,
+      staleCitationDays,
+      ...args.now === void 0 ? {} : { now: args.now },
+      maxBodyBytes: this.hub.config.policy.limits.max_body_bytes
+    });
+    const taskId = newMaintenanceTaskId();
+    const created = [];
+    const errors = [];
+    let skipped = 0;
+    let truncated = 0;
+    if (apply2 === "propose" && this.hub.readOnly) {
+      errors.push(`hub is read-only: ${this.hub.readOnlyReason ?? "unknown reason"}`);
+    } else if (apply2 === "propose") {
+      const pendingTags = /* @__PURE__ */ new Set();
+      for (const proposal of this.store.proposals.values()) {
+        if (proposal.status !== "pending") continue;
+        for (const tag of proposal.tags) if (tag.startsWith("maint-")) pendingTags.add(tag);
+      }
+      for (const candidate of analysis.candidates) {
+        if (this.maintenanceAlreadyPending(candidate, pendingTags)) {
+          skipped += 1;
+          continue;
+        }
+        if (created.length >= maxProposals) {
+          truncated += 1;
+          continue;
+        }
+        try {
+          const proposal = await this.store.propose(candidate.input, { taskId });
+          await this.ledger.append({
+            type: "proposal.created",
+            taskId,
+            proposalId: proposal.id
+          });
+          created.push(proposal);
+          pendingTags.add(maintenanceToken(candidate.fingerprint));
+        } catch (error) {
+          errors.push(`${candidate.fingerprint}: ${error.message}`);
+        }
+      }
+    }
+    const generatedAt = nowIso();
+    const stamp = generatedAt.replace(/[:.]/g, "-");
+    const reportPath = join4(this.hub.root, "reports", `${stamp}.md`);
+    const latestPath = join4(this.hub.root, "reports", "latest.md");
+    const report = renderMaintenanceReport({
+      root: this.hub.displayRoot(),
+      coreId: args.coreId,
+      apply: apply2,
+      analysis,
+      created,
+      skipped,
+      maxProposals,
+      reportPath,
+      generatedAt
+    });
+    let writtenReport = reportPath;
+    let writtenLatest = latestPath;
+    try {
+      await writeAtomic(reportPath, report);
+      await writeAtomic(latestPath, report);
+    } catch (error) {
+      writtenReport = null;
+      writtenLatest = null;
+      errors.push(`cannot write maintenance report: ${error.message}`);
+    }
+    return {
+      apply: apply2,
+      coreId: args.coreId,
+      root: this.hub.displayRoot(),
+      readOnly: this.hub.readOnly,
+      reportPath: writtenReport,
+      latestPath: writtenLatest,
+      generatedAt,
+      totals: analysis.totals,
+      workspaceStats: analysis.workspaceStats,
+      issues: analysis.issues,
+      created: created.map((proposal) => ({
+        id: proposal.id,
+        operation: proposal.operation,
+        type: proposal.type,
+        scope: formatScope(proposal.scope),
+        title: proposal.title,
+        target: proposal.target
+      })),
+      skipped,
+      truncated,
+      errors
+    };
+  }
+  maintenanceAlreadyPending(candidate, tags) {
+    if (tags.has(maintenanceToken(candidate.fingerprint))) return true;
+    for (const proposal of this.store.proposals.values()) {
+      if (proposal.status !== "pending") continue;
+      if (candidate.kind === "promotion" && candidate.input.promotedFrom !== void 0 && proposal.promotedFrom === candidate.input.promotedFrom) {
+        return true;
+      }
+      if (candidate.kind === "duplicate" && proposal.operation === "deprecate" && proposal.target !== null && proposal.target === candidate.input.target) {
+        return true;
+      }
+    }
+    return false;
+  }
   overview() {
     const knowledge = [...this.store.docs.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200).map((record) => ({
       id: record.id,
@@ -13921,7 +14372,8 @@ var MemoryService = class {
         approval: this.hub.config.policy.approval,
         preflight: this.hub.config.policy.preflight,
         gate: this.hub.config.policy.gate,
-        evidence: this.hub.config.policy.evidence
+        evidence: this.hub.config.policy.evidence,
+        maintenance: this.hub.config.policy.maintenance
       },
       knowledge,
       pending,
@@ -14010,7 +14462,8 @@ var MemoryService = class {
           mode: this.hub.config.policy.preflight.mode === "off" ? "off" : this.hub.config.policy.gate.mode,
           on_preflight_error: this.hub.config.policy.gate.on_preflight_error,
           unknown_tools: this.hub.config.policy.gate.unknown_tools
-        }
+        },
+        maintenance: this.hub.config.policy.maintenance
       }
     };
   }
@@ -14108,7 +14561,7 @@ var MemoryService = class {
     const lines = [...header];
     let included = 0;
     for (const hit of hits) {
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate2(hit.summary, 160)} (${formatScope(hit.scope)})`;
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)})`;
       const candidate = [...lines, line, ...footer].join("\n");
       if (this.estimateTokens(candidate) > budget && included > 0) break;
       lines.push(line);
@@ -14165,9 +14618,9 @@ function citationKey(taskId, knowledgeId, version) {
   return `${taskId}|${knowledgeId}|${version}`;
 }
 function hashIntent(intent) {
-  return `sha256:${createHash("sha256").update(intent).digest("hex").slice(0, 16)}`;
+  return `sha256:${createHash2("sha256").update(intent).digest("hex").slice(0, 16)}`;
 }
-function truncate2(value, max) {
+function truncate3(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 function normalizeForCompare(path) {
@@ -14179,6 +14632,20 @@ function containsPath(root, child) {
   if (child === root) return true;
   const rel = relative2(root.replace(/\\/g, "/"), child.replace(/\\/g, "/"));
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && !rel.startsWith(`..${sep2}`);
+}
+
+// src/maintenance-schedule.ts
+function localDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+function localTimeKey(date) {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+function maintenanceDue(time, date) {
+  return localTimeKey(date) >= time;
 }
 
 // src/tools.ts
@@ -14447,6 +14914,43 @@ function createTools(host) {
       }
     }),
     tool({
+      name: "memory_maintenance",
+      description: "Run deterministic memory maintenance: scan the current hub (or all cores), write a Markdown report, and optionally create pending proposals for exact duplicates and explicitly reusable project knowledge. It never commits, deletes, or rewrites knowledge. Use it for a nightly review; review the pending proposals in the morning. Requires an admin workspace.",
+      parameters: objectSchema({
+        apply: {
+          type: "string",
+          enum: ["report", "propose"],
+          description: "report (default) writes only the report; propose also creates pending proposals."
+        },
+        all_cores: {
+          type: "boolean",
+          description: "Scan every configured core hub, not only the current one; defaults to true."
+        },
+        max_proposals: {
+          type: "number",
+          description: "Maximum pending proposals to create this run, 1..20; defaults to 10."
+        },
+        stale_pending_days: {
+          type: "number",
+          description: "Report pending proposals older than this many days; defaults to 30."
+        },
+        stale_citation_days: {
+          type: "number",
+          description: "Report accepted entries not cited for this many days; defaults to 90."
+        }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        return host.maintenance(requireAgent(exec), {
+          ...input.all_cores === void 0 ? {} : { all_cores: input.all_cores },
+          ...input.apply === void 0 ? {} : { apply: input.apply },
+          ...input.max_proposals === void 0 ? {} : { max_proposals: input.max_proposals },
+          ...input.stale_pending_days === void 0 ? {} : { stale_pending_days: input.stale_pending_days },
+          ...input.stale_citation_days === void 0 ? {} : { stale_citation_days: input.stale_citation_days }
+        });
+      }
+    }),
+    tool({
       name: "memory_consolidate",
       description: "Manually promote accepted project knowledge into global/domain proposals. Requires an admin workspace. Produces pending proposals only; it never overwrites downstream entries. Safe to re-run: already-promoted keys are skipped.",
       parameters: objectSchema({
@@ -14555,6 +15059,18 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 
 \u53EA\u6709\u5728\u5B50\u5DE5\u4F5C\u533A\u9A8C\u8BC1\u8FC7\u3001\u4E14\u5BF9\u540C\u6838\u5FC3\u4ED3\u5176\u4ED6\u63D2\u4EF6\u53EF\u590D\u7528\u7684\u7ECF\u9A8C\uFF0C\u624D\u7528 \`scope: "core"\` \u56DE\u586B\u3002\u56DE\u586B\u524D\u5148 \`memory_search\` \u67E5\u91CD\uFF1B\u5E26 \`source_refs\` \u548C \`related\`\uFF1B\u9879\u76EE\u7279\u5B9A\u7684\u7EC6\u8282\u7559\u5728\u672C\u5730 \`project\` \u4F5C\u7528\u57DF\u3002
 
+## \u591C\u95F4\u7EF4\u62A4
+
+\`memory_maintenance\` \u662F\u786E\u5B9A\u6027\u7684\u5DE1\u68C0\u5165\u53E3\uFF0C\u4E0D\u662F\u201C\u8BA9\u6A21\u578B\u91CD\u5199\u8BB0\u5FC6\u201D\uFF1A
+
+- \`apply: "report"\` \u53EA\u5199 \`reports/\` \u62A5\u544A\uFF0C\u9ED8\u8BA4\uFF1B
+- \`apply: "propose"\` \u989D\u5916\u521B\u5EFA **pending** \u63D0\u6848\uFF1A\u7CBE\u786E\u91CD\u590D\u6761\u76EE\u5EFA\u8BAE deprecate\uFF0C\u5E26 \`core\` / \`shared\` / \`reusable\` / \`promote\` \u6807\u7B7E\u7684\u5B50\u5DE5\u4F5C\u533A\u77E5\u8BC6\u5EFA\u8BAE\u664B\u5347\uFF1B
+- \u5B83**\u6C38\u4E0D** commit\u3001\u5220\u9664\u3001\u6539\u5199\u6B63\u6587\uFF1B\u63D0\u6848\u7531\u7528\u6237\u7B2C\u4E8C\u5929\u5BA1\u6279\uFF1B
+- \u9700\u8981 admin \u5DE5\u4F5C\u533A\uFF1B\u9ED8\u8BA4\u626B\u63CF\u6240\u6709 core\uFF0C\u5355\u4E2A core \u5931\u8D25\u4E0D\u5F71\u54CD\u5176\u4ED6 core\uFF1B
+- \u540C\u4E00\u6307\u7EB9\u7684\u63D0\u6848\u5DF2 pending \u65F6\u4F1A\u8DF3\u8FC7\uFF0C\u907F\u514D\u6BCF\u665A\u91CD\u590D\u3002
+
+\u8C03\u5EA6\u63D0\u793A\u5E94\u8981\u6C42\u4F7F\u7528 \`apply: "propose"\`\uFF0C\u5E76\u660E\u786E\u201C\u53EA\u751F\u6210 pending\uFF0C\u4E0D commit\u201D\u3002\u5BA1\u6279\u4ECD\u7531 \`memory_commit\` \u5B8C\u6210\u3002
+
 ## \u5DE5\u5177\u901F\u67E5
 
 | \u76EE\u7684 | \u5DE5\u5177 |
@@ -14568,6 +15084,7 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 | \u63D0\u4EA4\u5019\u9009 | \`memory_commit\` |
 | \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
 | \u9879\u76EE\u77E5\u8BC6\u664B\u5347 | \`memory_consolidate\` |
+| \u591C\u95F4\u5DE1\u68C0 / \u751F\u6210\u7EF4\u62A4\u63D0\u6848 | \`memory_maintenance\` |
 
 ## \u53CD\u6A21\u5F0F
 
@@ -14607,6 +15124,9 @@ var MemoryRuntime = class {
   watchTimers = /* @__PURE__ */ new Map();
   started = false;
   disposed = false;
+  maintenanceTimer = null;
+  maintenanceRunning = false;
+  maintenanceLastDate = null;
   ready;
   resolveReady = null;
   constructor(ctx, config) {
@@ -14678,7 +15198,7 @@ var MemoryRuntime = class {
       const configHub = await Hub.open({ root: configRoot, readOnly: this.config.readOnly === true });
       this.configHub = configHub;
       const globalConfig = configHub.config;
-      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig));
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null);
       for (const core of globalConfig.core_workspaces) {
         if (core.root === void 0) continue;
         const root = resolve2(expandHome(core.root));
@@ -14688,12 +15208,18 @@ var MemoryRuntime = class {
           config: globalConfig,
           configPath: configHub.configPath() ?? void 0
         });
-        const pack = await this.openServicePack(dataHub, globalConfig, this.coreWorkspaces(globalConfig, core.id, root));
+        const pack = await this.openServicePack(
+          dataHub,
+          globalConfig,
+          this.coreWorkspaces(globalConfig, core.id, root),
+          core.id
+        );
         this.cores.set(core.id, pack);
       }
       this.registerExistingAgents();
       this.warmClientModule();
       this.startWatcher();
+      this.startMaintenanceTimer();
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0);
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`
@@ -14738,7 +15264,125 @@ var MemoryRuntime = class {
     if (pack === null) return { version: PLUGIN_VERSION, initialized: false, error: "no matching hub" };
     return pack.service.status(agent);
   }
-  async openServicePack(hub, config, workspaces) {
+  startMaintenanceTimer() {
+    if (this.configHub === null) return;
+    const tick = () => {
+      void this.runScheduledMaintenance();
+    };
+    const timer = setInterval(tick, 6e4);
+    timer.unref?.();
+    this.maintenanceTimer = timer;
+    this.disposers.push(() => {
+      if (this.maintenanceTimer !== null) {
+        clearInterval(this.maintenanceTimer);
+        this.maintenanceTimer = null;
+      }
+    });
+    tick();
+  }
+  async runScheduledMaintenance() {
+    if (this.disposed || this.maintenanceRunning || this.configHub === null) return;
+    const policy = this.configHub.config.policy.maintenance;
+    if (policy.enabled !== true) return;
+    const now = /* @__PURE__ */ new Date();
+    if (!maintenanceDue(policy.time, now)) return;
+    const today = localDateKey(now);
+    if (this.maintenanceLastDate === today) return;
+    const last = await this.readMaintenanceState();
+    if (last === today) {
+      this.maintenanceLastDate = today;
+      return;
+    }
+    this.maintenanceRunning = true;
+    try {
+      const packs = policy.all_cores ? [...this.cores.values(), ...this.fallback === null ? [] : [this.fallback]] : this.fallback === null ? [] : [this.fallback];
+      const seen = /* @__PURE__ */ new Set();
+      for (const pack of packs) {
+        const key = pack.hub.root.replace(/\\/g, "/").toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await pack.service.maintenance({
+            admin: true,
+            coreId: pack.coreId,
+            apply: policy.apply,
+            maxProposals: policy.max_proposals,
+            stalePendingDays: policy.stale_pending_days,
+            staleCitationDays: policy.stale_citation_days
+          });
+        } catch (error) {
+          this.ctx.logger.warn(
+            `dsh-memory-hub: scheduled maintenance failed for ${pack.coreId ?? pack.hub.displayRoot()}: ${error.message}`
+          );
+        }
+      }
+      this.maintenanceLastDate = today;
+      await writeAtomic(this.maintenanceStatePath(), JSON.stringify({ lastRunDate: today, completedAt: now.toISOString() }, null, 2));
+      this.ctx.logger.info(`dsh-memory-hub: scheduled maintenance completed for ${today}`);
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot record maintenance state: ${error.message}`);
+    } finally {
+      this.maintenanceRunning = false;
+    }
+  }
+  maintenanceStatePath() {
+    return join5(this.configHub?.root ?? "", "records", "maintenance-state.json");
+  }
+  async readMaintenanceState() {
+    try {
+      const raw = await readTextOrNull(this.maintenanceStatePath());
+      if (raw === null) return null;
+      const parsed = JSON.parse(raw);
+      return typeof parsed.lastRunDate === "string" ? parsed.lastRunDate : null;
+    } catch {
+      return null;
+    }
+  }
+  async maintenance(agent, args) {
+    await this.ready;
+    if (this.initError !== null) {
+      throw new MemoryError("NOT_CONFIGURED", `memory hub initialization failed: ${this.initError.message}`);
+    }
+    const current = this.serviceFor(agent);
+    if (current === null) throw new MemoryError("NOT_CONFIGURED", "no memory hub matches the current workspace");
+    const workspace = await current.service.resolveWorkspace(agent);
+    if (!workspace.admin) {
+      throw new MemoryError("SCOPE_FORBIDDEN", "memory maintenance requires an admin workspace");
+    }
+    const allCores = args.all_cores !== false;
+    const packs = allCores ? [...this.cores.values(), ...this.fallback === null ? [] : [this.fallback]] : [current];
+    const seen = /* @__PURE__ */ new Set();
+    const hubs = [];
+    for (const pack of packs) {
+      const key = pack.hub.root.replace(/\\/g, "/").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        hubs.push(
+          await pack.service.maintenance({
+            admin: true,
+            coreId: pack.coreId,
+            ...args.apply === void 0 ? {} : { apply: args.apply },
+            ...args.max_proposals === void 0 ? {} : { maxProposals: args.max_proposals },
+            ...args.stale_pending_days === void 0 ? {} : { stalePendingDays: args.stale_pending_days },
+            ...args.stale_citation_days === void 0 ? {} : { staleCitationDays: args.stale_citation_days }
+          })
+        );
+      } catch (error) {
+        hubs.push({
+          coreId: pack.coreId,
+          root: pack.hub.displayRoot(),
+          error: error.message
+        });
+      }
+    }
+    return {
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      allCores,
+      hubs
+    };
+  }
+  async openServicePack(hub, config, workspaces, coreId) {
     const ledger = new Ledger(hub.ledgerPath());
     const ledgerState = await ledger.load({ repair: !hub.readOnly });
     const store = new KnowledgeStore(hub, ledger);
@@ -14751,7 +15395,7 @@ var MemoryRuntime = class {
       ledgerState,
       workspaces
     });
-    return { hub, store, ledger, service, workspaces };
+    return { hub, store, ledger, service, workspaces, coreId };
   }
   standaloneWorkspaces(config) {
     return config.workspaces.filter((workspace) => !workspace.core_id);
@@ -15101,7 +15745,7 @@ var MemoryRuntime = class {
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return;
-          const path = join4(root, filename);
+          const path = join5(root, filename);
           this.schedule(path);
         });
         handle.on("error", (error) => {

@@ -1,6 +1,6 @@
 # 宿主兼容性与验证记录
 
-日期：2026-11-01｜插件版本：`0.1.4`（本地；`0.1.3` 仅发布流程与版本源变更）｜状态：Desktop 宿主冒烟通过；`min_score` / `local_boost` / 面板计数 / 系统级 `memory-hub` skill 已热加载验证，视觉待人工确认。
+日期：2026-11-01｜插件版本：`0.1.4`（本地；`0.1.3` 仅发布流程与版本源变更）｜状态：Desktop 宿主冒烟通过；`min_score` / `local_boost` / 面板计数 / 系统级 `memory-hub` skill / 夜间维护工具与定时器已热加载验证，视觉待人工确认。
 
 ## 环境
 
@@ -20,7 +20,7 @@
 | # | 验证项 | 结果 | 证据 |
 | --- | --- | --- | --- |
 | V1 | 本地 bundle 安装与激活 | PASS | `plugin_manager install_bundle` → `application: applied`；`Config.listConfigs` 显示 `include:dsh-memory-hub` |
-| V2 | 9 个工具出现在模型可用工具中 | PASS | 安装后收到工具 schema 更新（`memory_search` … `memory_consolidate`） |
+| V2 | 10 个工具出现在模型可用工具中 | PASS | 安装后收到工具 schema 更新（`memory_search` … `memory_maintenance`） |
 | V3 | `memory_status` 初始化 | PASS | `initialized: true`，root `~/.dsh/memory-hub`，`readOnly: false` |
 | V4 | 文件 watcher 索引 | PASS | 写入 `DEC-000001.md` 后 `memory_search` 命中并返回相对路径 |
 | V5 | 用户回合自动预检 | PASS | 子 Agent 会话 `d0c2bddc-…` 的账本：`task.created` (turn 1) + `preflight.recorded` (`ready`) |
@@ -33,16 +33,18 @@
 | V12 | 手动预检恢复任务 | PASS | 无自动任务的会话调用 `memory_preflight` 后获得 `TSK-…`，随后 `memory_cite` 成功 |
 | V13 | `config.yaml` 热加载与工作区映射 | PASS | 运行中写入 workspace；`memory_status` 显示 `dsh-memory-hub` 已注册；预检包显示该工作区 |
 | V14 | 卸载与重装 | PASS | `remove_bundle` → `applied`，写锁释放；重装后空 Hub 正常初始化 |
-| V15 | 单元/集成/面板注册测试 | PASS | 45 个测试（`vitest run`，8 个文件） |
+| V15 | 单元/集成/面板注册测试 | PASS | 53 个测试（`vitest run`，10 个文件） |
 | V16 | 构建可被 Node ESM 直接导入 | PASS | `import('./dist/index.js')` 返回 `apply,inject,name` |
 | V17 | 面板 Host API | PASS | `GET /dsh-memory-hub/api/overview` 返回 200 与完整 JSON；`/api/knowledge?id=…` 返回 200/404 |
 | V18 | 面板 bundle 可注册 | PASS | `tests/client.test.ts` 通过 `__ModuleLoader__` 装载并注册 `sidebar.panellist`（id `memory-hub`）与 `main`（key `memory-hub`）；React SSR 渲染面板与图标 |
 | V19 | 运行中热加载面板 | PASS | 安装后 `/api/overview` 返回 `client.advertised: true`；`Slots.listSubTree` 显示 `sidebar.panellist` 的 `memory-hub`（order 50）与 `main` 的 `memory-hub`，均 `active: true` |
 | V20 | 核心/子工作区配置与 Web 配置标签页 | PASS | `GET/POST /dsh-memory-hub/api/config` 读写 `core_workspaces` 与 `workspaces`；`config.yaml` 实时落盘并热加载；面板新增「配置」与「能力」标签页 |
 | V21 | 预检相关性门控与本地优先 | PASS | `memory_status` 显示 `min_score: 1, local_boost: 1.2`；对“本地优先 预检”手动预检时 `DEC-000002`（`project:dsh-memory-hub`）排在核心条目前；`/api/overview?core=dsh-plugin-dev` 的 task 返回 `citations` 与更新后的 `preflight.hits` |
-| V22 | 系统级 `memory-hub` skill 与官方命名审计 | PASS | 插件重载后 skill catalog 新增 `memory-hub`；`skill` 工具加载返回完整操作规范；当前官方/内置名称快照无 `memory-hub`，`tests/skill.test.ts` 锁定该检查；插件注入 `skills` 服务后注册，宿主无该服务时只 warning 并继续提供 9 个工具 |
+| V22 | 系统级 `memory-hub` skill 与官方命名审计 | PASS | 插件重载后 skill catalog 新增 `memory-hub`；`skill` 工具加载返回完整操作规范；当前官方/内置名称快照无 `memory-hub`，`tests/skill.test.ts` 锁定该检查；插件注入 `skills` 服务后注册，宿主无该服务时只 warning 并继续提供 10 个工具 |
+| V23 | `memory_maintenance` 工具与报告 | PASS | `memory_maintenance({apply:"report"})` 扫描 `product` / `dsh-plugin-dev` / fallback，分别写 `reports/<timestamp>.md` 与 `latest.md`；13 条知识、0 pending、0 候选；随后 `all_cores:false, apply:"propose"` 运行无错误、无候选 |
+| V24 | 夜间定时器与补跑 | PASS | `policy.maintenance.enabled: true` + `time: '03:00'` 后重载插件；当天 23:29 因“已过 03:00 且当天未跑”补跑一次，写 `records/maintenance-state.json`（`lastRunDate: 2026-11-01`）和报告；未产生 pending，未提交任何知识 |
 
-冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本在验证后已随 Hub 目录重置删除；当前安装的 Hub 为空，仅保留真实配置。
+早期冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本已随 Hub 目录重置删除；当前安装的 Hub 保留真实知识（13 条 accepted），并在 `reports/` 下保留维护报告。
 
 > **面板可见性**：`clientModules` 会把首次扫描不到的包缓存为 null；插件启动时会清除本包的该缓存并标记 dirty，使 `client.advertised` 从 `false` 变为 `true`，无需重启即可进入启动图。若未来 Host 移除这些内部字段，插件会安全回退，用户重启一次 DSH 即可。当前侧边栏与主面板均已注册为 active；点击后的完整视觉布局仍需人工确认。
 
@@ -57,6 +59,8 @@
 | 长会话上下文累积 | 只做了两个回合 | 注入按任务替换的宿主语义需要更多观察 |
 | 5k 条索引性能 | 未做规模压测 | 设计目标未实测 |
 | Web 面板视觉效果 | 无法在本会话内截图/点击验证 | 模块、slot 与 API 已测；需确认图标、标签页与响应式布局的实际观感 |
+| 03:00 精确触发 | 验证时已过 03:00，只验证了补跑路径 | 本地日期/时间判断由单元测试覆盖；到点触发依赖同一判断 |
+| 真实维护候选生成 | 当前 13 条知识没有精确重复/复用标签 | 精确重复 deprecate、晋升、去重、report-only、非 admin 拒绝由 5 个维护测试覆盖 |
 
 ## 安装事实
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import packageJson from '../package.json' with { type: 'json' }
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 import { MemoryError } from './errors.js'
 import { configSchema, type CoreWorkspaceConfig, type MemoryConfig, type WorkspaceConfig } from './config.js'
 import type { Hub } from './hub.js'
@@ -9,8 +9,17 @@ import type { Ledger, LedgerState } from './ledger.js'
 import { KnowledgeStore } from './store.js'
 import { writeAtomic } from './atomic.js'
 import { stringify as stringifyYaml } from 'yaml'
-import { newCitationId, newPreflightId, newTaskId } from './ids.js'
+import { newCitationId, newMaintenanceTaskId, newPreflightId, newTaskId } from './ids.js'
 import { formatScope, isScopeVisible, parseScope, visibilityFor } from './scope.js'
+import {
+  analyzeMaintenance,
+  maintenanceToken,
+  renderMaintenanceReport,
+  type MaintenanceAnalysis,
+  type MaintenanceCandidate,
+  type MaintenanceIssue,
+  type MaintenanceWorkspaceStat,
+} from './maintenance.js'
 import { nowIso } from './time.js'
 import type {
   AppliesTo,
@@ -73,6 +82,40 @@ export interface ProposeArgs {
   target?: string
   expected_version?: number
   reason?: string
+}
+
+export interface MaintenanceArgs {
+  admin: boolean
+  coreId: string | null
+  apply?: 'report' | 'propose'
+  maxProposals?: number
+  stalePendingDays?: number
+  staleCitationDays?: number
+  now?: Date
+}
+
+export interface MaintenanceResult {
+  apply: 'report' | 'propose'
+  coreId: string | null
+  root: string
+  readOnly: boolean
+  reportPath: string | null
+  latestPath: string | null
+  generatedAt: string
+  totals: MaintenanceAnalysis['totals']
+  workspaceStats: MaintenanceWorkspaceStat[]
+  issues: MaintenanceIssue[]
+  created: Array<{
+    id: string
+    operation: string
+    type: string
+    scope: string
+    title: string
+    target: string | null
+  }>
+  skipped: number
+  truncated: number
+  errors: string[]
 }
 
 interface RuntimeOptions {
@@ -787,6 +830,143 @@ export class MemoryService {
     return { ...result, dryRun: args.dry_run === true }
   }
 
+  async maintenance(args: MaintenanceArgs): Promise<MaintenanceResult> {
+    if (args.admin !== true) {
+      throw new MemoryError('SCOPE_FORBIDDEN', 'maintenance requires an admin workspace')
+    }
+    const apply = args.apply === 'propose' ? 'propose' : 'report'
+    const maxProposals = Math.min(20, Math.max(1, Math.trunc(args.maxProposals ?? 10)))
+    const stalePendingDays = Math.min(3650, Math.max(1, Math.trunc(args.stalePendingDays ?? 30)))
+    const staleCitationDays = Math.min(3650, Math.max(1, Math.trunc(args.staleCitationDays ?? 90)))
+    const analysis = analyzeMaintenance(this.store, {
+      coreId: args.coreId,
+      workspaces: this.activeWorkspaces.map((workspace) => ({
+        id: workspace.id,
+        root: workspace.root,
+        coreId: workspace.core_id ?? null,
+        admin: workspace.admin,
+        enabled: workspace.enabled,
+      })),
+      citations: new Set(this.citations.map((citation) => citation.knowledgeId)),
+      stalePendingDays,
+      staleCitationDays,
+      ...(args.now === undefined ? {} : { now: args.now }),
+      maxBodyBytes: this.hub.config.policy.limits.max_body_bytes,
+    })
+
+    const taskId = newMaintenanceTaskId()
+    const created: ProposalRecord[] = []
+    const errors: string[] = []
+    let skipped = 0
+    let truncated = 0
+
+    if (apply === 'propose' && this.hub.readOnly) {
+      errors.push(`hub is read-only: ${this.hub.readOnlyReason ?? 'unknown reason'}`)
+    } else if (apply === 'propose') {
+      const pendingTags = new Set<string>()
+      for (const proposal of this.store.proposals.values()) {
+        if (proposal.status !== 'pending') continue
+        for (const tag of proposal.tags) if (tag.startsWith('maint-')) pendingTags.add(tag)
+      }
+      for (const candidate of analysis.candidates) {
+        if (this.maintenanceAlreadyPending(candidate, pendingTags)) {
+          skipped += 1
+          continue
+        }
+        if (created.length >= maxProposals) {
+          truncated += 1
+          continue
+        }
+        try {
+          const proposal = await this.store.propose(candidate.input, { taskId })
+          await this.ledger.append({
+            type: 'proposal.created',
+            taskId,
+            proposalId: proposal.id,
+          })
+          created.push(proposal)
+          pendingTags.add(maintenanceToken(candidate.fingerprint))
+        } catch (error) {
+          errors.push(`${candidate.fingerprint}: ${(error as Error).message}`)
+        }
+      }
+    }
+
+    const generatedAt = nowIso()
+    const stamp = generatedAt.replace(/[:.]/g, '-')
+    const reportPath = join(this.hub.root, 'reports', `${stamp}.md`)
+    const latestPath = join(this.hub.root, 'reports', 'latest.md')
+    const report = renderMaintenanceReport({
+      root: this.hub.displayRoot(),
+      coreId: args.coreId,
+      apply,
+      analysis,
+      created,
+      skipped,
+      maxProposals,
+      reportPath,
+      generatedAt,
+    })
+
+    let writtenReport: string | null = reportPath
+    let writtenLatest: string | null = latestPath
+    try {
+      await writeAtomic(reportPath, report)
+      await writeAtomic(latestPath, report)
+    } catch (error) {
+      writtenReport = null
+      writtenLatest = null
+      errors.push(`cannot write maintenance report: ${(error as Error).message}`)
+    }
+
+    return {
+      apply,
+      coreId: args.coreId,
+      root: this.hub.displayRoot(),
+      readOnly: this.hub.readOnly,
+      reportPath: writtenReport,
+      latestPath: writtenLatest,
+      generatedAt,
+      totals: analysis.totals,
+      workspaceStats: analysis.workspaceStats,
+      issues: analysis.issues,
+      created: created.map((proposal) => ({
+        id: proposal.id,
+        operation: proposal.operation,
+        type: proposal.type,
+        scope: formatScope(proposal.scope),
+        title: proposal.title,
+        target: proposal.target,
+      })),
+      skipped,
+      truncated,
+      errors,
+    }
+  }
+
+  private maintenanceAlreadyPending(candidate: MaintenanceCandidate, tags: Set<string>): boolean {
+    if (tags.has(maintenanceToken(candidate.fingerprint))) return true
+    for (const proposal of this.store.proposals.values()) {
+      if (proposal.status !== 'pending') continue
+      if (
+        candidate.kind === 'promotion' &&
+        candidate.input.promotedFrom !== undefined &&
+        proposal.promotedFrom === candidate.input.promotedFrom
+      ) {
+        return true
+      }
+      if (
+        candidate.kind === 'duplicate' &&
+        proposal.operation === 'deprecate' &&
+        proposal.target !== null &&
+        proposal.target === candidate.input.target
+      ) {
+        return true
+      }
+    }
+    return false
+  }
+
   overview(): Record<string, unknown> {
     const knowledge = [...this.store.docs.values()]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
@@ -857,6 +1037,7 @@ export class MemoryService {
         preflight: this.hub.config.policy.preflight,
         gate: this.hub.config.policy.gate,
         evidence: this.hub.config.policy.evidence,
+        maintenance: this.hub.config.policy.maintenance,
       },
       knowledge,
       pending,
@@ -962,6 +1143,7 @@ export class MemoryService {
           on_preflight_error: this.hub.config.policy.gate.on_preflight_error,
           unknown_tools: this.hub.config.policy.gate.unknown_tools,
         },
+        maintenance: this.hub.config.policy.maintenance,
       },
     }
   }

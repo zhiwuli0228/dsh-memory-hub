@@ -202,7 +202,7 @@ Workspace（逻辑工作区，映射到磁盘上的项目根）
 │ pre-step   agent/pre-step → 任务识别 · 预检 · 上下文状态            │
 │ turn-close agent/turn-stopping → 未评估则 deferred                 │
 │ tool-policy tools/pre-execute → 门禁 + 提交审批（ask）              │
-│ tools      defineTool 注册 9 个 memory_* 工具                       │
+│ tools      defineTool 注册 10 个 memory_* 工具                      │
 │ workspace  workingDirectory + workspaceRegistry → scope             │
 │ context    agent.ctx.systemPrompt.context('memory:pack')            │
 └──────────────────────────────┬─────────────────────────────────────┘
@@ -433,7 +433,7 @@ policy:
     mutating_tools: [bash, pwsh, write, edit, str_replace_editor]
     exempt_tools: [memory_search, memory_get, memory_status, memory_preflight,
                    memory_cite, memory_propose, memory_commit,
-                   memory_close_task, memory_consolidate]
+                   memory_close_task, memory_consolidate, memory_maintenance]
   evidence:
     required_for: [decision, constraint, process, api-catalog, runtime-base, playbooks]
   limits:
@@ -818,8 +818,9 @@ type WritebackAssessment =
 | `memory_commit` | 批准并提交 | `proposal_id` | `knowledgeId`、`version`、`status` |
 | `memory_close_task` | 关闭任务并评估 | `assessment`、`task_id?` | `closed`、`assessment` |
 | `memory_consolidate` | 汇总项目知识 | `workspace_ids?`、`types?`、`dry_run?` | `proposals[]`、`skipped` |
+| `memory_maintenance` | 夜间巡检与维护候选 | `apply?`、`all_cores?`、`max_proposals?`、`stale_pending_days?`、`stale_citation_days?` | `hubs[]`、`reportPath`、`created[]`、`issues[]` |
 
-共 9 个工具；F03/F04/F06/F07/F08/F09/F10 分别对应上表。
+共 10 个工具；F03/F04/F06/F07/F08/F09/F10 分别对应上表。
 
 ### 10.1 关键 schema（示意，实施以 `defineTool` DSL 为准）
 
@@ -887,7 +888,8 @@ memory_consolidate({
 - `memory_commit` 必须先通过 `tools/pre-execute` 的审批；工具内部再校验一次。
 - `memory_close_task` 只允许关闭当前任务；`task_id` 仅用于校验，不接受跨任务关闭。
 - 写类工具（`memory_propose` / `memory_commit` / `memory_close_task` / `memory_consolidate`）在只读模式下返回 `READ_ONLY`；检索、读取与 `memory_status` 仍可用。
-- 工具结果不返回绝对机器路径；返回相对 Hub 根的路径（`knowledge/decision/DEC-000001.md`）。
+- `memory_maintenance` 要求 admin 工作区；`apply: "propose"` 只写 `pending/` 与 `reports/`，永不写 `knowledge/`，在只读模式下只报告错误。
+- 工具结果不返回绝对机器路径；知识路径返回相对 Hub 根的路径（`knowledge/decision/DEC-000001.md`）。维护报告例外：返回绝对 `reportPath`，便于用户直接打开当天报告。
 
 ### 10.3 错误码
 

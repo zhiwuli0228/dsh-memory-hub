@@ -78,6 +78,18 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 
 只有在子工作区验证过、且对同核心仓其他插件可复用的经验，才用 \`scope: "core"\` 回填。回填前先 \`memory_search\` 查重；带 \`source_refs\` 和 \`related\`；项目特定的细节留在本地 \`project\` 作用域。
 
+## 夜间维护
+
+\`memory_maintenance\` 是确定性的巡检入口，不是“让模型重写记忆”：
+
+- \`apply: "report"\` 只写 \`reports/\` 报告，默认；
+- \`apply: "propose"\` 额外创建 **pending** 提案：精确重复条目建议 deprecate，带 \`core\` / \`shared\` / \`reusable\` / \`promote\` 标签的子工作区知识建议晋升；
+- 它**永不** commit、删除、改写正文；提案由用户第二天审批；
+- 需要 admin 工作区；默认扫描所有 core，单个 core 失败不影响其他 core；
+- 同一指纹的提案已 pending 时会跳过，避免每晚重复。
+
+调度提示应要求使用 \`apply: "propose"\`，并明确“只生成 pending，不 commit”。审批仍由 \`memory_commit\` 完成。
+
 ## 工具速查
 
 | 目的 | 工具 |
@@ -91,6 +103,7 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 | 提交候选 | \`memory_commit\` |
 | 结束任务 | \`memory_close_task\` |
 | 项目知识晋升 | \`memory_consolidate\` |
+| 夜间巡检 / 生成维护提案 | \`memory_maintenance\` |
 
 ## 反模式
 

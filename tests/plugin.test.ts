@@ -142,7 +142,8 @@ describe('plugin entry', () => {
 
     const host = createFakeHost(root)
     apply(host.ctx, { root })
-    expect(host.tools.size).toBe(9)
+    expect(host.tools.size).toBe(10)
+    expect(host.tools.has('memory_maintenance')).toBe(true)
     expect(host.skills.get('memory-hub')?.source).toBe('runtime')
     expect(host.listeners.get('agent/pre-step')?.length).toBe(1)
 

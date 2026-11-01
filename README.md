@@ -8,7 +8,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 **V0.1.3 已发布**：Host 插件 + Web 面板（含核心/子工作区配置），并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。本版本补齐 GitHub Actions Trusted Publisher 自动发布与版本一致性。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
-> **当前工作树为 V0.1.4（未发布）**：预检加入 `min_score` / `local_boost`，包尾改为指令式回写提示，面板任务行显示命中/引用计数，并注册系统级 `memory-hub` skill。npm 上仍是 `0.1.3`。
+> **当前工作树为 V0.1.4（未发布）**：预检加入 `min_score` / `local_boost`，包尾改为指令式回写提示，面板任务行显示命中/引用计数，注册系统级 `memory-hub` skill，并新增夜间确定性维护（只报告 + 生成 pending 提案，绝不自动提交）。npm 上仍是 `0.1.3`。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
@@ -26,6 +26,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 | 门禁 | 变更工具需要本回合有效预检；预检故障默认放行（可配置为拒绝） |
 | 收尾 | 每个关闭任务都有评估；未评估的回合自动记 `deferred` |
 | 汇总 | 管理员手动把项目知识晋升为 global 候选；按 `promoted_from` 幂等 |
+| 夜间维护 | 每天 03:00 确定性巡检所有 core / 子工作区，写报告并按需生成 pending 提案；不自动提交 |
 | 系统级 Skill | `memory-hub` 注册到 Host 全局 skills 层，按需加载检索/回写流程；不占每轮上下文 |
 
 ## Web 面板
@@ -37,7 +38,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 - **知识**：搜索、类型/状态过滤、全文详情与来源
 - **待审批**：`pending/` 候选列表（只读，不代替 DSH 审批）
 - **活动与策略**：最近任务、预检/门禁/证据要求
-- **能力**：9 个 `memory_*` 工具的详细说明
+- **能力**：10 个 `memory_*` 工具的详细说明
 
 面板通过 Host 路由 `/dsh-memory-hub/api/overview`、 `/dsh-memory-hub/api/knowledge` 和 `/dsh-memory-hub/api/config` 读取/保存数据，只允许回环请求；知识审批仍走 DSH 原生流程，面板不绕过。
 
@@ -113,6 +114,14 @@ policy:
     on_preflight_error: allow   # allow | deny
     unknown_tools: allow
     mutating_tools: [bash, pwsh, write, edit, str_replace_editor]
+  maintenance:
+    enabled: true        # Host 运行时每天巡检；错过的时间在下一次启动后补跑
+    time: '03:00'        # 本地时间 HH:mm
+    apply: propose       # report | propose；propose 只创建 pending，不提交
+    all_cores: true
+    max_proposals: 10
+    stale_pending_days: 30
+    stale_citation_days: 90
 ```
 
 - 只有工作目录落在某个 `workspace.root` 内的会话才获得 `project:<id>` 作用域；其他会话只看到 global/domain。
@@ -132,17 +141,28 @@ policy:
 | `memory_commit` | 经审批提交候选 |
 | `memory_close_task` | 关闭任务并给出评估 |
 | `memory_consolidate` | 管理员手动晋升项目知识 |
+| `memory_maintenance` | 巡检当前/全部 core，写报告并可选生成 pending 维护提案 |
 
 `memory_commit` 会触发 DSH 原生审批；审批不可用（headless、审批关闭）时提交被拒绝，候选保持 `pending`。模型参数里没有可伪造的批准令牌。
 
+### 夜间维护
+
+`policy.maintenance.enabled: true` 后，Host 每 60 秒检查一次本地时间；到点当天只跑一次，错过的时间在下一次 Host 启动后补跑一次。它按 core 依次巡检，写入 `<hub>/reports/<timestamp>.md` 和 `latest.md`，然后：
+
+- 精确重复（标题 + 摘要 + 正文哈希一致）→ 生成 **deprecate** pending 提案；
+- 带 `core` / `shared` / `reusable` / `promote` 标签的子工作区知识 → 生成晋升到核心作用域的 pending 提案；
+- 近似重复、过期 pending、长期未引用、加载诊断、超长正文、作用域异常 → 只写报告，留给人判断。
+
+维护任务**永不**调用 `memory_commit`、不删除、不改写正文；同一指纹已有 pending 时跳过，避免每晚重复。也可以随时手动调用 `memory_maintenance`，用 `apply: "report"` 只看报告。
+
 ### 系统级记忆 Skill
 
-插件还会在 Host 的全局 skills 层注册 `memory-hub`。它不是第 10 个工具，而是一份**按需加载的操作规范**：
+插件还会在 Host 的全局 skills 层注册 `memory-hub`。它是一项**按需加载的操作规范**，不占用工具名额：
 
 - 模型在任务涉及历史决策、约束、API、流程、回写，或用户说“记住/记录/以后按这个来”时加载；
 - 用户也可以直接调用 `skill` 工具加载；
 - 正文不进入每轮上下文，catalog 只显示 description 和 whenToUse；
-- 覆盖固定流程（预检 → `memory_get` → `memory_cite` → 必要时 `memory_search` → `memory_close_task`）、作用域选择、写入审批、核心回填和反模式；
+- 覆盖固定流程（预检 → `memory_get` → `memory_cite` → 必要时 `memory_search` → `memory_close_task`）、作用域选择、写入审批、核心回填、夜间维护和反模式；
 - 宿主没有 `skills` 服务时只记录 warning，插件继续运行。
 
 **命名冲突**：当前官方/内置 skill（`agent-experience`、`cordis-*`、`office*` 等）没有 `memory-hub`，也没有旧的通用名 `memory-management`。DSH 同 layer 内按 rank 取第一个，runtime（250）会盖住 bundled（600），所以通用名一旦撞上官方 skill 会静默遮蔽而不是报错。因此本插件改用产品自有名 `memory-hub`，并在 `tests/skill.test.ts` 锁定当前官方名称快照；完整审计见 [docs/02-harness/context-policy.md](docs/02-harness/context-policy.md#与官方-skill-的命名冲突审计)。
@@ -151,6 +171,7 @@ policy:
 
 - 默认本地优先、无网络请求；知识是用户目录下的普通文件，可直接编辑、git、备份。
 - 路径经过真实化与作用域校验；项目知识不会自动晋升到 global。
+- 夜间维护只写报告和 pending 提案，不自动提交、不删除、不改写正文；审批仍由人完成。
 - 插件不修改 DSH 核心、不写 Profile 的 `package.json`/`cordis.patch.yml`；卸载保留全部记忆文件。
 - V0.1 是单写者：第二个进程会降级为只读，不会并发写。
 
@@ -159,7 +180,7 @@ policy:
 ```sh
 npm install
 npm run typecheck
-npm run test        # 45 个单元/集成/插件/面板注册/skill 测试
+npm run test        # 53 个单元/集成/插件/面板注册/skill/维护测试
 npm run build       # 产出 dist/index.js
 npm run check       # typecheck + build + test
 ```
@@ -170,14 +191,16 @@ npm run check       # typecheck + build + test
 src/
   index.ts            # Cordis 入口（apply / inject）
   runtime.ts          # 初始化、钩子、watcher、上下文注册、面板 API
-  service.ts          # 预检、门禁、引用、提案、关闭、汇总、面板数据
+  service.ts          # 预检、门禁、引用、提案、关闭、汇总、维护、面板数据
+  maintenance.ts      # 确定性巡检：重复/晋升/过期/诊断，报告渲染
+  maintenance-schedule.ts # 本地日期/时间判断
   store.ts            # Markdown + JSONL + 序列 + 版本归档
   search.ts           # CJK 分词与倒排索引
   frontmatter.ts      # 知识/候选文件解析与序列化
   skill.ts            # 系统级 memory-hub skill 定义与注册
   config.ts hub.ts lock.ts atomic.ts ledger.ts ...
 client.js             # 侧边栏面板（模块加载器格式，无需构建）
-tests/                # 45 个测试
+tests/                # 53 个测试（10 个文件）
 docs/
   DESIGN.md           # V0.1 设计
   KNOWLEDGE-FORMAT.md # 知识文件格式
@@ -200,6 +223,8 @@ git push origin v0.1.3
 - 上下文注入按"每个任务一份包"设计；长会话的累积效应尚未做规模测量。
 - Web 面板的客户端模块已在本机运行中热加载（`client.advertised: true`，`sidebar.panellist` 与 `main` 均 active）；点击后的完整视觉布局尚未在本会话中截图确认。
 - 面板只读，不提供批准按钮；提交仍需在会话中经过 DSH 审批。
+- 夜间维护依赖 Host 运行；Host 关闭时不会执行，下一次启动且当天未跑过会补跑一次。
+- `reports/` 目前不自动清理；条目多时可定期归档或删除旧报告。
 
 ## 许可
 

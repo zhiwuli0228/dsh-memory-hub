@@ -22,7 +22,11 @@
   records/
     ledger.jsonl              # 任务、预检、引用、提交、汇总审计日志
     sequences.json            # ID 计数器
+    maintenance-state.json    # 夜间维护最后运行日期（避免同一天重复）
     .writer.lock              # 单写者锁
+  reports/                    # 夜间巡检报告（非权威，可删除/归档）
+    <timestamp>.md
+    latest.md
   index/                      # 预留：未来索引落盘
 ```
 
@@ -55,13 +59,21 @@ policy:
     mutating_tools: [bash, pwsh, write, edit, str_replace_editor]
     exempt_tools: [memory_search, memory_get, memory_status, memory_preflight,
                    memory_cite, memory_propose, memory_commit,
-                   memory_close_task, memory_consolidate]
+                   memory_close_task, memory_consolidate, memory_maintenance]
   evidence:
     required_for: [decision, constraint, process, api-catalog, runtime-base, playbooks]
   limits:
     max_pending_per_task: 20
     max_body_bytes: 65536
     max_source_refs: 20
+  maintenance:
+    enabled: false
+    time: '03:00'
+    apply: propose
+    all_cores: true
+    max_proposals: 10
+    stale_pending_days: 30
+    stale_citation_days: 90
 consolidation:
   mode: manual
   target_scope: global

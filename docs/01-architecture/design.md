@@ -24,12 +24,13 @@ Markdown 是权威数据，JSONL 是审计账本，内存索引是可重建的�
 │ pre-step   agent/pre-step → 任务识别 · 预检 · 上下文 │
 │ turn-close agent/turn-stopping → 未评估记 deferred  │
 │ tool-policy tools/pre-execute → 门禁 + 审批 ask     │
-│ tools      defineTool 注册 9 个 memory_* 工具       │
+│ tools      defineTool 注册 10 个 memory_* 工具      │
 │ workspace  workingDirectory + workspaceRegistry     │
 │ context    agent.ctx.systemPrompt.context('memory:pack')│
 ├────────────────── 只调用应用服务 ──────────────────┤
 │ Application：preflight · search · knowledge ·        │
-│              proposal · close · consolidate · status│
+│              proposal · close · consolidate ·       │
+│              maintenance · status                    │
 ├────────────────────────────────────────────────────┤
 │ Domain：knowledge（类型/状态/版本）· scope · task · │
 │         citation · proposal · errors                │

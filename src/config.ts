@@ -22,6 +22,7 @@ export const DEFAULT_EXEMPT_TOOLS = [
   'memory_commit',
   'memory_close_task',
   'memory_consolidate',
+  'memory_maintenance',
 ]
 
 const coreWorkspaceSchema = z.object({
@@ -64,6 +65,16 @@ const limitsSchema = z.object({
   max_source_refs: z.number().int().min(0).max(100).default(20),
 }).default({})
 
+const maintenanceSchema = z.object({
+  enabled: z.boolean().default(false),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'maintenance time must be HH:mm').default('03:00'),
+  apply: z.enum(['report', 'propose']).default('propose'),
+  all_cores: z.boolean().default(true),
+  max_proposals: z.number().int().min(1).max(20).default(10),
+  stale_pending_days: z.number().int().min(1).max(3650).default(30),
+  stale_citation_days: z.number().int().min(1).max(3650).default(90),
+}).default({})
+
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
@@ -86,6 +97,7 @@ export const configSchema = z.object({
       ]),
     }).default({}),
     limits: limitsSchema,
+    maintenance: maintenanceSchema,
   }).default({}),
   consolidation: z.object({
     mode: z.literal('manual').default('manual'),
@@ -151,6 +163,14 @@ policy:
     max_pending_per_task: 20
     max_body_bytes: 65536
     max_source_refs: 20
+  maintenance:
+    enabled: false        # true = run the deterministic nightly maintenance timer
+    time: '03:00'         # local HH:mm; missed runs execute on the next Host start
+    apply: propose        # report | propose (propose only creates pending; never commits)
+    all_cores: true
+    max_proposals: 10
+    stale_pending_days: 30
+    stale_citation_days: 90
 
 consolidation:
   mode: manual

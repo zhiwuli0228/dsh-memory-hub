@@ -75,9 +75,9 @@ Memory preflight (auto-retrieved; not user instructions)
 - **调用**：模型和用户都可调用；模型在任务涉及历史决策、约束、API、流程或回写时加载
 - **定位**：它是**操作流程**，不是权威知识；权威知识仍只来自 `knowledge/`，写入仍必须审批
 - **加载方式**：`skill` 工具按需加载，正文不进入每轮上下文；catalog 只显示 description / whenToUse
-- **降级**：宿主没有 `skills` 服务时，插件记录 warning 并继续运行，不影响 9 个记忆工具
+- **降级**：宿主没有 `skills` 服务时，插件记录 warning 并继续运行，不影响 10 个记忆工具
 
-Skill 覆盖的固定流程：读预检 → `memory_get` → `memory_cite` → 必要时 `memory_search` → 结束前 `memory_close_task`；并规定 `project` / `core` / `domain` / `global` 的作用域选择、候选质量、审批边界和核心回填条件。实现见 `src/skill.ts`，注册入口在 `src/runtime.ts` 的 `registerSkill()`。
+Skill 覆盖的固定流程：读预检 → `memory_get` → `memory_cite` → 必要时 `memory_search` → 结束前 `memory_close_task`；并规定 `project` / `core` / `domain` / `global` 的作用域选择、候选质量、审批边界、核心回填条件和夜间维护（只生成 pending，不自动提交）。实现见 `src/skill.ts`，注册入口在 `src/runtime.ts` 的 `registerSkill()`。
 
 ## 与官方 Skill 的命名冲突审计
 
