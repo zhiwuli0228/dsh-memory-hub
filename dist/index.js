@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.2
+// dsh-memory-hub 0.1.3
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13130,7 +13130,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.1.2",
+  version: "0.1.3",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",

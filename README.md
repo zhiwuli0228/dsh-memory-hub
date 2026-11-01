@@ -6,7 +6,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.1.2 已实现**：Host 插件 + Web 面板（含核心/子工作区配置），并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.1.3 已发布**：Host 插件 + Web 面板（含核心/子工作区配置），并在 DSH Desktop Runtime `0.2.1-rc.5` 上完成宿主冒烟（安装、工具、预检、注入、引用、提案、审批失败关闭、配置热加载、面板热加载、卸载/重装）。本版本补齐 GitHub Actions Trusted Publisher 自动发布与版本一致性。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
@@ -47,18 +47,18 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 插件是 profile bundle，直接安装 npm spec，不要只做 `npm install -g`：
 
 ```sh
-dsh plugin --profile <name> add dsh-memory-hub@0.1.2
+dsh plugin --profile <name> add dsh-memory-hub@0.1.3
 ```
 
 只想查看包内容时可以用：
 
 ```sh
-npm pack dsh-memory-hub@0.1.2
+npm pack dsh-memory-hub@0.1.3
 ```
 
 ### Desktop（由 Electron 管理的 Profile）
 
-通过 DSH 设置里的插件管理器安装 `dsh-memory-hub@0.1.2`。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
+通过 DSH 设置里的插件管理器安装 `dsh-memory-hub@0.1.3`。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
 
 ### 本地目录 / GitHub
 
