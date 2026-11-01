@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.1.2+ 已实现：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。
+V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.2` 已上架，仓库同时提供自托管插件市场索引。
 
 ## 已实现
 
@@ -30,6 +30,8 @@ V0.1.2+ 已实现：Host 插件 + Web 面板（含核心/子工作区配置）�
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
 - [x] 39 个 vitest 测试（7 个文件）
+- [x] npm 发布：`dsh-memory-hub@0.1.2`（2026-11-01，`latest`）
+- [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`
 - [x] 宿主兼容性验证记录（`docs/COMPATIBILITY.md`）
 - [x] 新增项目文档体系（`docs/` 目录层级 + `AGENTS.md`）
@@ -91,6 +93,9 @@ dsh-memory-hub/
 │   ├── KNOWLEDGE-FORMAT.md
 │   ├── COMPATIBILITY.md
 │   └── ...（本目录体系）
+├── site/
+│   ├── index.json
+│   └── icons/
 └── dist/
 ```
 

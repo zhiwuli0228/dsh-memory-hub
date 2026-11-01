@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "title": {
+    "en": "DSH Memory Hub",
+    "zh": "DSH 记忆中枢"
+  },
+  "description": {
+    "en": "Local-first, file-native long-term memory for DeepSeek Harness.",
+    "zh": "本地优先、文件原生的 DSH 长期记忆中枢。"
+  },
+  "plugins": [
+    {
+      "name": "dsh-memory-hub",
+      "title": {
+        "en": "Memory Hub",
+        "zh": "记忆中枢"
+      },
+      "description": {
+        "en": "Preflight, compact context injection, citations, human-approved knowledge, and a read-only Web panel.",
+        "zh": "预检、紧凑上下文注入、引用、人工批准的知识，以及只读 Web 面板。"
+      },
+      "icon": "icons/dsh-memory-hub.svg",
+      "author": "zhiwuli0228",
+      "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
+      "repository": {
+        "url": "https://github.com/zhiwuli0228/dsh-memory-hub"
+      },
+      "versions": [
+        {
+          "version": "0.1.2",
+          "publishTimestamp": 1793513183,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.5"
+          }
+        }
+      ]
+    }
+  ]
+}

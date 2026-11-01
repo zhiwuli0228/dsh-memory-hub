@@ -1,5 +1,7 @@
 # dsh-memory-hub
 
+[![npm version](https://img.shields.io/npm/v/dsh-memory-hub.svg)](https://www.npmjs.com/package/dsh-memory-hub)
+
 DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控、人类批准写入**。
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
@@ -38,17 +40,41 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 ## 安装
 
-仓库包含构建产物 `dist/index.js` 与 `client.js`，安装本地目录或 GitHub 包时不需要再构建。
+已发布到 npm：[`dsh-memory-hub`](https://www.npmjs.com/package/dsh-memory-hub)。
+
+### npm（推荐）
+
+```sh
+npm install -g dsh-memory-hub
+```
+
+DSH 插件管理器也可以直接安装 npm spec：
+
+```sh
+dsh plugin --profile <name> add dsh-memory-hub@0.1.2
+```
 
 ### Desktop（由 Electron 管理的 Profile）
 
-通过 DSH 设置里的插件管理器安装本地目录或包。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
+通过 DSH 设置里的插件管理器安装 `dsh-memory-hub@0.1.2`。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
 
-### CLI / 其他 Profile
+### 本地目录 / GitHub
+
+仓库包含构建产物 `dist/index.js` 与 `client.js`，安装本地目录或 GitHub 包时不需要再构建：
 
 ```sh
 dsh plugin --profile <name> add <本地目录或 github:用户/仓库>
 ```
+
+### 插件市场索引
+
+DSH 的插件市场是自托管 JSON 索引。本仓库提供一份：
+
+```text
+https://cdn.jsdelivr.net/gh/zhiwuli0228/dsh-memory-hub@main/site/index.json
+```
+
+在 DSH 插件页打开实验性「自定义插件市场」，添加上述索引源即可在「发现」中安装。
 
 安装后重启 DSH，或等待插件管理器热加载。插件加载只会在 `~/.dsh/memory-hub`（或 `$DSH_HOME/memory-hub`）下创建配置与目录，不会拖垮宿主启动。
 
