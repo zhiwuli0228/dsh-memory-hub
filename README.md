@@ -42,16 +42,18 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 已发布到 npm：[`dsh-memory-hub`](https://www.npmjs.com/package/dsh-memory-hub)。
 
-### npm（推荐）
+### DSH 插件管理器（推荐）
 
-```sh
-npm install -g dsh-memory-hub
-```
-
-DSH 插件管理器也可以直接安装 npm spec：
+插件是 profile bundle，直接安装 npm spec，不要只做 `npm install -g`：
 
 ```sh
 dsh plugin --profile <name> add dsh-memory-hub@0.1.2
+```
+
+只想查看包内容时可以用：
+
+```sh
+npm pack dsh-memory-hub@0.1.2
 ```
 
 ### Desktop（由 Electron 管理的 Profile）
