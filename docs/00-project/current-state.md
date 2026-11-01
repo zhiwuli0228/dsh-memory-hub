@@ -33,6 +33,7 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] npm 发布：`dsh-memory-hub@0.1.2`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.2`，仓库 homepage 指向 npm 包页
 - [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，可选 npm 发布，自动创建 Release 并上传 tarball）
+- [x] Release workflow 已实测通过（`workflow_dispatch` + `v0.1.2`）；未配置 `NPM_TOKEN` 时跳过 npm 发布，其余步骤成功
 - [x] 发布说明：`docs/06-operations/release.md`
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`

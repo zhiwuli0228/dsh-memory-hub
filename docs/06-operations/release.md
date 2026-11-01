@@ -53,6 +53,8 @@ GitHub → Actions → Release → Run workflow，输入已存在的 tag（例�
    npm publish --access public --provenance
    ```
 
+   发布步骤只在存在 `NPM_TOKEN` 时运行，并临时写入 `.npmrc`（发布后删除）；不要把 `.npmrc` 提交到仓库。
+
 `--provenance` 使用 GitHub OIDC（workflow 已声明 `id-token: write`），生成可验证的供应链证明。若 npm 端或 token 不支持 provenance，可去掉该参数。
 
 ## Workflow 步骤
