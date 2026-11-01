@@ -32,8 +32,8 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 39 个 vitest 测试（7 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.2`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.2`，仓库 homepage 指向 npm 包页
-- [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，可选 npm 发布，自动创建 Release 并上传 tarball）
-- [x] Release workflow 已实测通过（`workflow_dispatch` + `v0.1.2`）；未配置 `NPM_TOKEN` 时跳过 npm 发布，其余步骤成功
+- [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，Trusted Publisher/OIDC 发布 npm，自动创建 Release 并上传 tarball）
+- [x] Release workflow 已实测通过（`workflow_dispatch` + `v0.1.2`）；现使用 Trusted Publisher，无需 `NPM_TOKEN`
 - [x] 发布说明：`docs/06-operations/release.md`
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] `PLUGIN_VERSION` 直接读取 `package.json`，构建 banner 同步版本，避免发布时版本漂移
@@ -60,7 +60,7 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
-- GitHub Actions 的 npm 自动发布依赖仓库 secret `NPM_TOKEN`；当前未配置，workflow 会跳过 npm 发布，仅创建 GitHub Release。
+- GitHub Actions 的 npm 自动发布使用 Trusted Publisher；npm 侧绑定（仓库 `zhiwuli0228/dsh-memory-hub` + workflow `release.yml`）尚未完成，未绑定前发布会失败。
 
 ## 当前目录
 

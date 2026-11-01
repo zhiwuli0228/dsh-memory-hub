@@ -55,30 +55,11 @@ jobs:
       - name: Pack npm tarball
         run: npm pack
 
-      - name: Check npm token
-        id: npm_token
-        shell: bash
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
 
       - name: Publish to npm
-        if: steps.npm_token.outputs.present == 'true'
-        shell: pwsh
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          "//registry.npmjs.org/:_authToken=$env:NODE_AUTH_TOKEN" | Out-File -FilePath .npmrc -Encoding ascii
-          try {
-            npm publish --access public --provenance
-          } finally {
-            Remove-Item -LiteralPath .npmrc -ErrorAction SilentlyContinue
-          }
+        run: npm publish --access public --provenance
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

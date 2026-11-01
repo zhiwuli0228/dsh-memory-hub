@@ -168,7 +168,7 @@ docs/
 
 ## 发布
 
-推送 `v*` tag 会触发 GitHub Actions：在 Windows 上运行 typecheck、build、test，打包 npm tarball，按需发布到 npm，并创建 GitHub Release。配置 `NPM_TOKEN` 后也会自动发布 npm。步骤见 [docs/06-operations/release.md](docs/06-operations/release.md)。
+推送 `v*` tag 会触发 GitHub Actions：在 Windows 上运行 typecheck、build、test，打包 npm tarball，通过 npm Trusted Publisher（OIDC）发布 npm，并创建 GitHub Release。首次使用前需要在 npm 包设置里绑定仓库和 `release.yml`，无需 `NPM_TOKEN`。步骤见 [docs/06-operations/release.md](docs/06-operations/release.md)。
 
 ```sh
 git tag v0.1.3
