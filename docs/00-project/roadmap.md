@@ -30,7 +30,7 @@
 - `PLUGIN_VERSION` 与 `package.json` 使用单一版本源
 - 39 个测试
 
-## V0.1.4（未发布）
+## V0.1.4（已发布）
 
 - 预检相关性门控：`policy.preflight.min_score`
 - 本地优先排序：`policy.preflight.local_boost`
@@ -40,6 +40,7 @@
 - 夜间确定性维护：03:00 单定时器按 core 配置顺序串行巡检，写报告并生成 pending 提案；不自动提交
 - 维护入口为插件内部定时器，不显示在官方「自动化任务」栏
 - 维护状态、多 core 失败语义、操作手册与 ADR 已记录
+- npm `0.1.4` + GitHub Release `v0.1.4` 已发布
 - 53 个测试
 
 ## V0.2（候选）

@@ -39,6 +39,8 @@
 
 - `119901f feat: add deterministic nightly memory maintenance`
 - `79fadf5 docs: record maintenance smoke-test pending state`
+- `0e5d765 docs: record nightly maintenance decisions and operations`
+- tag `v0.1.4`：npm `dsh-memory-hub@0.1.4` + GitHub Release `v0.1.4`
 
 ### 验证结果
 
@@ -47,6 +49,7 @@
 - `memory_maintenance({ apply: "report" })` 扫描 `product`、`dsh-plugin-dev`、fallback，分别写报告；13 条 accepted、0 候选。
 - 夜间定时器在 23:29 因“当天未跑且已过 03:00”补跑一次，写 `maintenance-state.json`（`lastRunDate: 2026-11-01`）；没有提交或删除任何知识。
 - 当前 Hub：13 条 accepted、1 条 pending `PRO-000016`（本次设计决策候选）。
+- `v0.1.4` 已在 GitHub Actions 上发布：npm `0.1.4` 可查，provenance predicate 为 SLSA v1；Release 附件 `dsh-memory-hub-0.1.4.tgz` 已生成。
 
 ### 已知限制 / 后续
 
