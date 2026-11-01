@@ -101,6 +101,7 @@ export class MemoryRuntime implements ToolHost {
       this.ledger = ledger
       this.store = store
       this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState })
+      this.registerExistingAgents()
       this.startWatcher()
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ', read-only' : ''})`,
@@ -242,6 +243,17 @@ export class MemoryRuntime implements ToolHost {
       return await service.gate(exec)
     } catch {
       return base
+    }
+  }
+
+  private registerExistingAgents(): void {
+    try {
+      const agents = this.ctx.get('agents') as { list?: () => AgentLike[] } | undefined
+      for (const agent of agents?.list?.() ?? []) {
+        this.onAgentCreated({ agent })
+      }
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot inspect existing agents: ${(error as Error).message}`)
     }
   }
 

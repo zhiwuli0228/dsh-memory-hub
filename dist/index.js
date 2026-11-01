@@ -14202,6 +14202,7 @@ var MemoryRuntime = class {
       this.ledger = ledger;
       this.store = store;
       this.serviceInstance = new MemoryService({ ctx: this.ctx, hub, store, ledger, ledgerState });
+      this.registerExistingAgents();
       this.startWatcher();
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready at ${hub.displayRoot()} (${store.docs.size} entries${hub.readOnly ? ", read-only" : ""})`
@@ -14331,6 +14332,16 @@ var MemoryRuntime = class {
       return base;
     }
   };
+  registerExistingAgents() {
+    try {
+      const agents = this.ctx.get("agents");
+      for (const agent of agents?.list?.() ?? []) {
+        this.onAgentCreated({ agent });
+      }
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot inspect existing agents: ${error.message}`);
+    }
+  }
   startWatcher() {
     const hub = this.hub;
     const store = this.store;
