@@ -26,6 +26,7 @@ DeepSeek Harness（DSH）的长期记忆中枢 —— **仓库初始化中（占
 ├── LICENSE
 ├── package.json     # 占位清单，暂未发布
 ├── .editorconfig
+├── .gitattributes   # 统一 LF 换行
 └── .gitignore
 ```
 
