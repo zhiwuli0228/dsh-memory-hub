@@ -90,8 +90,13 @@ permissions:
 
 ## 常见失败
 
+- **首次发布 404 / `whoami` 401**：本机 token 无效或未登录；重新 `npm login`。npm 新包不需要预先在网页创建，第一个发布账号自动成为 maintainer。
 - **tag 与版本不一致**：先改 `package.json`，提交后再打 tag。
 - **npm 版本已存在**：npm 不允许覆盖同版本；提升版本号后重新打 tag。
-- **EOTP / 2FA**：`NPM_TOKEN` 必须是可绕过 2FA 的 Automation token。
+- **EOTP / 2FA**：交互式发布需要 OTP；CI 用 Trusted Publisher，或使用可绕过 2FA 的 Automation token。
+- **`--provenance` 不等于发布授权**：它只生成供应链证明；授权仍靠 Trusted Publisher 或 token。
+- **`npm view` 仍显示旧版本**：registry 传播通常需要 1–5 分钟；先看 workflow 日志，不要立即重复 publish。
+- **jsDelivr 返回旧索引**：`@main` 有缓存；purge 对应路径后带 cache-bust 再验证。
+- **lightweight tag 没被推送**：`git push --follow-tags` 不会推 lightweight tag；用 `git tag -a` 或显式 `git push origin <tag>`。
 - **Windows 路径测试失败**：workflow 固定在 `windows-latest`，与插件目标平台一致；不要改成 Ubuntu。
 - **Release 已存在**：`softprops/action-gh-release` 会更新已有 Release；如需全新发布请使用新 tag。
