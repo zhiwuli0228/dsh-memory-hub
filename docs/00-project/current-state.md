@@ -60,6 +60,7 @@ V0.1.2 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
+- GitHub Actions 的 npm 自动发布依赖仓库 secret `NPM_TOKEN`；当前未配置，workflow 会跳过 npm 发布，仅创建 GitHub Release。
 
 ## 当前目录
 
