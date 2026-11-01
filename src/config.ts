@@ -1,0 +1,161 @@
+import { readFile } from 'node:fs/promises'
+import { parse as parseYaml } from 'yaml'
+import { z } from 'zod'
+import { MemoryError } from './errors.js'
+import { KNOWLEDGE_TYPES } from './types.js'
+
+export const DEFAULT_MUTATING_TOOLS = [
+  'bash',
+  'pwsh',
+  'write',
+  'edit',
+  'str_replace_editor',
+]
+
+export const DEFAULT_EXEMPT_TOOLS = [
+  'memory_search',
+  'memory_get',
+  'memory_status',
+  'memory_preflight',
+  'memory_cite',
+  'memory_propose',
+  'memory_commit',
+  'memory_close_task',
+  'memory_consolidate',
+]
+
+const workspaceSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'workspace id must be a slug (letters, digits, dot, underscore, dash)'),
+  root: z.string().min(1),
+  domains: z.array(z.string().min(1)).default([]),
+  admin: z.boolean().default(false),
+  enabled: z.boolean().default(true),
+})
+
+const preflightSchema = z.object({
+  mode: z.enum(['per-turn', 'off']).default('per-turn'),
+  pack_tokens: z.number().int().positive().max(8000).default(600),
+  max_hits: z.number().int().min(1).max(20).default(6),
+  inject: z.enum(['compact', 'off']).default('compact'),
+}).default({})
+
+const gateSchema = z.object({
+  mode: z.enum(['enforce', 'off']).default('enforce'),
+  on_preflight_error: z.enum(['allow', 'deny']).default('allow'),
+  unknown_tools: z.enum(['allow', 'deny']).default('allow'),
+  mutating_tools: z.array(z.string().min(1)).default(DEFAULT_MUTATING_TOOLS),
+  exempt_tools: z.array(z.string().min(1)).default(DEFAULT_EXEMPT_TOOLS),
+}).default({})
+
+const limitsSchema = z.object({
+  max_pending_per_task: z.number().int().min(1).max(500).default(20),
+  max_body_bytes: z.number().int().min(1024).max(1_048_576).default(65_536),
+  max_source_refs: z.number().int().min(0).max(100).default(20),
+}).default({})
+
+export const configSchema = z.object({
+  version: z.literal(1).default(1),
+  hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
+  workspaces: z.array(workspaceSchema).default([]),
+  policy: z.object({
+    preflight: preflightSchema,
+    gate: gateSchema,
+    evidence: z.object({
+      required_for: z.array(z.enum(KNOWLEDGE_TYPES)).default([
+        'decision',
+        'constraint',
+        'process',
+        'api-catalog',
+        'runtime-base',
+        'playbooks',
+      ]),
+    }).default({}),
+    limits: limitsSchema,
+  }).default({}),
+  consolidation: z.object({
+    mode: z.literal('manual').default('manual'),
+    target_scope: z.string().default('global'),
+  }).default({}),
+  storage: z.object({
+    watch: z.boolean().default(true),
+    lock_stale_ms: z.number().int().positive().default(600_000),
+  }).default({}),
+})
+
+export type WorkspaceConfig = z.infer<typeof workspaceSchema>
+export type MemoryConfig = z.infer<typeof configSchema>
+
+export const DEFAULT_CONFIG_YAML = `# dsh-memory-hub configuration
+# This file is the portable configuration of your memory store. Back it up with
+# the rest of the directory.
+version: 1
+hub:
+  id: primary
+
+# Register the project roots you want project-scoped memory for. Sessions whose
+# working directory is inside one of these roots see global + domain + project
+# entries; other sessions see global + domain entries only.
+workspaces: []
+#  - id: backend
+#    root: 'D:/projects/backend'
+#    domains: [backend]
+#    admin: true
+#    enabled: true
+
+policy:
+  preflight:
+    mode: per-turn        # per-turn | off
+    pack_tokens: 600
+    max_hits: 6
+    inject: compact       # compact | off
+  gate:
+    mode: enforce         # enforce | off
+    on_preflight_error: allow   # allow | deny
+    unknown_tools: allow        # allow | deny
+    mutating_tools: [bash, pwsh, write, edit, str_replace_editor]
+    exempt_tools: [memory_search, memory_get, memory_status, memory_preflight,
+                   memory_cite, memory_propose, memory_commit,
+                   memory_close_task, memory_consolidate]
+  evidence:
+    required_for: [decision, constraint, process, api-catalog, runtime-base, playbooks]
+  limits:
+    max_pending_per_task: 20
+    max_body_bytes: 65536
+    max_source_refs: 20
+
+consolidation:
+  mode: manual
+  target_scope: global
+
+storage:
+  watch: true
+  lock_stale_ms: 600000
+`
+
+export async function readConfigFile(path: string): Promise<MemoryConfig | null> {
+  let raw: string
+  try {
+    raw = await readFile(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new MemoryError('STORAGE_ERROR', `cannot read ${path}: ${(error as Error).message}`)
+  }
+
+  let parsed: unknown
+  try {
+    parsed = parseYaml(raw)
+  } catch (error) {
+    throw new MemoryError('INVALID_INPUT', `invalid YAML in ${path}: ${(error as Error).message}`)
+  }
+
+  const result = configSchema.safeParse(parsed ?? {})
+  if (!result.success) {
+    const details = result.error.issues.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')
+    throw new MemoryError('INVALID_INPUT', `invalid config ${path}: ${details}`)
+  }
+  return result.data
+}
+
+export function defaultConfig(): MemoryConfig {
+  return configSchema.parse({})
+}

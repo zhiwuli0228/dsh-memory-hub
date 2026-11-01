@@ -2,13 +2,13 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | 设计完成，进入 Phase 0 宿主验证；代码尚未开始 |
+| 状态 | V0.1.0 已实现；Desktop 宿主冒烟通过；审批通过路径与门禁拒绝路径未做宿主验证 |
 | 日期 | 2026-11-01 |
 | 适用宿主 | DeepSeek Harness Desktop Runtime `0.2.1-rc.5`（Node 24.x） |
 | 许可证 | MIT |
-| 配套文档 | [知识文件格式](KNOWLEDGE-FORMAT.md) · [项目 README](../README.md) |
+| 配套文档 | [知识文件格式](KNOWLEDGE-FORMAT.md) · [宿主验证记录](COMPATIBILITY.md) · [项目 README](../README.md) |
 
-本文是 `dsh-memory-hub` 的唯一权威设计。它回答四件事：**记什么、怎么查、什么时候信、怎么不闯祸**。
+本文是 `dsh-memory-hub` 的唯一权威设计。它回答四件事：**记什么、怎么查、什么时候信、怎么不闯祸**。实现位于 `src/`，构建产物为 `dist/index.js`；验证状态见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
 `E:\009workspace\dsh\dsh-memory-hub\docs` 下的参考设计包与 `code\dsh-memory-evolve` 只作为需求与风险清单使用。本文不复刻参考代码的模块、UI、技能系统或同步机制；与参考材料的取舍见 [§18](#18-与参考材料的关系)。
 

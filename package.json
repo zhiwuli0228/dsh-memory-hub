@@ -1,8 +1,7 @@
 {
   "name": "dsh-memory-hub",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH). V0.1 design complete; implementation pending.",
+  "version": "0.1.0",
+  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, and manual consolidation.",
   "license": "MIT",
   "author": "zhiwuli0228",
   "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
@@ -14,14 +13,52 @@
     "url": "https://github.com/zhiwuli0228/dsh-memory-hub/issues"
   },
   "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "docs/*.md"
+  ],
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run build && npm run test"
   },
   "keywords": [
     "deepseek-harness",
     "dsh",
     "dsh-plugin",
     "memory",
-    "long-term-memory"
-  ]
+    "long-term-memory",
+    "knowledge-base"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
+  }
 }

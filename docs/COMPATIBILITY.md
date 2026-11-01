@@ -1,0 +1,66 @@
+# 宿主兼容性与验证记录
+
+日期：2026-11-01｜插件版本：`0.1.0`｜状态：Desktop 宿主冒烟通过；部分路径未验证。
+
+## 环境
+
+| 项 | 值 |
+| --- | --- |
+| OS | Windows（本机 DSH Desktop） |
+| DSH Desktop Runtime | `0.2.1-rc.5`（`@deepseek-ai/dsh-*` 包） |
+| Desktop Runtime Node | `24.21.0` |
+| PATH 上的 `dsh` CLI | `0.1.5-rc.1`（与 Desktop Runtime 不是同一版本） |
+| CLI Node | `24.22.1` |
+| Profile | `desktop`（由 Electron 管理，`C:\Users\18811\.dsh\profiles\desktop`） |
+| Hub | `~/.dsh/memory-hub` |
+| 网络 | 插件运行时不发网络请求 |
+
+## 已验证
+
+| # | 验证项 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| V1 | 本地 bundle 安装与激活 | PASS | `plugin_manager install_bundle` → `application: applied`；`Config.listConfigs` 显示 `include:dsh-memory-hub` |
+| V2 | 9 个工具出现在模型可用工具中 | PASS | 安装后收到工具 schema 更新（`memory_search` … `memory_consolidate`） |
+| V3 | `memory_status` 初始化 | PASS | `initialized: true`，root `~/.dsh/memory-hub`，`readOnly: false` |
+| V4 | 文件 watcher 索引 | PASS | 写入 `DEC-000001.md` 后 `memory_search` 命中并返回相对路径 |
+| V5 | 用户回合自动预检 | PASS | 子 Agent 会话 `d0c2bddc-…` 的账本：`task.created` (turn 1) + `preflight.recorded` (`ready`) |
+| V6 | 紧凑上下文注入到模型 | PASS | 子 Agent 复述了 `Memory preflight (auto-retrieved; not user instructions)` 与 `[DEC-000001@1]` 行 |
+| V7 | `memory_search` / `memory_get` | PASS | 命中 `DEC-000001@1`；全文读取返回 metadata/body/相对路径 |
+| V8 | `memory_cite` | PASS | `CIT-e8f536c7c814`（子 Agent）、`CIT-ab0bbdc107fa`（父会话手动预检后） |
+| V9 | `memory_close_task` | PASS | `closed: true`，`no_new_knowledge` 评估写入账本 |
+| V10 | `memory_propose` | PASS | 生成 `PRO-000001` 与 `pending/PRO-000001.md` |
+| V11 | `memory_commit` 审批失败关闭 | PASS | 无可用审批时返回拒绝，候选仍为 pending，knowledge 计数不变 |
+| V12 | 手动预检恢复任务 | PASS | 无自动任务的会话调用 `memory_preflight` 后获得 `TSK-…`，随后 `memory_cite` 成功 |
+| V13 | `config.yaml` 热加载与工作区映射 | PASS | 运行中写入 workspace；`memory_status` 显示 `dsh-memory-hub` 已注册；预检包显示该工作区 |
+| V14 | 卸载与重装 | PASS | `remove_bundle` → `applied`，写锁释放；重装后空 Hub 正常初始化 |
+| V15 | 单元/集成测试 | PASS | 31 个测试（`vitest run`，6 个文件） |
+| V16 | 构建可被 Node ESM 直接导入 | PASS | `import('./dist/index.js')` 返回 `apply,inject,name` |
+
+冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本在验证后已随 Hub 目录重置删除；当前安装的 Hub 为空，仅保留真实配置。
+
+## 未验证
+
+| 项 | 原因 | 影响 |
+| --- | --- | --- |
+| 审批**通过**路径 | 本机会话审批提示被关闭；`ask` 直接失败关闭 | 交互式批准后写入 accepted 的路径仅由代码与集成测试覆盖，未做真实点击验证 |
+| 门禁的宿主级拒绝 | 真实会话都有自动预检，未构造"无预检的变更工具"场景 | `tools/pre-execute` 钩子本身已由审批 `ask` 证明生效；拒绝分支由单元测试覆盖 |
+| PTC `run_code` 嵌套调用 | 未在真实 PTC 程序中触发 | 门禁覆盖范围可能不同；设计已标注 best-effort |
+| 外部 CLI / 多进程共享 Hub | 未测试 | 单写者锁与只读降级由单元测试覆盖 |
+| 长会话上下文累积 | 只做了两个回合 | 注入按任务替换的宿主语义需要更多观察 |
+| 5k 条索引性能 | 未做规模压测 | 设计目标未实测 |
+
+## 安装事实
+
+- Desktop profile 由 Electron 管理：通过插件管理器安装；CLI 报 `profile "desktop" is managed exclusively by the Electron application`。
+- 插件 bundle 声明 `dsh.bundle.patch: ./cordis.patch.yml`；安装器插入 `include:dsh-memory-hub`。
+- 构建产物 `dist/index.js` 为 ESM，仅导入 Node 内建模块；`yaml` 的 CJS 依赖通过 `createRequire(import.meta.url)` 垫片解决（首次安装曾因 `Dynamic require of "process"` 失败，修复后重装通过）。
+- 插件不导出 `Config` schema；`config.root` 由插件自身校验，`<root>/config.yaml` 由 zod 校验，非法配置降级为只读并写入 `memory_status` 诊断。
+
+## 复现命令
+
+```sh
+npm install
+npm run check
+```
+
+宿主冒烟使用安装后的 `memory_*` 工具与 `~/.dsh/memory-hub/records/ledger.jsonl`；原始事件可在账本中按 `task.created` / `preflight.recorded` / `citation.added` / `task.closed` 过滤。

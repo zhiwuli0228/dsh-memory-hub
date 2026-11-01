@@ -1,0 +1,5 @@
+- insert:
+    - id: dsh-memory-hub
+      name: dsh-memory-hub
+      config:
+        root: ''
