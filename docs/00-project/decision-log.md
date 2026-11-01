@@ -19,6 +19,7 @@
 | D9 | `all_cores: false` 的定时器当前只跑 fallback；手动工具则是“只跑当前 pack”。这是已知语义差异，暂不修改 | Accepted as limitation | [maintenance](../01-architecture/maintenance.md#6-配置语义) |
 | D10 | 本机启用夜间维护：`enabled: true`、`time: '03:00'`、`apply: propose`、`all_cores: true`；`approval.mode` 暂时保持 `auto`（测试遗留） | Active | [current-state](current-state.md)、[COMPATIBILITY](../COMPATIBILITY.md) |
 | D11 | 保持当前方案：继续使用插件内部定时器，不改为官方 `schedule`；若未来需要官方栏可见/可暂停，再单独评估并记录取舍 | Accepted | 本文件、[ADR-0005](../01-architecture/decisions/ADR-0005-nightly-maintenance.md) |
+| D12 | 公共目录提交走 `awesome-dsh-plugin` 的 PR（每插件一个 `data/plugins/*.yml`），不使用不存在的“官方上传接口”；`dsh.so` 是独立社区目录，另行选择 | Active | [catalog-submission](../06-operations/catalog-submission.md)、[PR #11187](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/11187) |
 
 ### 代码与行为改动
 

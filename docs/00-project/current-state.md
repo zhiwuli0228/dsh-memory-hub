@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.3` 已上架，仓库同时提供自托管插件市场索引。
+V0.1.4 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.4` 已上架，仓库同时提供自托管插件市场索引。
 
 当前工作树为 **V0.1.4（已发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数；注册系统级 `memory-hub` skill，把“检索 → 读正文 → 引用 → 回写 → 关闭”的流程从插件提示提升为可加载的操作规范；并新增夜间确定性维护：每天 03:00 巡检所有 core / 子工作区，写报告并按需生成 pending 提案，永不自动提交。npm `dsh-memory-hub@0.1.4` 与 GitHub Release `v0.1.4` 已发布。
 
@@ -170,6 +170,7 @@ dsh-memory-hub/
 5. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
 6. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
 7. 观察夜间维护：第二天检查每个 core 的 `reports/latest.md` 与 `pending/`，确认候选质量；若长期没有候选，再评估是否放宽“精确重复”或增加显式复用标签。
+8. 跟踪公共目录 PR [#11187](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/11187)：等待构建检查与 1 天仓库年龄门槛通过；合并后确认 `dsh-plugin-catalog` 索引收录。机制见 [catalog-submission.md](../06-operations/catalog-submission.md)。
 8. 若需要官方「自动化任务」栏可见/可暂停，另行评估 DSH `schedule` 方案，并记录与内部定时器的取舍。
 9. 评估 `all_cores: false` 的定时器语义，必要时改为 `core_ids` 选择，而不是 fallback-only。
 10. 评估 per-core 失败重试与全局合并报告；当前保持串行和单一状态。

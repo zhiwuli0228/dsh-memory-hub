@@ -10,6 +10,7 @@
 - [00-project/decision-log.md](00-project/decision-log.md) — 按日期记录已定决策与对应文档。
 - [01-architecture/maintenance.md](01-architecture/maintenance.md) — 夜间维护的多 core 执行模型。
 - [06-operations/maintenance.md](06-operations/maintenance.md) — 夜间维护操作与排障。
+- [06-operations/catalog-submission.md](06-operations/catalog-submission.md) — 公共插件目录的提交机制与本次 PR。
 
 ## 阅读策略
 
