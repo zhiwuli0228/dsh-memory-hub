@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented（2026-11-01，V0.1.4 未发布）
+Implemented（2026-11-01，V0.1.5 已发布）
 
 ## 1. Problem
 

@@ -21,8 +21,8 @@ DSH 官方仓库没有提供一个中央上传 API 或官方提交仓库；官�
 | 分支 | `zhiwuli0228:add-dsh-memory-hub` |
 | 条目文件 | `data/plugins/zhiwuli0228__dsh-memory-hub.yml` |
 | 分类 | `memory` |
-| 包版本 | npm `dsh-memory-hub@0.1.4` |
-| GitHub Release | `v0.1.4` |
+| 包版本 | npm `dsh-memory-hub@0.1.5` |
+| GitHub Release | `v0.1.5` |
 
 条目只声明仓库 URL、名称、分类和双语描述；安装源由目录根据 npm 包自动映射，不手写 `npm:` 字段。
 

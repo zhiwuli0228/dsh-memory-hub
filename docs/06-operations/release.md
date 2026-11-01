@@ -7,8 +7,8 @@
 ### 推荐：推送 tag
 
 ```sh
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 或一次推送提交和 tag：
@@ -19,7 +19,7 @@ git push origin main --follow-tags
 
 ### 手动触发
 
-GitHub → Actions → Release → Run workflow，输入已存在的 tag（例如 `v0.1.4`）。
+GitHub → Actions → Release → Run workflow，输入已存在的 tag（例如 `v0.1.5`）。
 
 ## 发布前检查
 
@@ -64,7 +64,7 @@ workflow 使用 npm Trusted Publisher + OIDC，不需要 `NPM_TOKEN`。前提是
 - `npm publish --access public --provenance` 使用 OIDC 授权，并生成 provenance。
 - 不需要 `NPM_TOKEN` secret，也不需要 `.npmrc`。
 - 如果 npm 侧未绑定，发布会失败（`ENEEDAUTH` / `EOTP`），不会创建 GitHub Release。
-- 已验证：`v0.1.4` 由 GitHub Actions 无 token 发布，npm 记录 SLSA provenance（run `41323539975`）；`v0.1.3` 同样验证过（run `41316616352`）。
+- 已验证：`v0.1.5` 由 GitHub Actions 无 token 发布，npm 记录 SLSA provenance（run `41323539975`）；`v0.1.3` 同样验证过（run `41316616352`）。
 
 ### 备选：NPM_TOKEN
 

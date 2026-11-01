@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.1.4 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.4` 已上架，仓库同时提供自托管插件市场索引。
+V0.1.5 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.5` 已上架，仓库同时提供自托管插件市场索引。
 
-当前工作树为 **V0.1.4（已发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数；注册系统级 `memory-hub` skill，把“检索 → 读正文 → 引用 → 回写 → 关闭”的流程从插件提示提升为可加载的操作规范；并新增夜间确定性维护：每天 03:00 巡检所有 core / 子工作区，写报告并按需生成 pending 提案，永不自动提交。npm `dsh-memory-hub@0.1.4` 与 GitHub Release `v0.1.4` 已发布。
+当前工作树为 **V0.1.5（已发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数；注册系统级 `memory-hub` skill，把“检索 → 读正文 → 引用 → 回写 → 关闭”的流程从插件提示提升为可加载的操作规范；并新增夜间确定性维护：每天 03:00 巡检所有 core / 子工作区，写报告并按需生成 pending 提案，永不自动提交。npm `dsh-memory-hub@0.1.5` 与 GitHub Release `v0.1.5` 已发布。
 
 ## 已实现
 
@@ -53,12 +53,12 @@ V0.1.4 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
 - [x] 53 个 vitest 测试（10 个文件）
-- [x] npm 发布：`dsh-memory-hub@0.1.4`（2026-11-01，`latest`）
-- [x] GitHub release `v0.1.4`，仓库 homepage 指向 npm 包页
-- [x] npm `0.1.4` 发布后已校验 `gitHead` 与 provenance
+- [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
+- [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
+- [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
 - [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，Trusted Publisher/OIDC 发布 npm，自动创建 Release 并上传 tarball）
-- [x] Trusted Publisher 端到端验证：`v0.1.3` / `v0.1.4` 由 GitHub Actions 无 token 发布，npm 记录 SLSA provenance
-- [x] Release workflow 已实测通过（tag push + `v0.1.4`）；无需 `NPM_TOKEN`
+- [x] Trusted Publisher 端到端验证：`v0.1.3` / `v0.1.5` 由 GitHub Actions 无 token 发布，npm 记录 SLSA provenance
+- [x] Release workflow 已实测通过（tag push + `v0.1.5`）；无需 `NPM_TOKEN`
 - [x] 发布说明：`docs/06-operations/release.md`
 - [x] 插件市场索引：`site/index.json`，可通过 jsDelivr 作为 DSH 自定义市场源
 - [x] `PLUGIN_VERSION` 直接读取 `package.json`，构建 banner 同步版本，避免发布时版本漂移

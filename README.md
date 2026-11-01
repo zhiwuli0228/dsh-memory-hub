@@ -6,7 +6,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.1.4 已发布**：在 Host 插件 + Web 面板（含核心/子工作区配置）之上，加入预检相关性门控（`min_score` / `local_boost`）、指令式回写包尾、面板命中/引用计数、系统级 `memory-hub` skill，以及夜间确定性维护（只报告 + 生成 pending 提案，绝不自动提交）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟；npm `0.1.4` 与 GitHub Release `v0.1.4` 均已发布。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.1.5 已发布**：在 Host 插件 + Web 面板（含核心/子工作区配置）之上，加入预检相关性门控（`min_score` / `local_boost`）、指令式回写包尾、面板命中/引用计数、系统级 `memory-hub` skill，以及夜间确定性维护（只报告 + 生成 pending 提案，绝不自动提交）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟；npm `0.1.5` 与 GitHub Release `v0.1.5` 均已发布。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
@@ -49,18 +49,18 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 插件是 profile bundle，直接安装 npm spec，不要只做 `npm install -g`：
 
 ```sh
-dsh plugin --profile <name> add dsh-memory-hub@0.1.4
+dsh plugin --profile <name> add dsh-memory-hub@0.1.5
 ```
 
 只想查看包内容时可以用：
 
 ```sh
-npm pack dsh-memory-hub@0.1.4
+npm pack dsh-memory-hub@0.1.5
 ```
 
 ### Desktop（由 Electron 管理的 Profile）
 
-通过 DSH 设置里的插件管理器安装 `dsh-memory-hub@0.1.4`。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
+通过 DSH 设置里的插件管理器安装 `dsh-memory-hub@0.1.5`。Desktop 的 `desktop` profile 由 Electron 管理，**不要**用 CLI 修改它。
 
 ### 本地目录 / GitHub
 
@@ -218,8 +218,8 @@ docs/
 推送 `v*` tag 会触发 GitHub Actions：在 Windows 上运行 typecheck、build、test，打包 npm tarball，通过 npm Trusted Publisher（OIDC）发布 npm，并创建 GitHub Release。首次使用前需要在 npm 包设置里绑定仓库和 `release.yml`，无需 `NPM_TOKEN`。步骤见 [docs/06-operations/release.md](docs/06-operations/release.md)。
 
 ```sh
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.5
+git push origin v0.1.5
 ```
 
 ## 已知限制
