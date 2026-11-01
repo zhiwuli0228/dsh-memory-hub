@@ -79,6 +79,9 @@ DSH Memory Hub 是一个**本地优先、文件即真相、人类批准写入**�
 | F09 | 汇总 | 管理员手动把项目已接受知识晋升为 global 候选；幂等、不覆盖下游 |
 | F10 | 状态与诊断 | `memory_status` 报告版本、根目录、索引、策略、降级原因 |
 | F11 | 可安装/卸载 | Desktop 插件管理器或 CLI 安装；禁用即恢复；卸载保留记忆文件 |
+| F12 | 变更工具门禁 | 无有效预检的变更工具按策略拒绝；豁免、未知工具与降级可配 |
+
+参考设计包的 F01–F08 均有对应：F01→F01、F02→F02、F03→F03、F04→F04+F12、F05→F06、F06→F07、F07→F08、F08→F09。
 
 ### 2.2 明确不做（V0.1）
 
@@ -805,7 +808,7 @@ type WritebackAssessment =
 | `memory_status` | 诊断 | 无 | `version`、`root`（展示路径）、`readOnly`、`workspace`、`counts`、`index`、`policy`、`lastError` |
 | `memory_preflight` | 手动/强制预检 | `intent`、`force?` | `taskId`、`status`、`hits`、`pack` |
 | `memory_cite` | 记录实际使用 | `knowledge_id`、`version?`、`purpose`、`task_id?` | `citationId` |
-| `memory_propose` | 创建候选 | `operation`、`type`、`scope`、`title`、`summary`、`content`、`source_refs?`、`target?`、`expected_version?` | `proposalId`、`pendingPath` |
+| `memory_propose` | 创建候选 | `operation`、`type`、`scope`、`title`、`summary`、`content`、`source_refs?`、`tags?`、`related?`、`supersedes?`、`applies_to?`、`target?`、`expected_version?`、`reason?` | `proposalId`、`pendingPath` |
 | `memory_commit` | 批准并提交 | `proposal_id` | `knowledgeId`、`version`、`status` |
 | `memory_close_task` | 关闭任务并评估 | `assessment`、`task_id?` | `closed`、`assessment` |
 | `memory_consolidate` | 汇总项目知识 | `workspace_ids?`、`types?`、`dry_run?` | `proposals[]`、`skipped` |
@@ -846,10 +849,15 @@ memory_propose({
   scope: string,
   title: string,                         // ≤200
   summary: string,                       // ≤240
-  content: string,                       // markdown body
+  content?: string,                      // create/update 必填；deprecate 可省略
   source_refs?: string[],
+  tags?: string[],                       // ≤12
+  related?: string[],
+  supersedes?: string[],                 // create 时可用；提交后旧条目转 superseded
+  applies_to?: { branches?: string[]; versions?: string[] },
   target?: string,                       // update/deprecate 必填
   expected_version?: number,             // update/deprecate 必填
+  reason?: string,                       // deprecate 必填，写入审计
 })
 
 memory_commit({ proposal_id: string })
@@ -900,12 +908,13 @@ memory_consolidate({
 
 `memory_propose` 在写入前校验：
 
-1. 类型/作用域/标题/摘要/正文长度；
-2. 作用域在任务可见集合内（项目任务可提议 global？**可以提议**，因为提交仍需人工批准；但 `scope` 必须格式合法）；
-3. `update` / `deprecate`：目标存在、状态 `accepted`、`expected_version` 匹配、作用域一致；
-4. `source_refs` 格式合法；`required_for` 类型至少 1 条；
-5. 本任务 pending 数量 < `max_pending_per_task`；
-6. 同一任务内相同 `(operation,type,scope,title)` 的 pending 提案视为重复，返回已有 ID。
+1. 类型/作用域/标题/摘要/正文长度；`deprecate` 必须有 `reason`。
+2. 作用域在任务可见集合内（项目任务可提议 global？**可以提议**，因为提交仍需人工批准；但 `scope` 必须格式合法）。
+3. `update` / `deprecate`：目标存在、状态 `accepted`、`expected_version` 匹配、作用域一致。
+4. `supersedes`：只能出现在 `create`；每个目标存在且为 `accepted`，不能自引用或形成环。
+5. `source_refs` 格式合法；`required_for` 类型至少 1 条；`tags`/`related`/`applies_to` 在限制内。
+6. 本任务 pending 数量 < `max_pending_per_task`。
+7. 同一任务内相同 `(operation,type,scope,title)` 的 pending 提案视为重复，返回已有 ID。
 
 ### 11.2 提交审批序列
 
@@ -930,7 +939,7 @@ memory_consolidate({
 ### 11.3 更新与废弃
 
 - `update`：目标条目必须是 `accepted`；提交后版本 +1，旧版本归档。
-- `deprecate`：提交后状态变 `deprecated`，版本 +1，正文保留；不再参与默认检索。
+- `deprecate`：提交后状态变 `deprecated`，版本 +1，正文保留；`reason` 写入账本与 frontmatter；不再参与默认检索。
 - `supersede`：新条目在 frontmatter 声明 `supersedes: [旧ID]`；提交时自动把旧条目状态改为 `superseded`（版本 +1，归档），两步在同一事务内完成。
 - 不允许 `update` 直接改写 `scope` 或 `id`；跨作用域晋升必须新建条目（`promoted_from` 记录来源）。
 
