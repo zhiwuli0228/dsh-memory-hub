@@ -16,7 +16,7 @@ npm run test:watch  # 监听模式
 
 ### 单元测试
 
-- 目标：`src/search.ts`、`src/frontmatter.ts`、`src/scope.ts`、`src/ids.ts` 等纯逻辑。
+- 目标：`src/search.ts`、`src/frontmatter.ts`、`src/scope.ts`、`src/ids.ts`、`src/maintenance-schedule.ts` 等纯逻辑。
 - 不依赖 DSH 运行时。
 - 使用临时目录。
 
@@ -24,7 +24,7 @@ npm run test:watch  # 监听模式
 
 - 目标：`src/service.ts` 流程。
 - 构建 mock store / ledger。
-- 验证预检、引用、提案、关闭、汇总。
+- 验证预检、引用、提案、关闭、汇总、维护。
 
 ### Host 冒烟测试
 
@@ -50,4 +50,10 @@ npm run test:watch  # 监听模式
 
 ## 当前测试
 
-33 个测试，7 个文件。详见 `tests/`。
+53 个测试，10 个文件。详见 `tests/`。
+
+维护相关：
+
+- `tests/maintenance.test.ts`：精确重复 deprecate、重复运行去重、显式标签晋升、report-only、非 admin 拒绝；
+- `tests/maintenance-schedule.test.ts`：本地日期/时间、到点判断、默认配置；
+- `tests/plugin.test.ts`：10 个工具注册。

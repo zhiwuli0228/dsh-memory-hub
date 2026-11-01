@@ -29,10 +29,14 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
 - [x] 夜间维护（`memory_maintenance`）：确定性巡检，报告写 `<hub>/reports/<timestamp>.md` + `latest.md`
 - [x] 维护候选：精确重复（标题 + 摘要 + 正文哈希）生成 deprecate pending；带 `core` / `shared` / `reusable` / `promote` 标签的子工作区知识生成核心晋升 pending
-- [x] 维护只读保护：不 commit、不删除、不改写正文；同一指纹已有 pending 时跳过；单次最多 10 条候选（可配 1..20）
+- [x] 维护只读保护：不 commit、不删除、不改写正文；同一指纹已有 pending 时跳过；每个 core 单次最多 10 条候选（可配 1..20）
 - [x] 维护扫描所有 core，单个 core 失败不阻塞其他 core；报告包含近似重复、过期 pending、长期未引用、加载诊断、超长正文、作用域异常
+- [x] 多 core 维护为**串行**：一个全局定时器，按 `core_workspaces[]` 顺序执行，fallback 最后；每个 core 独立报告与 pending
 - [x] Host 夜间定时器：`policy.maintenance.enabled` + `time`（默认 03:00）；每 60 秒检查，当天只跑一次；错过时间在下一次 Host 启动后补跑
-- [x] 维护状态记录：`<root>/records/maintenance-state.json`，避免同一天重复执行；工具输出包含逐个 core 的统计与错误
+- [x] 维护状态记录：`<configHub-root>/records/maintenance-state.json`，避免同一天重复执行；工具输出包含逐个 core 的统计与错误
+- [x] 维护不使用 DSH `schedule`，不出现在官方「自动化任务」栏；控制入口为 `config.yaml`
+- [x] 已记录本轮决策与取舍：[decision-log](decision-log.md)；架构细节：[maintenance](../01-architecture/maintenance.md)；操作手册：[06-operations/maintenance.md](../06-operations/maintenance.md)
+- [x] ADR：`ADR-0004` 系统级 memory skill、`ADR-0005` 夜间维护只生成 pending
 - [x] 作用域系统：`global` / `domain:<id>` / `project:<workspace-id>`
 - [x] 核心/子工作区模型：`core_workspaces` 与 `workspaces[].core_id`
 - [x] 多核心仓（multi-hub）：每个 `core_workspace.root` 作为独立数据仓库，按工作目录最长前缀路由
@@ -87,6 +91,13 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 夜间维护只做确定性判断：精确重复才生成 deprecate，近似重复/语义合并只报告；晋升只认显式复用标签，避免误判。
 - `reports/` 目前不自动清理；报告会随天数增长。
 - 维护提案不会自动提交；第二天仍需人工 `memory_commit`（或保留 pending 继续观察）。
+- 多 core 维护串行执行，总耗时是各 core 之和；一个慢 core 会拖慢后续 core。
+- 一个 core 失败只记 warning、不阻塞其他 core，但当天不会单独重试；状态在整轮结束后统一写入。
+- 维护只有全局 `maintenance-state.json`，没有 per-core 状态；没有全局合并报告。
+- `all_cores: false` 的定时器当前只跑 fallback；手动工具则是“只跑当前 pack”，语义不一致，暂未修改。
+- 官方「自动化任务」栏不可见；如需暂停/编辑/立即运行，需要改用 DSH `schedule`，代价是会话和模型回合。
+- 当前 Hub：13 条 accepted、1 条 pending（`PRO-000016`，本次设计决策候选）。
+- `approval.mode` 仍为测试遗留的 `auto`；维护本身不 commit，但若要求严格人工审批应改回 `manual`。
 
 ## 当前目录
 
@@ -127,12 +138,27 @@ dsh-memory-hub/
 │   ├── DESIGN.md
 │   ├── KNOWLEDGE-FORMAT.md
 │   ├── COMPATIBILITY.md
+│   ├── 00-project/decision-log.md
+│   ├── 01-architecture/maintenance.md
+│   ├── 01-architecture/decisions/ADR-0004-system-level-memory-skill.md
+│   ├── 01-architecture/decisions/ADR-0005-nightly-maintenance.md
+│   ├── 06-operations/maintenance.md
 │   └── ...（本目录体系）
 ├── site/
 │   ├── index.json
 │   └── icons/
 └── dist/
 ```
+
+## 决策与追踪入口
+
+- [decision-log.md](decision-log.md) — 2026-11-01 的全部决策、改动、验证与已知限制。
+- [ADR-0004](../01-architecture/decisions/ADR-0004-system-level-memory-skill.md) — 系统级 `memory-hub` skill 的注册与命名。
+- [ADR-0005](../01-architecture/decisions/ADR-0005-nightly-maintenance.md) — 夜间维护采用内部定时器、只生成 pending、多 core 串行。
+- [maintenance.md](../01-architecture/maintenance.md) — 夜间维护的组件、顺序、状态、失败与配置语义。
+- [maintenance.md](../06-operations/maintenance.md) — 开启/关闭、每日检查、排障与回滚。
+- [proposal-maintenance.md](../03-openspec/proposal-maintenance.md) — 已实现的 OpenSpec 提案。
+- [COMPATIBILITY.md](../COMPATIBILITY.md) — 宿主冒烟与未验证项。
 
 ## 下一步推荐工作
 
@@ -142,7 +168,10 @@ dsh-memory-hub/
 4. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
 5. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
 6. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
-7. 观察夜间维护：第二天检查 `reports/latest.md` 与 `pending/`，确认候选质量；若长期没有候选，再评估是否放宽“精确重复”或增加显式复用标签。
-8. 验证 PTC `run_code` 嵌套调用与门禁边界。
-9. 补充外部 CLI / 多进程共享 Hub 测试。
-10. 评估索引落盘与增量重建（V0.2 方向）。
+7. 观察夜间维护：第二天检查每个 core 的 `reports/latest.md` 与 `pending/`，确认候选质量；若长期没有候选，再评估是否放宽“精确重复”或增加显式复用标签。
+8. 若需要官方「自动化任务」栏可见/可暂停，另行评估 DSH `schedule` 方案，并记录与内部定时器的取舍。
+9. 评估 `all_cores: false` 的定时器语义，必要时改为 `core_ids` 选择，而不是 fallback-only。
+10. 评估 per-core 失败重试与全局合并报告；当前保持串行和单一状态。
+11. 验证 PTC `run_code` 嵌套调用与门禁边界。
+12. 补充外部 CLI / 多进程共享 Hub 测试。
+13. 评估索引落盘与增量重建（V0.2 方向）。

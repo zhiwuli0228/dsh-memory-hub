@@ -22,7 +22,7 @@
   records/
     ledger.jsonl              # 任务、预检、引用、提交、汇总审计日志
     sequences.json            # ID 计数器
-    maintenance-state.json    # 夜间维护最后运行日期（避免同一天重复）
+    maintenance-state.json    # 夜间维护最后运行日期（仅配置 Hub；全局一份）
     .writer.lock              # 单写者锁
   reports/                    # 夜间巡检报告（非权威，可删除/归档）
     <timestamp>.md
@@ -37,6 +37,7 @@ version: 1
 core_workspaces:
   - id: product
     name: 产品主仓库
+    root: 'E:/projects/product'   # 每个 core 一个独立 Hub
 workspaces:
   - id: backend
     core_id: product
@@ -87,6 +88,8 @@ storage:
 - 未知字段保留但忽略。
 - `version` 不认识时进入只读。
 - 配置热更新由 watcher 触发。
+- `policy.maintenance` 是**全局**策略；每个 core 不再有独立调度配置。
+- `maintenance-state.json` 只写在配置 Hub（默认 `~/.dsh/memory-hub`）；每个 core 的 `reports/` 与 `pending/` 仍写在自己的 root 下。
 
 ## 知识 Markdown
 

@@ -2,11 +2,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| 状态 | V0.1.1 已实现（Host + 只读 Web 面板）；Desktop 宿主与面板热加载冒烟通过；视觉待人工确认 |
+| 状态 | V0.1.4（未发布）：V0.1.2 多 Hub、V0.1.4 夜间维护已并入；Desktop 宿主冒烟通过，视觉待人工确认 |
 | 日期 | 2026-11-01 |
 | 适用宿主 | DeepSeek Harness Desktop Runtime `0.2.1-rc.5`（Node 24.x） |
 | 许可证 | MIT |
-| 配套文档 | [知识文件格式](KNOWLEDGE-FORMAT.md) · [宿主验证记录](COMPATIBILITY.md) · [项目 README](../README.md) |
+| 配套文档 | [知识文件格式](KNOWLEDGE-FORMAT.md) · [宿主验证记录](COMPATIBILITY.md) · [维护执行模型](01-architecture/maintenance.md) · [项目 README](../README.md) |
 
 本文是 `dsh-memory-hub` 的唯一权威设计。它回答四件事：**记什么、怎么查、什么时候信、怎么不闯祸**。实现位于 `src/` 与 `client.js`，构建产物为 `dist/index.js`；验证状态见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
@@ -24,7 +24,7 @@ DSH Memory Hub 是一个**本地优先、文件即真相、人类批准写入**�
 
 五个关键决定：
 
-1. **一个 Hub，多个作用域**（`global` / `domain` / `project`），没有多存储同步。
+1. **每个 core 一个 Hub，Hub 内多个作用域**（`global` / `domain` / `project`）；V0.1 的单 Hub 设计已被 V0.1.2 multi-hub 取代，见 [proposal-multi-hub](03-openspec/proposal-multi-hub.md)。
 2. **Markdown 是权威数据**，`JSONL` 是审计与任务账本，内存索引是可重建的派生物；V0.1 不用 SQLite。
 3. **任务 = 一个用户回合**，预检在回合第一步执行一次，幂等键 `(sessionId, turn)`。
 4. **自动注入只给紧凑索引**（ID、标题、一句话结论、作用域），细节按需 `memory_get`。
@@ -70,7 +70,7 @@ DSH Memory Hub 是一个**本地优先、文件即真相、人类批准写入**�
 
 | 编号 | 能力 | 可验收的定义 |
 | --- | --- | --- |
-| F01 | 单 Hub + N 个工作区 | 一个根目录；至少 3 个 workspace；作用域隔离可测 |
+| F01 | 单 Hub + N 个工作区（V0.1 基线；V0.1.2 已升级为每 core 一个 Hub） | 一个根目录；至少 3 个 workspace；作用域隔离可测 |
 | F02 | 九类知识 | decision / knowledge / api-catalog / process / open-questions / constraint / runtime-base / playbooks / assets |
 | F03 | 检索与读取 | 关键词 + 类型 + 作用域 + 状态过滤；返回 ID、版本、来源路径、片段 |
 | F04 | 回合预检 | 每个用户回合第一步有持久 `preflight` 记录；无命中记 `no_match` 并放行 |
@@ -879,6 +879,14 @@ memory_consolidate({
   types?: KnowledgeType[],
   dry_run?: boolean,
 })
+
+memory_maintenance({
+  apply?: 'report' | 'propose',          // default report
+  all_cores?: boolean,                   // default true; false = current pack (manual)
+  max_proposals?: number,                // 1..20, default 10, per core
+  stale_pending_days?: number,           // default 30
+  stale_citation_days?: number,          // default 90
+})
 ```
 
 ### 10.2 行为约束
@@ -889,6 +897,7 @@ memory_consolidate({
 - `memory_close_task` 只允许关闭当前任务；`task_id` 仅用于校验，不接受跨任务关闭。
 - 写类工具（`memory_propose` / `memory_commit` / `memory_close_task` / `memory_consolidate`）在只读模式下返回 `READ_ONLY`；检索、读取与 `memory_status` 仍可用。
 - `memory_maintenance` 要求 admin 工作区；`apply: "propose"` 只写 `pending/` 与 `reports/`，永不写 `knowledge/`，在只读模式下只报告错误。
+- 夜间维护由插件内部定时器触发，不创建 DSH `schedule`，因此不出现在官方「自动化任务」栏；多个 core 按配置顺序串行，每个 core 独立报告与 pending，全局只有一个 `maintenance-state.json`。详见 [maintenance.md](01-architecture/maintenance.md)。
 - 工具结果不返回绝对机器路径；知识路径返回相对 Hub 根的路径（`knowledge/decision/DEC-000001.md`）。维护报告例外：返回绝对 `reportPath`，便于用户直接打开当天报告。
 
 ### 10.3 错误码
@@ -1141,7 +1150,7 @@ for each enabled workspace in workspace_ids:
 
 | # | 决策 | 理由 | 被否决的替代 |
 | --- | --- | --- | --- |
-| D1 | 单 Hub + 作用域，不做多存储同步 | 一份锁/索引/备份；汇总=晋升 | Hub + 每工作区独立存储 + 双向同步 |
+| D1 | 单 Hub + 作用域，不做多存储同步（V0.1 基线；已被 D10 取代） | 一份锁/索引/备份；汇总=晋升 | Hub + 每工作区独立存储 + 双向同步 |
 | D2 | Markdown 权威 + JSONL 账本 + 内存索引 | 用户可读/可 git；无原生依赖 | SQLite 单一存储；纯 JSON 存储 |
 | D3 | 任务 = 用户回合 | 语义清晰、可幂等、与预检时机一致 | 每 step 一个任务；每 session 一个任务 |
 | D4 | 紧凑索引注入 + 按需读取 | 控制 token；降低注入污染 | 注入全文；每步注入 |
@@ -1150,6 +1159,8 @@ for each enabled workspace in workspace_ids:
 | D7 | 汇总用 `promoted_from` 幂等 | 无需游标、可重放、可审计 | 时间/序号游标 |
 | D8 | 门禁默认 enforce，错误时默认 allow | 正常路径强制；插件故障不锁死用户 | 默认 warn；默认 deny |
 | D9 | 无 Web UI（V0.1） | 文件即界面；先闭环 | 侧边栏面板 |
+| D10 | 每个 core 一个独立 Hub，按工作目录最长前缀路由 | 记忆跟着项目走；多仓隔离；不引入全局根目录 | 单一 Hub + 作用域 |
+| D11 | 夜间维护只生成报告与 pending，使用插件内部定时器，多 core 串行 | 不自动写入；不依赖会话/模型；失败隔离简单 | DSH `schedule` 会话；自动 commit；并行 core |
 | D10 | 不依赖 `session.append` | 插件记录受限；避免破坏会话格式 | 把任务状态写进会话事件 |
 | D11 | 默认根目录 `$DSH_HOME/memory-hub` | 与 DSH 数据同处、可备份 | 项目内 `.memory/`；系统 AppData |
 | D12 | 工具描述英文、文档中文 | 模型兼容 + 用户可读 | 全中文工具描述 |

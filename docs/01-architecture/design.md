@@ -9,7 +9,7 @@ DSH Memory Hub 是一个本地优先、文件即真相、人类批准写入的 D
 ## 架构原则
 
 ```text
-一个 Hub，多个作用域。
+每个 core 一个 Hub，Hub 内多个作用域。
 Markdown 是权威数据，JSONL 是审计账本，内存索引是可重建的派生物。
 任务 = 一个用户回合；预检幂等。
 自动注入只给紧凑索引；细节按需 memory_get。
@@ -90,9 +90,23 @@ memory_commit(proposal_id)
   → 更新 ledger
 ```
 
+### 夜间维护
+
+```text
+Host 每 60 秒 tick
+  → policy.maintenance.enabled? 到点? 今天没跑?
+  → packs = 所有 core（配置顺序）+ fallback
+  → 串行 for pack: service.maintenance({ apply, max_proposals, ... })
+  → 每个 core 写 reports/ 与可选 pending/
+  → 写全局 records/maintenance-state.json
+```
+
+维护是插件内部定时器，不创建 DSH `schedule`，不绑定会话，不消耗模型上下文；永不 commit、删除或改写正文。多 core 顺序、失败语义和官方自动化任务的区别见 [maintenance.md](maintenance.md)。
+
 ## 主要输出
 
 - `dist/index.js`：Host 插件构建产物。
 - `client.js`：Web 面板客户端模块。
-- `~/.dsh/memory-hub/`：用户记忆目录。
+- 每个 `core_workspaces[].root`：独立记忆 Hub（`knowledge/`、`pending/`、`reports/` 等）。
+- `~/.dsh/memory-hub/`：fallback 与全局配置 Hub。
 - `records/ledger.jsonl`：审计账本。

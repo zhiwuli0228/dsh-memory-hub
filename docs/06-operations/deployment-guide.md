@@ -37,6 +37,22 @@ workspaces:
 
 配置修改后会由 watcher 热加载，无需重启。
 
+夜间维护是可选配置：
+
+```yaml
+policy:
+  maintenance:
+    enabled: true
+    time: '03:00'
+    apply: propose
+    all_cores: true
+    max_proposals: 10
+    stale_pending_days: 30
+    stale_citation_days: 90
+```
+
+它使用插件内部定时器，不创建 DSH `schedule`，不会出现在官方「自动化任务」栏。操作与排障见 [maintenance.md](maintenance.md)。
+
 ## 卸载
 
 通过插件管理器卸载。卸载后记忆文件保留在 `~/.dsh/memory-hub`。

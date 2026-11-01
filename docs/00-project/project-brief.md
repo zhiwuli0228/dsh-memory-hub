@@ -64,11 +64,22 @@ dsh-memory-hub 是 DeepSeek Harness（DSH）的本地优先、文件原生长期
   → 只读展示，不替代审批
 ```
 
+### 工作流 5：夜间维护
+
+```text
+Host 定时器到点（默认 03:00）
+  → 按 core 配置顺序串行巡检
+  → 每个 core 写 reports/latest.md
+  → 精确重复/显式复用标签生成 pending
+  → 第二天人工审批，不自动 commit
+```
+
 ## 核心原则
 
 - 文件是真相；索引可重建。
 - 不使用强制性数据库；默认不使用向量库。
 - 人类批准写入，模型不可自批。
+- 夜间维护只生成报告与 pending，不自动提交或改写。
 - 作用域隔离（global / domain / project）。
 - 失败不吞消息，降级为只读或 unavailable。
 - Windows 原生路径语义。

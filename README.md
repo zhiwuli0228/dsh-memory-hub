@@ -147,13 +147,17 @@ policy:
 
 ### 夜间维护
 
-`policy.maintenance.enabled: true` 后，Host 每 60 秒检查一次本地时间；到点当天只跑一次，错过的时间在下一次 Host 启动后补跑一次。它按 core 依次巡检，写入 `<hub>/reports/<timestamp>.md` 和 `latest.md`，然后：
+`policy.maintenance.enabled: true` 后，Host 每 60 秒检查一次本地时间；到点当天只跑一次，错过的时间在下一次 Host 启动后补跑一次。它使用**插件内部定时器**，不是 DSH `schedule`，因此**不会出现在官方「自动化任务」栏**；控制入口是 `config.yaml`。
+
+多个 core 时是一个全局定时器，按 `core_workspaces[]` 配置顺序**串行**巡检，fallback 最后；每个 core 独立写 `<hub>/reports/<timestamp>.md` 和 `latest.md`，然后：
 
 - 精确重复（标题 + 摘要 + 正文哈希一致）→ 生成 **deprecate** pending 提案；
 - 带 `core` / `shared` / `reusable` / `promote` 标签的子工作区知识 → 生成晋升到核心作用域的 pending 提案；
 - 近似重复、过期 pending、长期未引用、加载诊断、超长正文、作用域异常 → 只写报告，留给人判断。
 
 维护任务**永不**调用 `memory_commit`、不删除、不改写正文；同一指纹已有 pending 时跳过，避免每晚重复。也可以随时手动调用 `memory_maintenance`，用 `apply: "report"` 只看报告。
+
+多 core 的完整顺序、单 core 失败语义、状态文件和配置含义见 [docs/01-architecture/maintenance.md](docs/01-architecture/maintenance.md)；每日检查与排障见 [docs/06-operations/maintenance.md](docs/06-operations/maintenance.md)。
 
 ### 系统级记忆 Skill
 
@@ -205,6 +209,10 @@ docs/
   DESIGN.md           # V0.1 设计
   KNOWLEDGE-FORMAT.md # 知识文件格式
   COMPATIBILITY.md    # 宿主验证记录与已知限制
+  00-project/decision-log.md      # 按日期的决策与改动记录
+  01-architecture/maintenance.md  # 多 core 夜间维护执行模型
+  01-architecture/decisions/      # ADR-0004 skill、ADR-0005 夜间维护
+  06-operations/maintenance.md    # 维护操作与排障
 ```
 
 ## 发布
@@ -224,6 +232,8 @@ git push origin v0.1.3
 - Web 面板的客户端模块已在本机运行中热加载（`client.advertised: true`，`sidebar.panellist` 与 `main` 均 active）；点击后的完整视觉布局尚未在本会话中截图确认。
 - 面板只读，不提供批准按钮；提交仍需在会话中经过 DSH 审批。
 - 夜间维护依赖 Host 运行；Host 关闭时不会执行，下一次启动且当天未跑过会补跑一次。
+- 多 core 维护串行执行，总耗时是各 core 之和；一个 core 失败当天不重试。
+- 维护不出现在官方「自动化任务」栏，不能在那里暂停/编辑/立即运行；控制入口是 `config.yaml`。
 - `reports/` 目前不自动清理；条目多时可定期归档或删除旧报告。
 
 ## 许可

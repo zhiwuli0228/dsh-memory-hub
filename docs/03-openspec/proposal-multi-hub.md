@@ -73,3 +73,15 @@ Out of Scope:
   - `tests/plugin.test.ts` 新增多 Hub 路由测试。
   - 新增核心工作区、子工作区、无核心降级等场景覆盖。
 - 宿主冒烟：在 DSH 中配置 `product` 核心工作区，已验证 `/api/hubs`、`/api/overview?core=...` 及面板 Hub 切换。
+
+## 9. Maintenance Impact（V0.1.4）
+
+多 Hub 后新增的夜间维护不使用会话路由，而是直接遍历所有已打开的 core pack：
+
+- 一个全局定时器；按 `core_workspaces[]` 配置顺序串行；
+- 每个 core 独立 `reports/` 与 `pending/`；
+- 子工作区在所属 core 内一起分析，不单独调度；
+- 一个全局 `maintenance-state.json` 记录最后运行日期；
+- 单 core 失败不阻塞其他 core，但当天不单独重试。
+
+详见 [maintenance](../01-architecture/maintenance.md) 与 [ADR-0005](../01-architecture/decisions/ADR-0005-nightly-maintenance.md)。

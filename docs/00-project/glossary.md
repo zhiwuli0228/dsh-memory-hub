@@ -62,7 +62,27 @@ Architecture Decision Record。见 `docs/01-architecture/decisions/`。
 
 ## Core Workspace
 
-核心工作区（V0.1.2）。多个子工作区可归属于同一个核心工作区，便于一对多管理。
+核心工作区（V0.1.2）。多个子工作区可归属于同一个核心工作区，便于一对多管理。配置了 `root` 的 core 同时是一个独立 Hub。
+
+## Core Hub
+
+由 `core_workspaces[].root` 打开的独立 Hub。拥有自己的 `knowledge/`、`pending/`、`history/`、`records/`、`reports/` 和写锁。多个 core 之间互不共享 pending。
+
+## Fallback Hub
+
+全局配置 Hub（默认 `~/.dsh/memory-hub`）。没有匹配到任何 core 的会话使用它；夜间维护在 `all_cores: true` 时也会巡检它。
+
+## Maintenance / 夜间维护
+
+插件内部定时执行的确定性巡检。到点后按配置顺序串行扫描所有 core，写报告，并可选生成 pending 提案；永不自动 commit、删除或改写正文。见 [maintenance](../01-architecture/maintenance.md)。
+
+## Maintenance State
+
+`records/maintenance-state.json`，记录 `lastRunDate`，保证同一个本地日期只跑一次。全局一份，不是每个 core 一份。
+
+## Official Automation Task
+
+DSH `schedule` 服务创建的任务，出现在官方「自动化任务」栏，绑定原会话，每次触发会走一个模型回合。夜间维护**不是**这种任务。
 
 ## Client / 面板
 
