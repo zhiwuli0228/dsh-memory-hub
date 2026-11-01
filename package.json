@@ -2,7 +2,7 @@
   "name": "dsh-memory-hub",
   "version": "0.0.0",
   "private": true,
-  "description": "Long-term memory hub for DeepSeek Harness (DSH). Repository scaffold; design and implementation pending.",
+  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH). V0.1 design complete; implementation pending.",
   "license": "MIT",
   "author": "zhiwuli0228",
   "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
