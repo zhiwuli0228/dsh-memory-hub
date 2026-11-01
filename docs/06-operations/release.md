@@ -57,6 +57,20 @@ GitHub → Actions → Release → Run workflow，输入已存在的 tag（例�
 
 `--provenance` 使用 GitHub OIDC（workflow 已声明 `id-token: write`），生成可验证的供应链证明。若 npm 端或 token 不支持 provenance，可去掉该参数。
 
+### Trusted Publisher（可选，仍需一次性配置）
+
+**`--provenance` 不等于 Trusted Publisher。** 前者只生成供应链证明；后者是 npm 侧的发布授权方式，需要把包绑定到具体仓库和 workflow：
+
+1. npmjs.com → `dsh-memory-hub` → Settings → Trusted publishing → Add GitHub Actions publisher：
+   - owner/repo：`zhiwuli0228/dsh-memory-hub`
+   - workflow filename：`release.yml`
+   - environment：可留空
+2. workflow 保留 `id-token: write`，但删除 `NPM_TOKEN` / `.npmrc` 相关步骤。
+3. npm CLI 需要 >= 11.5.1；Node 22 自带 npm 10，需要在 workflow 里执行 `npm install -g npm@latest`。
+4. 之后 `npm publish --access public --provenance` 使用 OIDC，不需要 `NPM_TOKEN`。
+
+当前仓库**没有配置 Trusted Publisher**，仍使用 `NPM_TOKEN`；未配置 secret 时 npm 发布步骤会被跳过。
+
 ## Workflow 步骤
 
 1. Checkout tag。
