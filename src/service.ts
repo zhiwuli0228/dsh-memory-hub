@@ -1064,7 +1064,7 @@ export class MemoryService {
       '',
       'Before planning or modifying files, read the hit(s) that could change the decision with memory_get.',
       'After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment.',
-      'For the full retrieval and writeback workflow, load the memory-management skill with the skill tool.',
+      'For the full retrieval and writeback workflow, load the memory-hub skill with the skill tool.',
     ]
     const lines: string[] = [...header]
     let included = 0

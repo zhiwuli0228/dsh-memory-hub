@@ -6,7 +6,7 @@
 
 V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。npm 包 `dsh-memory-hub@0.1.3` 已上架，仓库同时提供自托管插件市场索引。
 
-当前工作树为 **V0.1.4（未发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数；并注册系统级 `memory-management` skill，把“检索 → 读正文 → 引用 → 回写 → 关闭”的流程从插件提示提升为可加载的操作规范。
+当前工作树为 **V0.1.4（未发布）**：预检增加 `min_score` / `local_boost` 相关性门控，包尾改为指令式回写提示，面板任务行显示命中数与引用数；并注册系统级 `memory-hub` skill，把“检索 → 读正文 → 引用 → 回写 → 关闭”的流程从插件提示提升为可加载的操作规范。
 
 ## 已实现
 
@@ -18,8 +18,9 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 预检相关性门控：`policy.preflight.min_score` 过滤弱命中，全部低于阈值时记 `no_match`
 - [x] 本地优先排序：`policy.preflight.local_boost` 提升当前工作区 `project:<id>` 知识
 - [x] 紧凑上下文注入（`memory:pack`），只含 ID、标题、摘要、作用域
-- [x] 指令式包尾：先 `memory_get`、使用后 `memory_cite`、结束前 `memory_close_task`，并提示加载 `memory-management` skill
-- [x] 系统级 `memory-management` skill：由插件注册到 Host 全局 skills 层，模型/用户可按需加载；覆盖检索、作用域、写入审批、回写评估、核心回填与反模式
+- [x] 指令式包尾：先 `memory_get`、使用后 `memory_cite`、结束前 `memory_close_task`，并提示加载 `memory-hub` skill
+- [x] 系统级 `memory-hub` skill：由插件注册到 Host 全局 skills 层，模型/用户可按需加载；覆盖检索、作用域、写入审批、回写评估、核心回填与反模式
+- [x] 官方 skill 命名审计：当前 catalog 无 `memory-hub` / 旧名 `memory-management`；采用产品自有名避免 runtime 静默遮蔽 bundled；测试锁定官方名称快照
 - [x] Skill 注册降级：宿主没有 `skills` 服务时只记录 warning，不影响 9 个记忆工具
 - [x] 引用记录（`memory_cite`）区分检索命中与实际使用
 - [x] 面板任务行显示预检命中数与引用数，暴露“命中但未引用”的断点
@@ -37,11 +38,11 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 发布经验已回填核心：`KNO-000002`（npm 发布/Trusted Publisher/市场索引踩坑）、`PRC-000003`（发布 checklist）
 - [x] 预检采用率经验已回填核心：`KNO-000003`（预检运行≠被使用，先修相关性/指令/可见性，再考虑行为门禁）
 - [x] 本仓本地决策：`DEC-000002`（min_score=1.0、local_boost=1.2）
-- [x] 系统级 skill 经验已回填核心：`API-000004`（`ctx.skills.register` 与按需加载）；本仓决定：`DEC-000003`（采用 `memory-management` skill）
+- [x] 系统级 skill 经验已回填核心：`API-000004`（`ctx.skills.register` 与按需加载）；本仓决定：`DEC-000003`（采用 `memory-hub` skill）
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 44 个 vitest 测试（8 个文件）
+- [x] 45 个 vitest 测试（8 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.3`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.3`，仓库 homepage 指向 npm 包页
 - [x] GitHub Actions 自动发布：`.github/workflows/release.yml`（tag 触发，Windows 构建/测试，Trusted Publisher/OIDC 发布 npm，自动创建 Release 并上传 tarball）
@@ -73,8 +74,8 @@ V0.1.3 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
-- 预检已覆盖所有子工作区，但模型实际调用 `memory_get` / `memory_cite` / `memory_close_task` 的比例仍低；账本中大量任务以 `deferred`（`turn ended without an assessment`）关闭。`memory-management` skill 只是可加载的操作规范，不强制模型加载或执行。
-- `memory-management` skill 已出现在 skill catalog 并可加载，但是否被主动加载尚未量化；skill 加载不写记忆账本，短期只能通过会话行为观察。
+- 预检已覆盖所有子工作区，但模型实际调用 `memory_get` / `memory_cite` / `memory_close_task` 的比例仍低；账本中大量任务以 `deferred`（`turn ended without an assessment`）关闭。`memory-hub` skill 只是可加载的操作规范，不强制模型加载或执行。
+- `memory-hub` skill 已出现在 skill catalog 并可加载，但是否被主动加载尚未量化；skill 加载不写记忆账本，短期只能通过会话行为观察。
 - 子工作区本地 `project` 知识仍很少；没有本地条目时，预检只能返回核心共享知识。
 
 ## 当前目录
@@ -127,7 +128,7 @@ dsh-memory-hub/
 2. 增加面板交互与视觉验收测试。
 3. 压测 5k+ 条知识索引与检索性能。
 4. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
-5. 观察 `memory-management` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
+5. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
 6. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
 7. 验证 PTC `run_code` 嵌套调用与门禁边界。
 8. 补充外部 CLI / 多进程共享 Hub 测试。

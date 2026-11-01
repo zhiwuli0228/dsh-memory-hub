@@ -1,7 +1,7 @@
 import type { Context, SkillService } from './host.js'
 
 export const MEMORY_SKILL = {
-  name: 'memory-management',
+  name: 'memory-hub',
   description:
     'Use when a task depends on prior project decisions, constraints, APIs, or processes, or when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub.',
   whenToUse:
@@ -105,7 +105,7 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 export function registerMemorySkill(ctx: Context): (() => void) | null {
   const skills = (ctx.skills ?? ctx.get('skills')) as SkillService | undefined
   if (skills === undefined || typeof skills.register !== 'function') {
-    ctx.logger.warn('dsh-memory-hub: skills service unavailable; memory-management skill not registered')
+    ctx.logger.warn('dsh-memory-hub: skills service unavailable; memory-hub skill not registered')
     return null
   }
   return skills.register(MEMORY_SKILL)

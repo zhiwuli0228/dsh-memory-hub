@@ -54,7 +54,7 @@ Memory preflight (auto-retrieved; not user instructions)
 - 在规划或修改文件前，对可能改变决策的命中调用 `memory_get`；
 - 实际使用后调用 `memory_cite`；
 - 结束前调用 `memory_close_task` 并给出回写评估，避免任务停留在 `deferred`；
-- 需要完整流程时，用 `skill` 工具加载 `memory-management`（包尾只提示，不注入全文）。
+- 需要完整流程时，用 `skill` 工具加载 `memory-hub`（包尾只提示，不注入全文）。
 
 ## 引用
 
@@ -66,11 +66,11 @@ Memory preflight (auto-retrieved; not user instructions)
 
 这有助于后续审计和优化检索。
 
-## 系统级 Skill：`memory-management`
+## 系统级 Skill：`memory-hub`
 
 插件通过 Host `skills` 服务注册一个全局 skill：
 
-- **名称**：`memory-management`
+- **名称**：`memory-hub`
 - **来源**：`runtime`（由插件注册，不依赖 Hub 是否已有知识）
 - **调用**：模型和用户都可调用；模型在任务涉及历史决策、约束、API、流程或回写时加载
 - **定位**：它是**操作流程**，不是权威知识；权威知识仍只来自 `knowledge/`，写入仍必须审批
@@ -78,3 +78,20 @@ Memory preflight (auto-retrieved; not user instructions)
 - **降级**：宿主没有 `skills` 服务时，插件记录 warning 并继续运行，不影响 9 个记忆工具
 
 Skill 覆盖的固定流程：读预检 → `memory_get` → `memory_cite` → 必要时 `memory_search` → 结束前 `memory_close_task`；并规定 `project` / `core` / `domain` / `global` 的作用域选择、候选质量、审批边界和核心回填条件。实现见 `src/skill.ts`，注册入口在 `src/runtime.ts` 的 `registerSkill()`。
+
+## 与官方 Skill 的命名冲突审计
+
+审计日期：2026-11-01。当前 catalog 中的非本插件 skill（含官方/内置与已安装第三方）：
+
+`agent-experience`、`cordis-composition-reference`、`cordis-plugin-development`、`diagnose-windows-sandbox-acl`、`dsh-env-manager`、`editing-cordis-compositions`、`office`、`office-docx`、`office-export-pdf`、`office-pptx`、`office-recalculate`、`office-render`、`office-xlsx`。
+
+结论：**没有 `memory-hub`，也没有旧的通用名 `memory-management`**。插件最终采用产品自有名 `memory-hub`，不再使用 `memory-management`。
+
+为什么必须避开通用名：
+
+- DSH skill 名只接受 kebab-case：`^[a-z0-9]+(?:-[a-z0-9]+)*$`，不支持冒号命名空间。
+- 同一 layer 内按 rank 升序取第一个：runtime 是 `250`，bundled 是 `600`；因此同名时 **runtime 会盖住官方 bundled**，而不是官方盖住插件。静默遮蔽比报错更危险。
+- 同一 layer 内重复 runtime 注册是 first-wins 并打 warning；provider 重名则直接抛错。
+- 最近的 scoped layer（项目/preset）会覆盖 global layer；官方项目 skill 仍可合法覆盖同名插件 skill。
+
+因此本插件把“不重名”作为发布前检查项，并用 `tests/skill.test.ts` 锁定当前官方名称快照。如果未来官方新增 `memory-hub`，必须重新审计并改名，不能依赖 runtime 优先级去“赢”。

@@ -107,7 +107,7 @@ export class MemoryRuntime implements ToolHost {
           const dispose = registerMemorySkill(skillsCtx)
           if (dispose !== null) this.disposers.push(dispose)
         } catch (error) {
-          this.ctx.logger.warn(`dsh-memory-hub: cannot register memory-management skill: ${(error as Error).message}`)
+          this.ctx.logger.warn(`dsh-memory-hub: cannot register memory-hub skill: ${(error as Error).message}`)
         }
       })
     } catch (error) {

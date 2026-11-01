@@ -143,7 +143,7 @@ describe('plugin entry', () => {
     const host = createFakeHost(root)
     apply(host.ctx, { root })
     expect(host.tools.size).toBe(9)
-    expect(host.skills.get('memory-management')?.source).toBe('runtime')
+    expect(host.skills.get('memory-hub')?.source).toBe('runtime')
     expect(host.listeners.get('agent/pre-step')?.length).toBe(1)
 
     const statusBefore = (await invoke('memory_status', host, {}, makeAgent(host))) as {

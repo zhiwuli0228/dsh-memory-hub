@@ -55,7 +55,7 @@ describe('memory service', () => {
       const pack = harness.service.packFor(harness.agent.id)
       expect(pack).toContain('memory_get')
       expect(pack).toContain('memory_close_task')
-      expect(pack).toContain('memory-management skill')
+      expect(pack).toContain('memory-hub skill')
     } finally {
       await harness.cleanup()
     }

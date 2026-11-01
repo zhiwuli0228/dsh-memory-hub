@@ -14103,7 +14103,7 @@ var MemoryService = class {
       "",
       "Before planning or modifying files, read the hit(s) that could change the decision with memory_get.",
       "After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment.",
-      "For the full retrieval and writeback workflow, load the memory-management skill with the skill tool."
+      "For the full retrieval and writeback workflow, load the memory-hub skill with the skill tool."
     ];
     const lines = [...header];
     let included = 0;
@@ -14480,7 +14480,7 @@ function createTools(host) {
 
 // src/skill.ts
 var MEMORY_SKILL = {
-  name: "memory-management",
+  name: "memory-hub",
   description: "Use when a task depends on prior project decisions, constraints, APIs, or processes, or when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub.",
   whenToUse: "\u5728\u89C4\u5212\u6216\u4FEE\u6539\u9879\u76EE\u3001\u6392\u67E5\u91CD\u590D\u95EE\u9898\u3001\u7528\u6237\u8BF4\u201C\u8BB0\u4F4F/\u8BB0\u5F55/\u4EE5\u540E\u6309\u8FD9\u4E2A\u6765\u201D\u3001\u4EFB\u52A1\u7ED3\u675F\u9700\u8981\u56DE\u5199\uFF0C\u6216\u9884\u68C0\u5305\u51FA\u73B0\u53EF\u7591\u547D\u4E2D\u65F6\u3002",
   source: "runtime",
@@ -14581,7 +14581,7 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 function registerMemorySkill(ctx) {
   const skills = ctx.skills ?? ctx.get("skills");
   if (skills === void 0 || typeof skills.register !== "function") {
-    ctx.logger.warn("dsh-memory-hub: skills service unavailable; memory-management skill not registered");
+    ctx.logger.warn("dsh-memory-hub: skills service unavailable; memory-hub skill not registered");
     return null;
   }
   return skills.register(MEMORY_SKILL);
@@ -14656,7 +14656,7 @@ var MemoryRuntime = class {
           const dispose = registerMemorySkill(skillsCtx);
           if (dispose !== null) this.disposers.push(dispose);
         } catch (error) {
-          this.ctx.logger.warn(`dsh-memory-hub: cannot register memory-management skill: ${error.message}`);
+          this.ctx.logger.warn(`dsh-memory-hub: cannot register memory-hub skill: ${error.message}`);
         }
       });
     } catch (error) {
