@@ -30,6 +30,7 @@
 - `npm run check`：typecheck + build + 59 个测试通过（10 个文件）。
 - 单测覆盖：配置根锁被占用时 `core` 工作区 `readOnly: false`；跨机 `.writer.lock` 被回收；同机活进程锁仍降级只读；`config.yaml` 修复后 `reloadConfig` 恢复可写并重新持锁；锁降级下 `updateConfig` 成功落盘。
 - 面板：`/api/config` 返回 `configWritable`；旧客户端字段缺省时仍按 `readOnly` 处理。
+- 已发布 `v0.1.6`：tag `785576f`；GitHub Actions [run 41436746941](https://github.com/zhiwuli0228/dsh-memory-hub/actions/runs/41436746941) 全绿（Verify tag → check → pack → publish → release）；npm 于 `2026-11-02T11:30:30Z` 收录，`gitHead` 与 tag commit 一致，provenance 为 SLSA v1（`https://slsa.dev/provenance/v1`）；Release 附件 `dsh-memory-hub-0.1.6.tgz` 已生成。
 
 ### 已知限制 / 后续
 

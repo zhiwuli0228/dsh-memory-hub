@@ -30,6 +30,12 @@
 - `PLUGIN_VERSION` 与 `package.json` 使用单一版本源
 - 39 个测试
 
+## V0.1.6（已发布）
+
+- 写锁按根独立：配置根/单个工作区锁被占用不波及其他根；跨机残留锁自动回收；配置写入不受写锁限制
+- `memory_status` / `/api/overview` / `/api/config` 暴露 `configWritable` 与 `readOnlySource`
+- 59 个测试
+
 ## V0.1.5（已发布）
 
 - 预检相关性门控：`policy.preflight.min_score`
@@ -41,8 +47,6 @@
 - 维护入口为插件内部定时器，不显示在官方「自动化任务」栏
 - 维护状态、多 core 失败语义、操作手册与 ADR 已记录
 - npm `0.1.5` + GitHub Release `v0.1.5` 已发布
-- 写锁按根独立：配置根/单个工作区锁被占用不波及其他根；跨机残留锁自动回收；配置写入不受写锁限制
-- 59 个测试
 
 ## V0.2（候选）
 
