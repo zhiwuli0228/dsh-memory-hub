@@ -1,6 +1,6 @@
 # Proposal: Per-Root Write Lock
 
-> Status: implemented (2026-11-02, unreleased). 决策记录见 [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md)。
+> Status: implemented in V0.1.6. 决策记录见 [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md)。
 
 ## 1. Problem
 
