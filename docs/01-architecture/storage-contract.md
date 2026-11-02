@@ -23,7 +23,7 @@
     ledger.jsonl              # 任务、预检、引用、提交、汇总审计日志
     sequences.json            # ID 计数器
     maintenance-state.json    # 夜间维护最后运行日期（仅配置 Hub；全局一份）
-    .writer.lock              # 单写者锁
+    .writer.lock              # 该 Hub 根目录的写锁（每个根一把，互相独立）
   reports/                    # 夜间巡检报告（非权威，可删除/归档）
     <timestamp>.md
     latest.md

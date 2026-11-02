@@ -52,7 +52,7 @@ V0.1.5 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 53 个 vitest 测试（10 个文件）
+- [x] 59 个 vitest 测试（10 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
@@ -64,6 +64,9 @@ V0.1.5 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] `PLUGIN_VERSION` 直接读取 `package.json`，构建 banner 同步版本，避免发布时版本漂移
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`
 - [x] 宿主兼容性验证记录（`docs/COMPATIBILITY.md`）
+- [x] 写锁按 hub 根独立：只有配置根/该 core 根自己的锁占用才让它只读，不跨根级联；显式 `readOnly: true` 仍是全局只读（[ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md)）
+- [x] 残留锁回收：`host` 不同（跨机拷贝/漫游目录）即视为失效；本机进程不存在且心跳超过 `lock_stale_ms` 才回收，活进程的锁不抢占
+- [x] 配置可写性与写锁解耦：`configWritable` 只受显式 `readOnly: true` 影响；锁被占用或 `config.yaml` 损坏时，面板「配置」页仍可保存并触发 `reloadConfig` 恢复写权限
 - [x] 新增项目文档体系（`docs/` 目录层级 + `AGENTS.md`）
 
 ## 当前约束
@@ -72,7 +75,7 @@ V0.1.5 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 默认不使用向量数据库。
 - `memory_commit` 必须经过 DSH 原生人工审批；模型不可自批。
 - Web 面板只读；面板路由只允许回环请求。
-- 单写者模型：第二个进程降级为只读。
+- 每根一把写锁：第二个写者只让该根降级为只读，不跨根级联；显式 `readOnly: true` 才是全局只读。
 - Windows 原生路径语义。
 
 ## 已知限制
@@ -80,7 +83,7 @@ V0.1.5 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - DSH 原生审批提示的**真实点击通过**路径未验证；本机审批提示关闭。测试模式 `auto` 已验证自动提交与 `test:auto` 账本记录。
 - 门禁的宿主级拒绝未在真实会话中强制触发，由单元测试覆盖。
 - PTC `run_code` 嵌套调用未验证。
-- 外部 CLI / 多进程共享 Hub 未验证。
+- 外部 CLI / 多进程共享 Hub 未验证；每根一把锁、按根降级、跨机锁回收由单元测试覆盖。
 - 长会话上下文累积效果未做规模测量。
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。

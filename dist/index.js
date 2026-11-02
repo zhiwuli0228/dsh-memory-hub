@@ -11783,6 +11783,9 @@ async function readLock(path) {
     return null;
   }
 }
+function sameHost(host) {
+  return host.toLowerCase() === hostname().toLowerCase();
+}
 var WriterLock = class _WriterLock {
   constructor(path, info) {
     this.path = path;
@@ -11794,8 +11797,10 @@ var WriterLock = class _WriterLock {
     const existing = await readLock(path);
     if (existing !== null) {
       const heartbeatAge = Date.now() - Date.parse(existing.heartbeatAt);
+      const foreignHost = !sameHost(existing.host);
       const dead = !isProcessAlive(existing.pid);
-      if (!(dead && heartbeatAge > staleMs)) return null;
+      const reclaimable = foreignHost || dead && heartbeatAge > staleMs;
+      if (!reclaimable) return { lock: null, owner: existing };
       await rm2(path, { force: true }).catch(() => {
       });
     }
@@ -11810,7 +11815,9 @@ var WriterLock = class _WriterLock {
     try {
       handle = await open2(path, "wx");
     } catch (error) {
-      if (error.code === "EEXIST") return null;
+      if (error.code === "EEXIST") {
+        return { lock: null, owner: await readLock(path) };
+      }
       throw new MemoryError("STORAGE_ERROR", `cannot create writer lock ${path}: ${error.message}`);
     }
     try {
@@ -11820,7 +11827,7 @@ var WriterLock = class _WriterLock {
     }
     const lock = new _WriterLock(path, info);
     lock.startHeartbeat();
-    return lock;
+    return { lock, owner: null };
   }
   startHeartbeat() {
     this.timer = setInterval(() => {
@@ -11855,20 +11862,33 @@ function resolveHubRoot(configured) {
   const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join2(homedir(), ".dsh");
   return join2(base, "memory-hub");
 }
+function describeBlocker(path, owner) {
+  if (owner === null) return `another writer holds ${path}`;
+  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host})`;
+}
 var Hub = class _Hub {
   root;
   config;
   configError = null;
+  /** Effective write gate: `false` only when this root can be written. */
   readOnly;
   readOnlyReason = null;
+  /** Why `readOnly` is set: forced by config, unreadable config.yaml, or a busy writer lock. */
+  readOnlySource = null;
+  /** Explicit `readOnly: true`: the only source that also blocks config edits. */
+  forcedReadOnly;
   lock = null;
   configSource = null;
-  constructor(root, config, readOnly, readOnlyReason, configSource) {
+  lockAllowed;
+  constructor(root, config, forcedReadOnly, readOnlyReason, configSource, lockAllowed) {
     this.root = root;
     this.config = config;
-    this.readOnly = readOnly;
-    this.readOnlyReason = readOnlyReason;
+    this.forcedReadOnly = forcedReadOnly;
+    this.readOnly = forcedReadOnly;
+    this.readOnlyReason = forcedReadOnly ? readOnlyReason ?? "configured read-only" : null;
+    this.readOnlySource = forcedReadOnly ? "forced" : null;
     this.configSource = configSource ?? null;
+    this.lockAllowed = lockAllowed;
   }
   static async open(options = {}) {
     const isDataRoot = options.config !== void 0;
@@ -11876,12 +11896,12 @@ var Hub = class _Hub {
     if (root === "") {
       throw new MemoryError("INVALID_INPUT", "hub root must not be empty");
     }
+    const forcedReadOnly = options.readOnly === true;
+    const lockAllowed = options.lock !== false;
     const externalConfigPath = options.configPath;
     let config;
     let configSource;
     let configError = null;
-    let readOnly = options.readOnly === true;
-    let readOnlyReason = readOnly ? "configured read-only" : null;
     if (isDataRoot && options.config !== void 0) {
       config = options.config;
       configSource = externalConfigPath ?? void 0;
@@ -11896,8 +11916,6 @@ var Hub = class _Hub {
           await writeAtomic(configPath, DEFAULT_CONFIG_YAML);
         } catch (error) {
           configError = `cannot create config.yaml: ${error.message}`;
-          readOnly = true;
-          readOnlyReason = configError;
         }
       }
       try {
@@ -11905,23 +11923,51 @@ var Hub = class _Hub {
         if (loaded !== null) config = loaded;
       } catch (error) {
         configError = error.message;
-        readOnly = true;
-        readOnlyReason = configError;
       }
     }
-    const hub = new _Hub(root, config, readOnly, readOnlyReason, configSource);
+    const hub = new _Hub(
+      root,
+      config,
+      forcedReadOnly,
+      options.readOnlyReason,
+      configSource,
+      lockAllowed
+    );
     hub.configError = configError;
-    if (!readOnly && options.lock !== false) {
-      const lock = await WriterLock.acquire(hub.lockPath(), config.storage.lock_stale_ms);
-      if (lock === null) {
-        hub.readOnly = true;
-        hub.readOnlyReason = "another writer holds records/.writer.lock";
-      } else {
-        hub.lock = lock;
-      }
+    if (configError !== null) {
+      hub.markReadOnly("config", configError);
+    } else if (!forcedReadOnly && lockAllowed) {
+      await hub.acquireLock();
     }
     return hub;
   }
+  /**
+   * Mark this hub read-only. `config` and `lock` degradations are local to this
+   * root; `forced` comes from the plugin configuration and applies everywhere.
+   */
+  markReadOnly(source, reason) {
+    this.readOnly = true;
+    this.readOnlyReason = reason;
+    this.readOnlySource = source;
+  }
+  /** Whether this hub may write `config.yaml` (atomic file write, not a knowledge write). */
+  canWriteConfig() {
+    return !this.forcedReadOnly;
+  }
+  async acquireLock() {
+    const attempt = await WriterLock.acquire(this.lockPath(), this.config.storage.lock_stale_ms);
+    if (attempt.lock === null) {
+      this.markReadOnly("lock", describeBlocker(this.lockPath(), attempt.owner));
+      return false;
+    }
+    this.lock = attempt.lock;
+    return true;
+  }
+  /**
+   * Re-read `config.yaml`. When the previous read-only state came from a bad
+   * config, a successful reload also restores write access (and takes the lock
+   * that was skipped while the hub was degraded).
+   */
   async reloadConfig() {
     const path = this.configPath();
     if (path === null) {
@@ -11936,9 +11982,19 @@ var Hub = class _Hub {
       }
       this.config = loaded;
       this.configError = null;
+      if (this.readOnlySource === "config") await this.recoverWrites();
     } catch (error) {
       this.configError = error.message;
     }
+  }
+  async recoverWrites() {
+    if (this.lockAllowed && this.lock === null) {
+      const acquired = await this.acquireLock();
+      if (!acquired) return;
+    }
+    this.readOnly = this.forcedReadOnly;
+    this.readOnlyReason = this.forcedReadOnly ? "configured read-only" : null;
+    this.readOnlySource = this.forcedReadOnly ? "forced" : null;
   }
   async close() {
     if (this.lock !== null) {
@@ -14349,6 +14405,8 @@ var MemoryService = class {
       root: this.hub.displayRoot(),
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
+      readOnlySource: this.hub.readOnlySource,
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       counts: this.store.counts(),
       index: {
@@ -14395,6 +14453,10 @@ var MemoryService = class {
   config() {
     return {
       readOnly: this.hub.readOnly,
+      // config.yaml is written atomically and does not need the knowledge writer
+      // lock: a busy lock or a broken config must not lock the user out of the
+      // panel form that repairs it.
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
         id: core.id,
@@ -14412,8 +14474,8 @@ var MemoryService = class {
     };
   }
   async updateConfig(patch) {
-    if (this.hub.readOnly) {
-      throw new MemoryError("INVALID_STATE", "memory hub is read-only");
+    if (!this.hub.canWriteConfig()) {
+      throw new MemoryError("INVALID_STATE", this.hub.readOnlyReason ?? "memory hub is read-only");
     }
     const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces;
     const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces;
@@ -14448,6 +14510,8 @@ var MemoryService = class {
       root: this.hub.displayRoot(),
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
+      readOnlySource: this.hub.readOnlySource,
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       workspace: workspace === null || !workspace.registered ? null : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
       counts: this.store.counts(),
@@ -15195,18 +15259,27 @@ var MemoryRuntime = class {
     this.started = true;
     try {
       const configRoot = this.config.root ?? "";
-      const configHub = await Hub.open({ root: configRoot, readOnly: this.config.readOnly === true });
+      const forcedReadOnly = this.config.readOnly === true;
+      const configHub = await Hub.open({ root: configRoot, readOnly: forcedReadOnly });
       this.configHub = configHub;
       const globalConfig = configHub.config;
       this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null);
       for (const core of globalConfig.core_workspaces) {
         if (core.root === void 0) continue;
         const root = resolve2(expandHome(core.root));
+        const sharesConfigRoot = normalizeForCompare2(root) === normalizeForCompare2(configHub.root);
+        if (sharesConfigRoot) {
+          this.ctx.logger.warn(
+            `dsh-memory-hub: core workspace ${core.id} uses the config hub root; sharing its writer lock`
+          );
+        }
         const dataHub = await Hub.open({
           root,
-          readOnly: configHub.readOnly,
+          readOnly: sharesConfigRoot ? configHub.readOnly : forcedReadOnly,
+          ...sharesConfigRoot && configHub.readOnlyReason !== null ? { readOnlyReason: configHub.readOnlyReason } : {},
           config: globalConfig,
-          configPath: configHub.configPath() ?? void 0
+          configPath: configHub.configPath() ?? void 0,
+          lock: !sharesConfigRoot
         });
         const pack = await this.openServicePack(
           dataHub,

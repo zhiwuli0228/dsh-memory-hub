@@ -37,19 +37,25 @@
 
 ## 只读模式
 
-可能原因：
+只读是**按根目录**判定的：一个根只读不代表其他工作区只读。先看 `memory_status.readOnlyReason`（面板顶部「只读模式:」后面那句），再对号入座：
 
-- 配置非法
-- 根目录不可写
-- 文件锁被占用
-- 多进程并发
+| `readOnlyReason` | 原因 | 处理 |
+| --- | --- | --- |
+| `configured read-only` | 插件配置写了 `readOnly: true`（全局只读） | 去掉插件配置里的 `readOnly`，重载插件 |
+| `cannot create config.yaml: ...` | 根目录不可写（权限/只读盘） | 修目录权限，或把 `root` 指到可写目录 |
+| `invalid config ...` / `invalid YAML ...` | `config.yaml` 校验失败（`version` 必须是 `1`，id 必须是 slug，`root` 不能为空） | 改好后等热加载，或直接重载插件 |
+| `another writer holds .../.writer.lock (pid ..., host ...)` | 另一个 DSH 进程持有该根的写锁 | 只保留一个 DSH 实例；或按下方步骤确认后删锁 |
 
-处理：
+**同一个根只会有一个写者**，这是防止两个进程同时改 `records/`、`knowledge/` 的硬约束；但它的影响范围只到那个根。其他 core 的锁各自独立。
 
-1. 查看 `memory_status` 的 `readOnly` 和 `reason`。
-2. 关闭其他 DSH 实例。
-3. 检查目录权限。
-4. 修正 `config.yaml` 后等待热加载。
+排查写锁：
+
+1. 读 `<root>/records/.writer.lock`：`host` 不是本机名 → 该锁来自跨机拷贝/漫游目录，新版会自动回收；旧版需手动删。
+2. `pid` 在本机不存在且心跳早于 `storage.lock_stale_ms`（默认 10 分钟）→ 新版自动回收。
+3. `pid` 存在但你确认是残留（例如上次崩溃后 PID 被别的进程复用）→ 关闭 DSH 后手动删 `.writer.lock`，再启动。
+4. 确认没有同时运行桌面端 + `dsh web` + headless（它们会抢同一把锁，第二个只读）。
+
+**配置页仍可保存**：`config.yaml` 走原子写，不需要写锁。即使某个根只读，面板「配置」页的添加/保存按钮仍可用（只有显式 `readOnly: true` 会禁用）。
 
 ## 夜间维护没有运行
 

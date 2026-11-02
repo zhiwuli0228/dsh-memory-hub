@@ -2,6 +2,42 @@
 
 按日期记录会影响后续实现的决策、改动和已知限制。详细论证在对应 ADR / 设计 / 提案中，本文件负责“查得到、追得回”。
 
+## 2026-11-02
+
+### 决策
+
+| ID | 决策 | 状态 | 追踪 |
+| --- | --- | --- | --- |
+| D13 | 写锁按 hub 根独立降级，不再把配置根的 `readOnly` 级联给 core 工作区 | Accepted | [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md)、[proposal-per-root-lock](../03-openspec/proposal-per-root-lock.md) |
+| D14 | 只读来源分为 `forced` / `config` / `lock`，只有显式 `readOnly: true` 传播到所有根 | Accepted | [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md) |
+| D15 | 读锁失效判定加入 `host` 比较：跨机残留锁直接回收；本机活进程的锁仍不抢占 | Accepted | [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md) |
+| D16 | `config.yaml` 写入与写锁解耦（`configWritable = !forcedReadOnly`），锁占用/配置损坏时面板仍可保存并自助修复 | Accepted | [ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md) |
+
+### 代码与行为改动
+
+| 改动 | 结果 |
+| --- | --- |
+| `src/lock.ts` | `acquire` 返回 `{ lock, owner }`；`host` 不同视为残留锁；诊断信息带 pid/host |
+| `src/hub.ts` | 新增 `forcedReadOnly` / `readOnlySource` / `canWriteConfig()`；`reloadConfig` 成功后恢复写权限并补抢锁 |
+| `src/runtime.ts` | core Hub 用 `forcedReadOnly` 而不是 `configHub.readOnly`；core root 与配置根相同时共享锁并记 warning |
+| `src/service.ts` | `updateConfig` 只拦 `forcedReadOnly`；`config()` / `status()` / `overview()` 增加 `configWritable`、`readOnlySource` |
+| `client.js` | 配置页按 `configWritable` 禁用按钮；旧宿主回退到 `readOnly` |
+| 测试 | 53 → 59 个测试；新增跨机锁回收、活进程锁不抢占、坏配置恢复、锁降级下配置可写、配置根锁不级联 |
+| 文档 | 新增 ADR-0006、proposal-per-root-lock；更新 DESIGN §4.4/§7.1/§9.7/§15.3/§16.2、README、COMPATIBILITY（V25/V26）、troubleshooting、security-policy、deployment-guide、testing-guide、storage-contract、module-boundaries、current-state |
+
+### 验证结果
+
+- `npm run check`：typecheck + build + 59 个测试通过（10 个文件）。
+- 单测覆盖：配置根锁被占用时 `core` 工作区 `readOnly: false`；跨机 `.writer.lock` 被回收；同机活进程锁仍降级只读；`config.yaml` 修复后 `reloadConfig` 恢复可写并重新持锁；锁降级下 `updateConfig` 成功落盘。
+- 面板：`/api/config` 返回 `configWritable`；旧客户端字段缺省时仍按 `readOnly` 处理。
+
+### 已知限制 / 后续
+
+- 显式 `readOnly: true` 仍是全局只读，配置页也不可保存（预期）。
+- 同机 PID 复用且该 PID 仍属于活进程时，锁不会自动回收，需要手动删除 `.writer.lock`。
+- 多进程真实并发写同一根仍未做端到端验证（仅有单测）。
+- 配置热加载不会重建 core Hub 列表；增删 `core_workspaces` 后仍需重载插件（既有行为，未在本次修改）。
+
 ## 2026-11-01
 
 ### 决策

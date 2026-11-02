@@ -863,7 +863,10 @@
         }
       };
 
-      const readOnly = data.readOnly === true;
+      // The form only needs config.yaml to be writable. A busy knowledge lock or a
+      // broken config must not disable the very form that repairs it; hosts older
+      // than the `configWritable` field fall back to `readOnly`.
+      const readOnly = data.configWritable === undefined ? data.readOnly === true : data.configWritable === false;
 
       const coreForm = h('form', { className: 'dmh-form', onSubmit: handleAddCore },
         h('div', { className: 'dmh-form-row' },

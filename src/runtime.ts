@@ -134,7 +134,11 @@ export class MemoryRuntime implements ToolHost {
     this.started = true
     try {
       const configRoot = this.config.root ?? ''
-      const configHub = await Hub.open({ root: configRoot, readOnly: this.config.readOnly === true })
+      // Only an explicit `readOnly: true` is global. A busy lock or an unreadable
+      // config.yaml degrades the config root alone; every core hub decides for its
+      // own root, so one locked workspace never freezes the rest.
+      const forcedReadOnly = this.config.readOnly === true
+      const configHub = await Hub.open({ root: configRoot, readOnly: forcedReadOnly })
       this.configHub = configHub
 
       const globalConfig = configHub.config
@@ -143,11 +147,23 @@ export class MemoryRuntime implements ToolHost {
       for (const core of globalConfig.core_workspaces) {
         if (core.root === undefined) continue
         const root = resolve(expandHome(core.root))
+        // A core that points at the config root would open a second Hub on the
+        // same directory and fight its own process for the lock. Share the lock.
+        const sharesConfigRoot = normalizeForCompare(root) === normalizeForCompare(configHub.root)
+        if (sharesConfigRoot) {
+          this.ctx.logger.warn(
+            `dsh-memory-hub: core workspace ${core.id} uses the config hub root; sharing its writer lock`,
+          )
+        }
         const dataHub = await Hub.open({
           root,
-          readOnly: configHub.readOnly,
+          readOnly: sharesConfigRoot ? configHub.readOnly : forcedReadOnly,
+          ...(sharesConfigRoot && configHub.readOnlyReason !== null
+            ? { readOnlyReason: configHub.readOnlyReason }
+            : {}),
           config: globalConfig,
           configPath: configHub.configPath() ?? undefined,
+          lock: !sharesConfigRoot,
         })
         const pack = await this.openServicePack(
           dataHub,

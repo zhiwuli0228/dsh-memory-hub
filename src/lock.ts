@@ -5,11 +5,18 @@ import { ensureDir } from './atomic.js'
 import { MemoryError } from './errors.js'
 import { nowIso } from './time.js'
 
-interface LockFile {
+export interface LockOwner {
   pid: number
   host: string
   startedAt: string
   heartbeatAt: string
+}
+
+export interface LockAttempt {
+  /** Non-null when this process now owns the lock. */
+  lock: WriterLock | null
+  /** The holder that blocked the acquisition, for diagnostics. */
+  owner: LockOwner | null
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -23,9 +30,9 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-async function readLock(path: string): Promise<LockFile | null> {
+async function readLock(path: string): Promise<LockOwner | null> {
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<LockFile>
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<LockOwner>
     if (typeof parsed.pid !== 'number' || typeof parsed.heartbeatAt !== 'string') return null
     return {
       pid: parsed.pid,
@@ -38,31 +45,45 @@ async function readLock(path: string): Promise<LockFile | null> {
   }
 }
 
+function sameHost(host: string): boolean {
+  // Hostnames are case-insensitive on Windows and DNS; a lock written elsewhere
+  // cannot be a live writer on this machine.
+  return host.toLowerCase() === hostname().toLowerCase()
+}
+
 /**
- * Single-writer lock for the Hub. A second process degrades to read-only
- * instead of racing the first. Stale locks are only reclaimed when the owning
- * process is demonstrably gone; a live but suspended process keeps its lock.
+ * Single-writer lock for one hub root. A second writer degrades *that root* to
+ * read-only instead of racing the first; every other hub keeps writing.
+ *
+ * A lock is only reclaimed when it demonstrably cannot belong to a live writer:
+ * - it was written on another host (copied hub directory, shared/roaming profile), or
+ * - the recorded process is gone and its heartbeat is older than `staleMs`.
+ *
+ * A live process keeps its lock even when suspended, by design: reclaiming it
+ * would allow two writers on the same records.
  */
 export class WriterLock {
   private timer: NodeJS.Timeout | null = null
 
   private constructor(
     private readonly path: string,
-    private readonly info: LockFile,
+    private readonly info: LockOwner,
   ) {}
 
-  static async acquire(path: string, staleMs: number): Promise<WriterLock | null> {
+  static async acquire(path: string, staleMs: number): Promise<LockAttempt> {
     await ensureDir(dirname(path))
     const existing = await readLock(path)
     if (existing !== null) {
       const heartbeatAge = Date.now() - Date.parse(existing.heartbeatAt)
+      const foreignHost = !sameHost(existing.host)
       const dead = !isProcessAlive(existing.pid)
-      if (!(dead && heartbeatAge > staleMs)) return null
+      const reclaimable = foreignHost || (dead && heartbeatAge > staleMs)
+      if (!reclaimable) return { lock: null, owner: existing }
       await rm(path, { force: true }).catch(() => {})
     }
 
     const now = nowIso()
-    const info: LockFile = {
+    const info: LockOwner = {
       pid: process.pid,
       host: hostname(),
       startedAt: now,
@@ -73,7 +94,9 @@ export class WriterLock {
     try {
       handle = await open(path, 'wx')
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') return null
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        return { lock: null, owner: await readLock(path) }
+      }
       throw new MemoryError('STORAGE_ERROR', `cannot create writer lock ${path}: ${(error as Error).message}`)
     }
 
@@ -85,7 +108,7 @@ export class WriterLock {
 
     const lock = new WriterLock(path, info)
     lock.startHeartbeat()
-    return lock
+    return { lock, owner: null }
   }
 
   private startHeartbeat(): void {

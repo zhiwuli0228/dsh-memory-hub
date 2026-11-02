@@ -8,16 +8,20 @@ import {
   type MemoryConfig,
 } from './config.js'
 import { MemoryError } from './errors.js'
-import { WriterLock } from './lock.js'
+import { WriterLock, type LockOwner } from './lock.js'
 import { KNOWLEDGE_TYPES, TYPE_PREFIX, type KnowledgeType } from './types.js'
 
 export interface HubOptions {
   root?: string
   readOnly?: boolean
+  /** Human-readable reason for an explicit `readOnly: true` (optional). */
+  readOnlyReason?: string
   lock?: boolean
   config?: MemoryConfig
   configPath?: string
 }
+
+export type ReadOnlySource = 'forced' | 'config' | 'lock'
 
 export function expandHome(value: string): string {
   if (value === '~') return homedir()
@@ -33,28 +37,43 @@ export function resolveHubRoot(configured?: string): string {
   return join(base, 'memory-hub')
 }
 
+function describeBlocker(path: string, owner: LockOwner | null): string {
+  if (owner === null) return `another writer holds ${path}`
+  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host})`
+}
+
 export class Hub {
   readonly root: string
   config: MemoryConfig
   configError: string | null = null
+  /** Effective write gate: `false` only when this root can be written. */
   readOnly: boolean
   readOnlyReason: string | null = null
+  /** Why `readOnly` is set: forced by config, unreadable config.yaml, or a busy writer lock. */
+  readOnlySource: ReadOnlySource | null = null
+  /** Explicit `readOnly: true`: the only source that also blocks config edits. */
+  readonly forcedReadOnly: boolean
 
   private lock: WriterLock | null = null
   private readonly configSource: string | null = null
+  private readonly lockAllowed: boolean
 
   private constructor(
     root: string,
     config: MemoryConfig,
-    readOnly: boolean,
-    readOnlyReason: string | null,
-    configSource?: string,
+    forcedReadOnly: boolean,
+    readOnlyReason: string | undefined,
+    configSource: string | undefined,
+    lockAllowed: boolean,
   ) {
     this.root = root
     this.config = config
-    this.readOnly = readOnly
-    this.readOnlyReason = readOnlyReason
+    this.forcedReadOnly = forcedReadOnly
+    this.readOnly = forcedReadOnly
+    this.readOnlyReason = forcedReadOnly ? (readOnlyReason ?? 'configured read-only') : null
+    this.readOnlySource = forcedReadOnly ? 'forced' : null
     this.configSource = configSource ?? null
+    this.lockAllowed = lockAllowed
   }
 
   static async open(options: HubOptions = {}): Promise<Hub> {
@@ -66,12 +85,12 @@ export class Hub {
       throw new MemoryError('INVALID_INPUT', 'hub root must not be empty')
     }
 
+    const forcedReadOnly = options.readOnly === true
+    const lockAllowed = options.lock !== false
     const externalConfigPath = options.configPath
     let config: MemoryConfig
     let configSource: string | undefined
     let configError: string | null = null
-    let readOnly = options.readOnly === true
-    let readOnlyReason: string | null = readOnly ? 'configured read-only' : null
 
     if (isDataRoot && options.config !== undefined) {
       config = options.config
@@ -89,8 +108,6 @@ export class Hub {
           await writeAtomic(configPath, DEFAULT_CONFIG_YAML)
         } catch (error) {
           configError = `cannot create config.yaml: ${(error as Error).message}`
-          readOnly = true
-          readOnlyReason = configError
         }
       }
 
@@ -99,27 +116,57 @@ export class Hub {
         if (loaded !== null) config = loaded
       } catch (error) {
         configError = (error as Error).message
-        readOnly = true
-        readOnlyReason = configError
       }
     }
 
-    const hub = new Hub(root, config, readOnly, readOnlyReason, configSource)
+    const hub = new Hub(
+      root,
+      config,
+      forcedReadOnly,
+      options.readOnlyReason,
+      configSource,
+      lockAllowed,
+    )
     hub.configError = configError
-
-    if (!readOnly && options.lock !== false) {
-      const lock = await WriterLock.acquire(hub.lockPath(), config.storage.lock_stale_ms)
-      if (lock === null) {
-        hub.readOnly = true
-        hub.readOnlyReason = 'another writer holds records/.writer.lock'
-      } else {
-        hub.lock = lock
-      }
+    if (configError !== null) {
+      hub.markReadOnly('config', configError)
+    } else if (!forcedReadOnly && lockAllowed) {
+      await hub.acquireLock()
     }
 
     return hub
   }
 
+  /**
+   * Mark this hub read-only. `config` and `lock` degradations are local to this
+   * root; `forced` comes from the plugin configuration and applies everywhere.
+   */
+  markReadOnly(source: Exclude<ReadOnlySource, 'forced'>, reason: string): void {
+    this.readOnly = true
+    this.readOnlyReason = reason
+    this.readOnlySource = source
+  }
+
+  /** Whether this hub may write `config.yaml` (atomic file write, not a knowledge write). */
+  canWriteConfig(): boolean {
+    return !this.forcedReadOnly
+  }
+
+  private async acquireLock(): Promise<boolean> {
+    const attempt = await WriterLock.acquire(this.lockPath(), this.config.storage.lock_stale_ms)
+    if (attempt.lock === null) {
+      this.markReadOnly('lock', describeBlocker(this.lockPath(), attempt.owner))
+      return false
+    }
+    this.lock = attempt.lock
+    return true
+  }
+
+  /**
+   * Re-read `config.yaml`. When the previous read-only state came from a bad
+   * config, a successful reload also restores write access (and takes the lock
+   * that was skipped while the hub was degraded).
+   */
   async reloadConfig(): Promise<void> {
     const path = this.configPath()
     if (path === null) {
@@ -134,9 +181,20 @@ export class Hub {
       }
       this.config = loaded
       this.configError = null
+      if (this.readOnlySource === 'config') await this.recoverWrites()
     } catch (error) {
       this.configError = (error as Error).message
     }
+  }
+
+  private async recoverWrites(): Promise<void> {
+    if (this.lockAllowed && this.lock === null) {
+      const acquired = await this.acquireLock()
+      if (!acquired) return
+    }
+    this.readOnly = this.forcedReadOnly
+    this.readOnlyReason = this.forcedReadOnly ? 'configured read-only' : null
+    this.readOnlySource = this.forcedReadOnly ? 'forced' : null
   }
 
   async close(): Promise<void> {

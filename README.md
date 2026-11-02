@@ -175,14 +175,14 @@ policy:
 - 路径经过真实化与作用域校验；项目知识不会自动晋升到 global。
 - 夜间维护只写报告和 pending 提案，不自动提交、不删除、不改写正文；审批仍由人完成。
 - 插件不修改 DSH 核心、不写 Profile 的 `package.json`/`cordis.patch.yml`；卸载保留全部记忆文件。
-- V0.1 是单写者：第二个进程会降级为只读，不会并发写。
+- V0.1 是**每个根目录一个写者**：第二个写者只让该根降级为只读，不会并发写，也不会波及其他工作区；跨机拷贝或进程退出留下的锁，在确认不是本机活写者后自动回收（`<root>/records/.writer.lock`）。
 
 ## 开发
 
 ```sh
 npm install
 npm run typecheck
-npm run test        # 53 个单元/集成/插件/面板注册/skill/维护测试
+npm run test        # 59 个单元/集成/插件/面板注册/skill/维护/锁测试
 npm run build       # 产出 dist/index.js
 npm run check       # typecheck + build + test
 ```
@@ -202,7 +202,7 @@ src/
   skill.ts            # 系统级 memory-hub skill 定义与注册
   config.ts hub.ts lock.ts atomic.ts ledger.ts ...
 client.js             # 侧边栏面板（模块加载器格式，无需构建）
-tests/                # 53 个测试（10 个文件）
+tests/                # 59 个测试（10 个文件）
 docs/
   DESIGN.md           # V0.1 设计
   KNOWLEDGE-FORMAT.md # 知识文件格式

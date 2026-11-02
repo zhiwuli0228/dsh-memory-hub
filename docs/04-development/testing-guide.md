@@ -50,7 +50,13 @@ npm run test:watch  # 监听模式
 
 ## 当前测试
 
-53 个测试，10 个文件。详见 `tests/`。
+59 个测试，10 个文件。详见 `tests/`。
+
+写锁与降级相关：
+
+- `tests/hub.test.ts`：第二写者只读、跨机残留锁回收、活进程锁不抢占、坏配置修复后恢复写权限；
+- `tests/service.test.ts`：锁被占用时配置仍可保存，只有显式 `readOnly: true` 拒绝；
+- `tests/plugin.test.ts`：配置根锁被占用时 core 工作区仍可写（不级联）。
 
 维护相关：
 

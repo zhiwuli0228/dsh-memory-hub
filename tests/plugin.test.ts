@@ -1,5 +1,5 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { apply } from '../src/index.js'
@@ -301,4 +301,98 @@ workspaces:
     await rm(coreB, { recursive: true, force: true })
     await rm(subA, { recursive: true, force: true })
   })
+
+  it('keeps core workspaces writable when the config-root lock is busy', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cfg-lock-'))
+    const coreRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-core-free-'))
+    await mkdir(join(configRoot, 'records'), { recursive: true })
+    await writeFile(
+      join(configRoot, 'config.yaml'),
+      `version: 1
+core_workspaces:
+  - id: core-a
+    name: Core A
+    root: '${coreRoot.replace(/\\/g, '/')}'
+`,
+      'utf8',
+    )
+    const now = new Date().toISOString()
+    await writeFile(
+      join(configRoot, 'records', '.writer.lock'),
+      JSON.stringify({ pid: process.pid, host: hostname(), startedAt: now, heartbeatAt: now }),
+      'utf8',
+    )
+
+    const host = createDirectoryHost(configRoot, new Map([['session-core', coreRoot]]))
+    apply(host.ctx, { root: configRoot })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const configStatus = (await invoke('memory_status', host, {}, makeAgent(host, 'session-config'))) as {
+      readOnly: boolean
+      readOnlyReason: string | null
+      configWritable: boolean
+    }
+    expect(configStatus.readOnly).toBe(true)
+    expect(configStatus.readOnlyReason).toContain('another writer')
+    expect(configStatus.configWritable).toBe(true)
+
+    const coreStatus = (await invoke('memory_status', host, {}, makeAgent(host, 'session-core'))) as {
+      readOnly: boolean
+      root: string
+    }
+    expect(coreStatus.root).toContain('core-free')
+    expect(coreStatus.readOnly).toBe(false)
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(configRoot, { recursive: true, force: true })
+    await rm(coreRoot, { recursive: true, force: true })
+  })
 })
+
+function createDirectoryHost(configRoot: string, directories: Map<string, string>): FakeHost {
+  const tools = new Map<string, ToolDefinition>()
+  const listeners = new Map<string, Array<(...args: any[]) => unknown>>()
+  const disposers: Array<() => void> = []
+  const workingDirectoryService = {
+    defaultDirectory: configRoot,
+    get: (session: { id: string }) => directories.get(session.id) ?? configRoot,
+  }
+  const ctx: Context = {
+    tools: {
+      register(definition) {
+        tools.set(definition.name, definition)
+        return () => tools.delete(definition.name)
+      },
+      get(name) {
+        return tools.get(name)
+      },
+    },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get(name: string) {
+      if (name === 'workingDirectory') return workingDirectoryService
+      return undefined
+    },
+    on(name, listener) {
+      const list = listeners.get(name) ?? []
+      list.push(listener)
+      listeners.set(name, list)
+      return () => {
+        const index = list.indexOf(listener)
+        if (index >= 0) list.splice(index, 1)
+      }
+    },
+    effect(execute) {
+      const result = execute()
+      if (typeof result === 'function') disposers.push(result)
+      return result ?? (() => {})
+    },
+    inject: () => {},
+    workingDirectory: workingDirectoryService,
+    tokenMeter: {
+      estimateMessage: (message: unknown) => Math.max(1, Math.ceil(JSON.stringify(message).length / 3.2)),
+    },
+  }
+  return { ctx, tools, skills: new Map(), listeners, disposers, contexts: [] }
+}

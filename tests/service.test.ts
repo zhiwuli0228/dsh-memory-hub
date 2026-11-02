@@ -2,6 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { Hub } from '../src/hub.js'
 import type { AgentLike, ToolRunContext } from '../src/host.js'
 import type { WritebackAssessment } from '../src/types.js'
 import { createHarness } from './helpers.js'
@@ -366,6 +367,44 @@ describe('memory service', () => {
       await harness.service.preflightForTurn(harness.agent, 1, '核心仓决策')
       const state = harness.service.stateFor(harness.agent.id)
       expect(state?.pack).toContain('核心仓决策')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('keeps config editing available when another writer holds the lock', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lock-cfg-'))
+    const owner = await Hub.open({ root })
+    const degraded = await Hub.open({ root })
+    const harness = await createHarness(undefined, { root, hub: degraded })
+    try {
+      expect(degraded.readOnly).toBe(true)
+      expect(degraded.readOnlySource).toBe('lock')
+
+      const before = harness.service.config() as { readOnly: boolean; configWritable: boolean }
+      expect(before.readOnly).toBe(true)
+      expect(before.configWritable).toBe(true)
+
+      const updated = (await harness.service.updateConfig({
+        core_workspaces: [{ id: 'app', name: 'App', root: join(root, 'app') }],
+      })) as { configWritable: boolean; core_workspaces: Array<{ id: string }> }
+      expect(updated.configWritable).toBe(true)
+      expect(updated.core_workspaces.map((core) => core.id)).toContain('app')
+      expect(await readFile(join(root, 'config.yaml'), 'utf8')).toContain('app')
+    } finally {
+      await harness.cleanup()
+      await owner.close()
+    }
+  })
+
+  it('refuses config edits only when read-only is explicit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-forced-ro-'))
+    const hub = await Hub.open({ root, readOnly: true, lock: false })
+    const harness = await createHarness(undefined, { root, hub })
+    try {
+      expect(hub.readOnlySource).toBe('forced')
+      expect((harness.service.config() as { configWritable: boolean }).configWritable).toBe(false)
+      await expect(harness.service.updateConfig({ core_workspaces: [] })).rejects.toThrow(/read-only/)
     } finally {
       await harness.cleanup()
     }

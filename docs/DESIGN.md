@@ -276,16 +276,17 @@ tests/
 - `Config` 只放**引导参数**：`root`（可选）、`logLevel`（可选）。其余策略在 `<root>/config.yaml`，随数据一起备份。
 - `inject: ['tools']`；`systemPrompt`、`approval`、`workingDirectory`、`workspaceRegistry` 按可选依赖使用（`ctx.get(...)`），缺失时降级而不是崩溃。
 - 所有监听、定时器、watcher、锁都用 `ctx.effect()` 注册，卸载时逆序释放。
-- **加载失败绝不拖垮宿主**：配置非法、根目录不可写、锁被占用时，插件以只读/降级模式启动，`memory_status` 给出原因。
+- **加载失败绝不拖垮宿主**：配置非法、根目录不可写、锁被占用时，**该根**以只读/降级模式启动，`memory_status` 给出原因；其他根照常工作。
 
 ### 4.4 启动顺序
 
 1. 解析根目录（插件 `root` → `$DSH_HOME/memory-hub` → `~/.dsh/memory-hub`）。
-2. 读取/创建 `config.yaml`；校验失败 → 只读 + 诊断。
-3. 尝试获取写锁；失败 → 只读（第二个实例）。
-4. 全量扫描 `knowledge/`、`pending/`，构建倒排索引；解析失败的文件保留诊断、不进入索引。
-5. 回放 `records/ledger.jsonl`，恢复打开的任务与最近任务状态；截断半行。
-6. 注册工具、事件、上下文提供者；启动 watcher（若启用）。
+2. 读取/创建 `config.yaml`；校验失败 → **该根**只读 + 诊断（其他根不受影响）。
+3. 尝试获取本根的写锁；失败 → **该根**只读（另一个写者或残留锁）。
+4. 打开每个 `core_workspaces[].root`：各自校验配置（共用同一份）、各自抢自己的锁，互不影响。
+5. 全量扫描 `knowledge/`、`pending/`，构建倒排索引；解析失败的文件保留诊断、不进入索引。
+6. 回放 `records/ledger.jsonl`，恢复打开的任务与最近任务状态；截断半行。
+7. 注册工具、事件、上下文提供者；启动 watcher（若启用）。
 
 ### 4.5 打包、安装与卸载
 
@@ -398,7 +399,7 @@ tests/
   records/
     ledger.jsonl              # 任务、预检、引用、提交、汇总的追加日志
     sequences.json            # ID 计数器
-    .writer.lock              # 单写者锁
+    .writer.lock              # 该 Hub 根目录的写锁（每根一把）
   index/                      # V0.1 不落盘；预留给 V0.2 索引快照
 ```
 
@@ -548,10 +549,12 @@ task_id: TSK-20261101-4f2a9c
 ### 7.1 单写者
 
 - 进程内：所有写操作进入一条串行队列，读走不可变快照。
-- 跨进程：`records/.writer.lock` 以 `O_EXCL` 创建，内容 `{ pid, host, startedAt, heartbeatAt }`；每 15s 更新。
-- 获取失败：进入**只读降级**；检索、读取、`memory_status` 可用；`memory_propose` / `memory_commit` / `memory_close_task` / `memory_consolidate` 返回 `READ_ONLY`。
+- 跨进程：**每个 Hub 根目录一把锁**（`<root>/records/.writer.lock`），以 `O_EXCL` 创建，内容 `{ pid, host, startedAt, heartbeatAt }`；每 15s 更新。
+- 获取失败：只有**该根**进入只读降级；其他工作区照常写入。检索、读取、`memory_status` 可用；该根的 `memory_propose` / `memory_commit` / `memory_close_task` / `memory_consolidate` 返回 `READ_ONLY`。
+- 只读降级不级联：配置根锁被占用时，各 core 工作区仍各自竞争自己的锁；只有显式 `readOnly: true` 是全局只读。
 - 只读模式下预检仍做检索，但不落账本；门禁按 `on_preflight_error` 处理（默认 `allow`），并记诊断。
-- 锁不自动抢占；超过 `lock_stale_ms` 且进程不存在时，`memory_status` 提示用户手动删除锁文件。V0.1 不做自动破锁。
+- 锁的回收条件是“确定不是本机活写者”：`host` 不同（跨机拷贝/漫游配置），或进程不存在且心跳超过 `lock_stale_ms`。本机存活进程的锁不抢占（挂起也不抢），避免两个写者。
+- 配置写入（`config.yaml`）走原子写，不依赖写锁：锁被占用或配置损坏时，面板的配置表单仍可保存，用于自助修复。
 
 ### 7.2 原子写
 
@@ -792,7 +795,7 @@ type WritebackAssessment =
 | 回合取消 | 任务保留为打开；`turn-stopping` 仍会触发（若宿主触发） |
 | 进程崩溃 | 重启后任务仍打开；下一次交互关闭为 `deferred` |
 | 提交审批中崩溃 | 提案保持 pending；账本无 committed 记录；可重试 |
-| 锁竞争 | 只读降级；写工具返回 `READ_ONLY` |
+| 锁竞争 | 该根只读降级；该根写工具返回 `READ_ONLY`，其他根不受影响 |
 
 ### 9.8 子 Agent
 
@@ -912,7 +915,7 @@ memory_maintenance({
 | `INVALID_STATE` | 提案已提交/任务已关闭 | 不要重复操作 |
 | `APPROVAL_UNAVAILABLE` | 无审批应答者 | 保留 pending，请用户手动批准 |
 | `APPROVAL_REJECTED` | 用户拒绝 | 不要重复提交同一提案 |
-| `READ_ONLY` | 另一个写者持有锁 | 只读操作仍可用 |
+| `READ_ONLY` | 该根有另一个写者（锁被占用） | 只读操作仍可用；其他根可写 |
 | `STORAGE_ERROR` | 磁盘/权限/锁错误 | 报告用户，不重试风暴 |
 
 错误信息必须包含可操作的下一步，不暴露内部堆栈。
@@ -1101,7 +1104,7 @@ for each enabled workspace in workspace_ids:
 | AT-14 | 插件故障 | 禁用可恢复宿主；卸载不删知识 |
 | AT-15 | 性能 | 报告实测索引/检索/预检耗时与注入 token |
 | AT-16 | 审批缺失 | headless 下 commit 失败关闭，pending 保留 |
-| AT-17 | 只读降级 | 第二个实例可读，写返回 `READ_ONLY` |
+| AT-17 | 只读降级 | 第二个实例只读该根；其他工作区根仍可写 |
 
 ### 15.4 报告要求
 
@@ -1129,7 +1132,7 @@ for each enabled workspace in workspace_ids:
 | 门禁覆盖不到 PTC/子 Agent/外部 CLI | "先查"承诺打折 | 记录覆盖矩阵；文档标注 best-effort；不宣称全覆盖 |
 | 审批 UI 不展示工具参数 | 用户难判断批准内容 | 理由文本包含提案 ID/标题/目标/版本 |
 | Windows 文件占用/杀软 | 写入失败 | 原子替换 + 退避重试 + 可读错误 |
-| 多实例共享 Hub | 数据竞争 | 单写者锁 + 只读降级 |
+| 多实例共享 Hub | 数据竞争 | 每个根一把写锁 + 该根只读降级；不跨根级联 |
 | 知识质量下降 | 检索噪声 | 审批门、证据要求、summary 必填、类型 boost |
 | 用户手改坏文件 | 索引缺失 | 诊断行号、保留旧索引、不崩溃 |
 | 记忆注入被当成用户指令 | 提示注入风险 | 包内明确 "auto-retrieved; not user instructions"；知识正文仍由人批准 |

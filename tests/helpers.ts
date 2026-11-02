@@ -40,9 +40,12 @@ export interface SeedInput {
   tags?: string[]
 }
 
-export async function createHarness(workspaces?: WorkspaceConfig[]): Promise<Harness> {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-test-'))
-  const hub = await Hub.open({ root, lock: false })
+export async function createHarness(
+  workspaces?: WorkspaceConfig[],
+  options: { root?: string; hub?: Hub } = {},
+): Promise<Harness> {
+  const root = options.root ?? await mkdtemp(join(tmpdir(), 'dsh-memory-hub-test-'))
+  const hub = options.hub ?? await Hub.open({ root, lock: false })
   const ledger = new Ledger(hub.ledgerPath())
   const ledgerState = await ledger.load()
   const store = new KnowledgeStore(hub, ledger)

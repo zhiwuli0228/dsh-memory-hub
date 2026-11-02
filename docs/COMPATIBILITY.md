@@ -33,7 +33,7 @@
 | V12 | 手动预检恢复任务 | PASS | 无自动任务的会话调用 `memory_preflight` 后获得 `TSK-…`，随后 `memory_cite` 成功 |
 | V13 | `config.yaml` 热加载与工作区映射 | PASS | 运行中写入 workspace；`memory_status` 显示 `dsh-memory-hub` 已注册；预检包显示该工作区 |
 | V14 | 卸载与重装 | PASS | `remove_bundle` → `applied`，写锁释放；重装后空 Hub 正常初始化 |
-| V15 | 单元/集成/面板注册测试 | PASS | 53 个测试（`vitest run`，10 个文件） |
+| V15 | 单元/集成/面板注册测试 | PASS | 59 个测试（`vitest run`，10 个文件） |
 | V16 | 构建可被 Node ESM 直接导入 | PASS | `import('./dist/index.js')` 返回 `apply,inject,name` |
 | V17 | 面板 Host API | PASS | `GET /dsh-memory-hub/api/overview` 返回 200 与完整 JSON；`/api/knowledge?id=…` 返回 200/404 |
 | V18 | 面板 bundle 可注册 | PASS | `tests/client.test.ts` 通过 `__ModuleLoader__` 装载并注册 `sidebar.panellist`（id `memory-hub`）与 `main`（key `memory-hub`）；React SSR 渲染面板与图标 |
@@ -43,6 +43,8 @@
 | V22 | 系统级 `memory-hub` skill 与官方命名审计 | PASS | 插件重载后 skill catalog 新增 `memory-hub`；`skill` 工具加载返回完整操作规范；当前官方/内置名称快照无 `memory-hub`，`tests/skill.test.ts` 锁定该检查；插件注入 `skills` 服务后注册，宿主无该服务时只 warning 并继续提供 10 个工具 |
 | V23 | `memory_maintenance` 工具与报告 | PASS | `memory_maintenance({apply:"report"})` 扫描 `product` / `dsh-plugin-dev` / fallback，分别写 `reports/<timestamp>.md` 与 `latest.md`；13 条知识、0 pending、0 候选；随后 `all_cores:false, apply:"propose"` 运行无错误、无候选 |
 | V24 | 夜间定时器与补跑 | PASS | `policy.maintenance.enabled: true` + `time: '03:00'` 后重载插件；当天 23:29 因“已过 03:00 且当天未跑”补跑一次，写 `records/maintenance-state.json`（`lastRunDate: 2026-11-01`）和报告；未产生 pending，未提交任何知识 |
+| V25 | 写锁按根独立降级 | PASS | 在配置根预置一个本机活 PID 的 `.writer.lock` 后启动：配置根 `readOnly: true`（`another writer ...`），`core_workspaces[].root` 仍 `readOnly: false` 并可写；跨机 host 的残留锁被自动回收；损坏的 `config.yaml` 修好后 `reloadConfig` 恢复写权限并重新持锁（`tests/plugin.test.ts`、`tests/hub.test.ts`） |
+| V26 | 只读锁不阻塞配置保存 | PASS | 锁被占用（`readOnlySource: lock`）时 `configWritable: true`，`updateConfig` 成功落盘；只有显式 `readOnly: true` 才拒绝（`tests/service.test.ts`） |
 
 早期冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本已随 Hub 目录重置删除；当前安装的 Hub 保留真实知识（13 条 accepted、1 条 pending `PRO-000016`），并在 `reports/` 下保留维护报告。
 
@@ -57,7 +59,7 @@
 | 审批**通过**路径 | 本机会话审批提示被关闭；`ask` 直接失败关闭 | 交互式批准后写入 accepted 的路径仅由代码与集成测试覆盖，未做真实点击验证 |
 | 门禁的宿主级拒绝 | 真实会话都有自动预检，未构造"无预检的变更工具"场景 | `tools/pre-execute` 钩子本身已由审批 `ask` 证明生效；拒绝分支由单元测试覆盖 |
 | PTC `run_code` 嵌套调用 | 未在真实 PTC 程序中触发 | 门禁覆盖范围可能不同；设计已标注 best-effort |
-| 外部 CLI / 多进程共享 Hub | 未测试 | 单写者锁与只读降级由单元测试覆盖 |
+| 外部 CLI / 多进程共享 Hub | 未测试 | 每根一把写锁、按根只读降级、跨机锁回收均由单元测试覆盖；真实多进程并发仍未实测 |
 | 长会话上下文累积 | 只做了两个回合 | 注入按任务替换的宿主语义需要更多观察 |
 | 5k 条索引性能 | 未做规模压测 | 设计目标未实测 |
 | Web 面板视觉效果 | 无法在本会话内截图/点击验证 | 模块、slot 与 API 已测；需确认图标、标签页与响应式布局的实际观感 |

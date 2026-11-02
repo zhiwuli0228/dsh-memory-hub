@@ -1013,6 +1013,8 @@ export class MemoryService {
       root: this.hub.displayRoot(),
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
+      readOnlySource: this.hub.readOnlySource,
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       counts: this.store.counts(),
       index: {
@@ -1065,6 +1067,10 @@ export class MemoryService {
   config(): Record<string, unknown> {
     return {
       readOnly: this.hub.readOnly,
+      // config.yaml is written atomically and does not need the knowledge writer
+      // lock: a busy lock or a broken config must not lock the user out of the
+      // panel form that repairs it.
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
         id: core.id,
@@ -1083,8 +1089,8 @@ export class MemoryService {
   }
 
   async updateConfig(patch: { core_workspaces?: unknown; workspaces?: unknown }): Promise<Record<string, unknown>> {
-    if (this.hub.readOnly) {
-      throw new MemoryError('INVALID_STATE', 'memory hub is read-only')
+    if (!this.hub.canWriteConfig()) {
+      throw new MemoryError('INVALID_STATE', this.hub.readOnlyReason ?? 'memory hub is read-only')
     }
 
     const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces
@@ -1126,6 +1132,8 @@ export class MemoryService {
       root: this.hub.displayRoot(),
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
+      readOnlySource: this.hub.readOnlySource,
+      configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       workspace: workspace === null || !workspace.registered
         ? null
