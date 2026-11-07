@@ -322,6 +322,45 @@ describe('memory service', () => {
     }
   })
 
+  it('reads a digest by default and sections or the full body on demand', async () => {
+    const harness = await createHarness()
+    try {
+      const id = await harness.seed({
+        title: '长文条目',
+        summary: '一条用于验证按需读取的长文。',
+        body: '## 结论\n\n结论内容。\n\n## 证据\n\n证据内容。\n\n## 边界\n\n边界内容。\n',
+      })
+
+      const digest = await harness.service.get(harness.agent, id)
+      expect(digest.body).toContain('结论内容')
+      expect(digest.body).not.toContain('证据内容')
+      expect(digest.headings).toEqual(['结论', '证据', '边界'])
+      expect(digest.truncated).toBe(false)
+      expect(digest.hint).toContain('full:true')
+      expect(digest.metadata.title).toBe('长文条目')
+
+      const section = await harness.service.get(harness.agent, id, undefined, undefined, { section: '证据' })
+      expect(section.body).toContain('证据内容')
+      expect(section.body).not.toContain('结论内容')
+      expect(section.section).toBe('证据')
+
+      const partial = await harness.service.get(harness.agent, id, undefined, undefined, { section: '边' })
+      expect(partial.body).toContain('边界内容')
+
+      const full = await harness.service.get(harness.agent, id, undefined, undefined, { full: true })
+      expect(full.body).toContain('结论内容')
+      expect(full.body).toContain('边界内容')
+      expect(full.truncated).toBe(false)
+      expect(full.hint).toBeUndefined()
+
+      await expect(
+        harness.service.get(harness.agent, id, undefined, undefined, { section: '不存在' }),
+      ).rejects.toThrow(/not found/)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('commits with test:auto when approval mode is auto', async () => {
     const harness = await createHarness()
     try {

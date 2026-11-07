@@ -1,5 +1,6 @@
 import { MemoryError } from './errors.js'
 import type { AgentLike, ContentBlock, ToolDefinition, ToolRunContext } from './host.js'
+import { formatScope } from './scope.js'
 import type { MemoryService } from './service.js'
 import { KNOWLEDGE_STATUSES, KNOWLEDGE_TYPES, type WritebackAssessment } from './types.js'
 
@@ -124,7 +125,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       name: 'memory_search',
       concurrencySafe: true,
       description:
-        'Search the user\'s accepted long-term memory (project, domain, and global knowledge). Use it before planning or modifying a project, and after a preflight hint points at an entry. Returns ids, versions, summaries, and relative paths; call memory_get for the full body and memory_cite after actually using an entry.',
+        'Search the user\'s accepted long-term memory (project, domain, and global knowledge). Use it before planning or modifying a project, and after a preflight hint points at an entry. Returns ids, versions, summaries, and relative paths; call memory_get for the body and memory_cite after actually using an entry.',
       parameters: objectSchema(
         {
           query: { type: 'string', description: 'Keywords or a natural-language question.' },
@@ -132,19 +133,36 @@ export function createTools(host: ToolHost): ToolDefinition[] {
           scope: { type: 'string', description: 'Optional exact scope filter: global, domain:<id>, or project:<workspace-id>.' },
           status: knowledgeStatusesSchema,
           limit: { type: 'number', description: 'Maximum hits, 1..20; defaults to 8.' },
+          detail: {
+            type: 'string',
+            enum: ['brief', 'ids'],
+            description: 'brief (default) returns summaries and snippets; ids returns only id/version/type/title/scope, much smaller when scanning many candidates.',
+          },
         },
         ['query'],
       ),
       async execute(args, exec) {
-        const input = args as { query: string; types?: string[]; scope?: string; status?: string[]; limit?: number }
+        const input = args as { query: string; types?: string[]; scope?: string; status?: string[]; limit?: number; detail?: 'brief' | 'ids' }
         const service = await host.service(requireAgent(exec))
-        return service.search(requireAgent(exec), {
+        const result = await service.search(requireAgent(exec), {
           query: input.query,
           ...(input.types === undefined ? {} : { types: input.types as never }),
           ...(input.scope === undefined ? {} : { scope: input.scope }),
           ...(input.status === undefined ? {} : { statuses: input.status as never }),
           ...(input.limit === undefined ? {} : { limit: input.limit }),
         })
+        if (input.detail !== 'ids') return result
+        return {
+          total: result.total,
+          hits: result.hits.map((hit) => ({
+            id: hit.id,
+            version: hit.version,
+            type: hit.type,
+            title: hit.title,
+            scope: formatScope(hit.scope),
+            ...(hit.core === undefined || hit.core === null ? {} : { core: hit.core }),
+          })),
+        }
       },
     }),
 
@@ -152,19 +170,33 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       name: 'memory_get',
       concurrencySafe: true,
       description:
-        'Read one memory entry in full, including its frontmatter metadata and provenance. Use the id from memory_search or the preflight hint; pass version only when you need a historical version. In a dual-role workspace (own core + parent core) the same id may exist in both hubs: pass core to pick the parent copy explicitly.',
+        'Read one memory entry. By default returns its metadata plus the conclusion/摘要 section and a list of section headings, so a full body does not flood the context; pass section to read one named section (for example 证据) or full:true to read everything. Use the id from memory_search or the preflight hint; pass version only when you need a historical version. In a dual-role workspace (own core + parent core) the same id may exist in both hubs: pass core to pick the parent copy explicitly.',
       parameters: objectSchema(
         {
           id: { type: 'string', description: 'Knowledge id, for example DEC-000001.' },
           version: { type: 'number', description: 'Optional historical version; defaults to the current version.' },
           core: { type: 'string', description: 'Optional core hub id to read from (defaults to the current own core, then ancestor cores nearest-first).' },
+          section: { type: 'string', description: 'Optional heading title to read one section only (exact match first, then substring).' },
+          full: { type: 'boolean', description: 'Return the entire body instead of the digest; use only when every section is needed.' },
+          max_chars: { type: 'number', description: 'Cap the returned text, 200..20000; defaults to 700 for the digest and 2000 for a section.' },
         },
         ['id'],
       ),
       async execute(args, exec) {
-        const input = args as { id: string; version?: number; core?: string }
+        const input = args as {
+          id: string
+          version?: number
+          core?: string
+          section?: string
+          full?: boolean
+          max_chars?: number
+        }
         const service = await host.service(requireAgent(exec))
-        return service.get(requireAgent(exec), input.id, input.version, input.core)
+        const options: { full?: boolean; section?: string; max_chars?: number } = {}
+        if (input.full !== undefined) options.full = input.full
+        if (input.section !== undefined) options.section = input.section
+        if (input.max_chars !== undefined) options.max_chars = input.max_chars
+        return service.get(requireAgent(exec), input.id, input.version, input.core, options)
       },
     }),
 

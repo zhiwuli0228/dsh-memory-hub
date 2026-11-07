@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.1.9 已发布：修复「配置页无法删除子工作区」——面板此前只能添加、不能删除（后端 `updateConfig` 本就整表替换支持删除，纯 UI 缺失）。现在子工作区/未分配工作区卡片与核心工作区行都带「删除」按钮（含确认提示）；删除核心工作区时先把它引用的子工作区解绑为未分配。npm 包 `dsh-memory-hub@0.1.9` 与 GitHub Release `v0.1.9` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+V0.2.0 已发布：面向长上下文（200k 频繁压缩）的**按需读取**优化——`memory_get` 默认只返回「结论摘要 + 小节目录」（约 700 字符封顶），需要证据/边界时用 `section` 读单个小节，确实需要全文才传 `full: true`；`memory_search` 新增 `detail: "ids"` 紧凑模式（只回 id/版本/类型/标题/作用域，输出小一个数量级）。scope-rules 的金字塔回退检索保持不变。npm 包 `dsh-memory-hub@0.2.0` 与 GitHub Release `v0.2.0` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-当前工作树为 **V0.1.9（已发布）**：在 V0.1.8 的金字塔回退检索之上，补齐配置页删除入口（见上）。`npm dsh-memory-hub@0.1.9` 与 GitHub Release `v0.1.9` 已发布。
+当前工作树为 **V0.2.0（已发布）**：在 V0.1.9 的配置页删除入口之上，加入按需读取以控制上下文体积（见上）。`npm dsh-memory-hub@0.2.0` 与 GitHub Release `v0.2.0` 已发布。
 
 ## 已实现
 
@@ -18,6 +18,7 @@ V0.1.9 已发布：修复「配置页无法删除子工作区」——面板此�
 - [x] 预检相关性门控：`policy.preflight.min_score` 过滤弱命中，全部低于阈值时记 `no_match`
 - [x] 本地优先排序：`policy.preflight.local_boost` 提升当前工作区 `project:<id>` 知识
 - [x] 紧凑上下文注入（`memory:pack`），只含 ID、标题、摘要、作用域
+- [x] 按需读取：`memory_get` 默认摘要（结论 + 小节目录，700 字符封顶），`section` 读单节（2000 字符封顶），`full: true` 读全文；`memory_search` 支持 `detail: "ids"` 紧凑扫描
 - [x] 指令式包尾：先 `memory_get`、使用后 `memory_cite`、结束前 `memory_close_task`，并提示加载 `memory-hub` skill
 - [x] 系统级 `memory-hub` skill：由插件注册到 Host 全局 skills 层，模型/用户可按需加载；覆盖检索、作用域、写入审批、回写评估、核心回填与反模式
 - [x] 官方 skill 命名审计：当前 catalog 无 `memory-hub` / 旧名 `memory-management`；采用产品自有名避免 runtime 静默遮蔽 bundled；测试锁定官方名称快照

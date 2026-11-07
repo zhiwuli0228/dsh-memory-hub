@@ -184,6 +184,33 @@ describe('plugin entry', () => {
     )) as { citationId: string }
     expect(cited.citationId).toMatch(/^CIT-/)
 
+    // 检索默认返回摘要；detail:"ids" 只回 id/标题等紧凑字段，控制上下文体积。
+    const idsOnly = (await invoke('memory_search', host, { query: '插件测试', detail: 'ids' }, agent)) as {
+      total: number
+      hits: Array<Record<string, unknown>>
+    }
+    expect(idsOnly.hits[0]?.id).toBe('DEC-000001')
+    expect(idsOnly.hits[0]?.title).toBe('插件测试决策')
+    expect(idsOnly.hits[0]?.summary).toBeUndefined()
+    expect(idsOnly.hits[0]?.body).toBeUndefined()
+
+    // 读取默认摘要；section 只读一个小节。
+    const digest = (await invoke('memory_get', host, { id: 'DEC-000001' }, agent)) as {
+      body: string
+      headings: string[]
+      truncated: boolean
+    }
+    expect(digest.body).toContain('插件测试')
+    expect(digest.headings).toContain('结论')
+    expect(digest.truncated).toBe(false)
+
+    const section = (await invoke('memory_get', host, { id: 'DEC-000001', section: '结论' }, agent)) as {
+      body: string
+      section: string
+    }
+    expect(section.body).toContain('插件测试')
+    expect(section.section).toBe('结论')
+
     for (const dispose of host.disposers.reverse()) {
       await dispose()
     }

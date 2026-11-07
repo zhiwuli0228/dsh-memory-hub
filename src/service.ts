@@ -59,6 +59,17 @@ export interface PreflightResult {
   tokens: number
 }
 
+/** memory_get 读取选项：默认摘要，section 只读一个小节，full 读全文。 */
+export interface ReadOptions {
+  full?: boolean
+  section?: string
+  max_chars?: number
+}
+
+/** 摘要与单小节读取的默认字符上限。 */
+const DIGEST_CHARS = 700
+const SECTION_CHARS = 2000
+
 export interface SearchArgs {
   query: string
   types?: KnowledgeType[]
@@ -657,9 +668,13 @@ export class MemoryService {
       .map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) }))
   }
 
-  async get(agent: AgentLike, id: string, version?: number, core?: string): Promise<{
+  async get(agent: AgentLike, id: string, version?: number, core?: string, options: ReadOptions = {}): Promise<{
     metadata: Omit<KnowledgeRecord, 'body' | 'path' | 'extra'>
     body: string
+    headings: string[]
+    section: string | null
+    truncated: boolean
+    hint?: string
     path: string
     core: string | null
   }> {
@@ -686,11 +701,46 @@ export class MemoryService {
     if (record.status === 'rejected') {
       throw new MemoryError('NOT_FOUND', `knowledge ${id} was rejected and is not readable through the API`)
     }
-    const { body, path, extra: _extra, ...metadata } = record
+    const { body: fullBody, path, extra: _extra, ...metadata } = record
     void _extra
+    // 默认只返回「结论 + 小节目录」的摘要，避免整篇正文反复进入上下文爆炸；
+    // 需要证据/边界时用 section 读指定小节，确实需要全文才传 full。
+    const headings = bodyHeadings(fullBody)
+    const cap = Math.max(200, Math.min(20_000, options.max_chars ?? (options.section === undefined ? DIGEST_CHARS : SECTION_CHARS)))
+    const trimmed = fullBody.trim()
+    let body = trimmed
+    let section: string | null = null
+    let truncated = false
+    let hint: string | undefined
+    if (options.full !== true) {
+      if (options.section !== undefined && options.section.trim() !== '') {
+        const extracted = pickSection(fullBody, options.section)
+        if (extracted === null) {
+          throw new MemoryError(
+            'INVALID_INPUT',
+            `section "${options.section}" not found; available: ${headings.join(', ') || '(none)'}`,
+          )
+        }
+        body = extracted
+        section = options.section.trim()
+      } else {
+        body = pickDigest(fullBody, cap)
+      }
+      if (body.length > cap) {
+        body = `${body.slice(0, cap)}…`
+        truncated = true
+      }
+      if (body !== trimmed) {
+        hint = `abridged; sections: ${headings.join(', ') || '(none)'}; read one with memory_get {id, section:"…"} or the whole body with {id, full:true}`
+      }
+    }
     return {
       metadata,
       body,
+      headings,
+      section,
+      truncated,
+      ...(hint === undefined ? {} : { hint }),
       path: KnowledgeStore.relativePath(resolved.root, path),
       core: resolved.core,
     }
@@ -1697,6 +1747,65 @@ function hashIntent(intent: string): string {
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
+}
+
+interface BodySection {
+  title: string | null
+  text: string
+}
+
+/** 按 Markdown 标题切分正文；标题前的内容作为无标题前言。 */
+function splitBodySections(body: string): BodySection[] {
+  const sections: BodySection[] = []
+  let title: string | null = null
+  let buffer: string[] = []
+  const flush = () => {
+    const text = buffer.join('\n').trim()
+    if (title !== null || text !== '') sections.push({ title, text })
+    buffer = []
+  }
+  for (const line of body.split('\n')) {
+    const match = /^\s*#{1,4}\s+(.+?)\s*$/.exec(line)
+    if (match !== null) {
+      flush()
+      title = match[1]!.trim()
+    } else {
+      buffer.push(line)
+    }
+  }
+  flush()
+  return sections
+}
+
+function bodyHeadings(body: string): string[] {
+  return splitBodySections(body)
+    .map((section) => section.title)
+    .filter((title): title is string => title !== null)
+}
+
+/** 摘要读取：优先「结论」类小节，否则第一个小节，并保留前言。 */
+function pickDigest(body: string, cap: number): string {
+  const sections = splitBodySections(body)
+  const preferred =
+    sections.find((section) => section.title !== null && /结论|conclusion|summary|要点/i.test(section.title)) ??
+    sections.find((section) => section.title !== null)
+  if (preferred === undefined) return truncate(body.trim(), cap)
+  const parts: string[] = []
+  const intro = sections.find((section) => section.title === null && section.text !== '')
+  if (intro !== undefined) parts.push(intro.text)
+  parts.push(preferred.text === '' ? `## ${preferred.title}` : `## ${preferred.title}\n${preferred.text}`)
+  return truncate(parts.join('\n\n'), cap)
+}
+
+/** 精确小节读取：先精确匹配标题，再按包含匹配。 */
+function pickSection(body: string, name: string): string | null {
+  const wanted = name.trim().toLowerCase()
+  if (wanted === '') return null
+  const sections = splitBodySections(body).filter((section): section is { title: string; text: string } => section.title !== null)
+  const exact = sections.find((section) => section.title.toLowerCase() === wanted)
+  const partial = exact ?? sections.find((section) => section.title.toLowerCase().includes(wanted))
+  if (partial === undefined) return null
+  return partial.text === '' ? `## ${partial.title}` : `## ${partial.title}\n${partial.text}`
 }
 
 function normalizeForCompare(path: string): string {

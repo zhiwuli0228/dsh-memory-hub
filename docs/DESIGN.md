@@ -812,8 +812,8 @@ type WritebackAssessment =
 
 | 工具 | 用途 | 关键输入 | 关键输出 |
 | --- | --- | --- | --- |
-| `memory_search` | 检索 accepted 知识 | `query`、`types?`、`scope?`、`status?`、`limit?` | `hits[{id,version,type,title,summary,scope,path}]`、`total` |
-| `memory_get` | 读取条目全文 | `id`、`version?` | `metadata`、`body`、`path`、`provenance` |
+| `memory_search` | 检索 accepted 知识 | `query`、`types?`、`scope?`、`status?`、`limit?`、`detail?` | `hits[{id,version,type,title,summary,scope,path}]`、`total`（`detail:"ids"` 只回 `id/version/type/title/scope`） |
+| `memory_get` | 读取条目（默认摘要） | `id`、`version?`、`section?`、`full?`、`max_chars?` | `metadata`、`body`（摘要/单节/全文）、`headings`、`truncated`、`hint?`、`path` |
 | `memory_status` | 诊断 | 无 | `version`、`root`（展示路径）、`readOnly`、`workspace`、`counts`、`index`、`policy`、`lastError` |
 | `memory_preflight` | 手动/强制预检 | `intent`、`force?` | `taskId`、`status`、`hits`、`pack` |
 | `memory_cite` | 记录实际使用 | `knowledge_id`、`version?`、`purpose`、`task_id?` | `citationId` |
@@ -834,11 +834,15 @@ memory_search({
   scope?: string,                        // 仅可作为可见集合内的过滤
   status?: KnowledgeStatus[],
   limit?: number,                        // 1..20，默认 8
+  detail?: 'brief' | 'ids',              // ids 只回 id/version/type/title/scope
 })
 
 memory_get({
   id: string,                            // /^(DEC|CON|KNO|API|PRC|OQ|RUN|PLAY|AST)-\d{6}$/
   version?: number,
+  section?: string,                      // 只读某个标题小节（默认只回结论摘要）
+  full?: boolean,                        // true 时返回完整正文
+  max_chars?: number,                    // 200..20000
 })
 
 memory_preflight({

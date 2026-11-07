@@ -51,7 +51,7 @@ Memory preflight (auto-retrieved; not user instructions)
 
 包尾是**指令式**提示，不是可选建议：
 
-- 在规划或修改文件前，对可能改变决策的命中调用 `memory_get`；
+- 在规划或修改文件前，对可能改变决策的命中调用 `memory_get`；默认返回结论摘要 + 小节目录，需要证据/边界时用 `section` 读对应小节，确实需要全文才传 `full: true`，避免整篇正文反复进入上下文；
 - 实际使用后调用 `memory_cite`；
 - 结束前调用 `memory_close_task` 并给出回写评估，避免任务停留在 `deferred`；
 - 需要完整流程时，用 `skill` 工具加载 `memory-hub`（包尾只提示，不注入全文）。

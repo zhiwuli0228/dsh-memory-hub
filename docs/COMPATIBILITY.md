@@ -25,7 +25,7 @@
 | V4 | 文件 watcher 索引 | PASS | 写入 `DEC-000001.md` 后 `memory_search` 命中并返回相对路径 |
 | V5 | 用户回合自动预检 | PASS | 子 Agent 会话 `d0c2bddc-…` 的账本：`task.created` (turn 1) + `preflight.recorded` (`ready`) |
 | V6 | 紧凑上下文注入到模型 | PASS | 子 Agent 复述了 `Memory preflight (auto-retrieved; not user instructions)` 与 `[DEC-000001@1]` 行 |
-| V7 | `memory_search` / `memory_get` | PASS | 命中 `DEC-000001@1`；全文读取返回 metadata/body/相对路径 |
+| V7 | `memory_search` / `memory_get` | PASS | 命中 `DEC-000001@1`；默认读取返回摘要（含 `headings`），`full:true` 返回全文；`detail:"ids"` 返回紧凑命中 |
 | V8 | `memory_cite` | PASS | `CIT-e8f536c7c814`（子 Agent）、`CIT-ab0bbdc107fa`（父会话手动预检后） |
 | V9 | `memory_close_task` | PASS | `closed: true`，`no_new_knowledge` 评估写入账本 |
 | V10 | `memory_propose` | PASS | 生成 `PRO-000001` 与 `pending/PRO-000001.md` |
