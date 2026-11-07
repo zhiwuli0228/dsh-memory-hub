@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.3.0 开发中：**面板人工审核**——「待审批」列表可直接批准/拒绝，不再需要为了审批单开一个会话。批准走 `panel:human` 账本（`policy.panel.review` 可关闭），请求只接受回环 + `x-dmh-review` 头 + 同源 Origin。V0.2.0 的按需读取优化（`memory_get` 默认摘要、`memory_search` `detail: "ids"`）保持不变。
+V0.3.0 已发布：**面板人工审核**——「待审批」列表可直接批准/拒绝，不再需要为了审批单开一个会话。批准走 `panel:human` 账本（`policy.panel.review` 可关闭），请求只接受回环 + `x-dmh-review` 头 + 同源 Origin。V0.2.0 的按需读取优化（`memory_get` 默认摘要、`memory_search` `detail: "ids"`）保持不变。npm 包 `dsh-memory-hub@0.3.0` 与 GitHub Release `v0.3.0` 已发布（run `42388099026`，publishTimestamp `1794066609`）。
 
-当前工作树为 **V0.3.0（待发布）**：在 V0.2.0 的按需读取之上，加入面板人工审核与 `proposal.rejected` 账本事件。发布后 npm 包 `dsh-memory-hub@0.3.0` 与 GitHub Release `v0.3.0` 同步；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.3.0（已发布）**：在 V0.2.0 的按需读取之上，加入面板人工审核与 `proposal.rejected` 账本事件。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
