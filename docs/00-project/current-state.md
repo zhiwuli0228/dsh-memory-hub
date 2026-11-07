@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.1.8 已发布：金字塔检索改为**回退式**——检索/预检/读取以当前工作区为主，本层有 ≥1 个合格命中即返回、不再上溯；本层无命中才按 近→远 回退到上一层核心的 `project:<祖先>` 蒸馏知识（显式 `scope:` 只查指定层、不做回退）。面板知识列表按 自己的 Hub → 各祖先层 分层排序。npm 包 `dsh-memory-hub@0.1.8` 与 GitHub Release `v0.1.8` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+V0.1.9 已发布：修复「配置页无法删除子工作区」——面板此前只能添加、不能删除（后端 `updateConfig` 本就整表替换支持删除，纯 UI 缺失）。现在子工作区/未分配工作区卡片与核心工作区行都带「删除」按钮（含确认提示）；删除核心工作区时先把它引用的子工作区解绑为未分配。npm 包 `dsh-memory-hub@0.1.9` 与 GitHub Release `v0.1.9` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-当前工作树为 **V0.1.8（已发布）**：在 V0.1.7 的双角色金字塔记忆之上，把检索语义从“近→远合并”收紧为“当前工作区优先、本层无命中才逐层上溯”（见上）。`npm dsh-memory-hub@0.1.8` 与 GitHub Release `v0.1.8` 已发布。
+当前工作树为 **V0.1.9（已发布）**：在 V0.1.8 的金字塔回退检索之上，补齐配置页删除入口（见上）。`npm dsh-memory-hub@0.1.9` 与 GitHub Release `v0.1.9` 已发布。
 
 ## 已实现
 
