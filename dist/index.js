@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.7
+// dsh-memory-hub 0.1.8
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13219,7 +13219,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.1.7",
+  version: "0.1.8",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -13990,39 +13990,75 @@ var MemoryService = class {
       scopeFilter = formatScope(scope);
     }
     const limit = Math.max(1, Math.min(20, args.limit ?? 8));
-    const raw = this.store.search(args.query, { visibility, statuses, types, limit: scopeFilter === null ? limit : 20 });
-    const primary = (scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit)).map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }));
-    const includeParents = scopeFilter === null || this.parentCoreIds.includes(scopeFilter);
-    const parents = includeParents ? this.ancestorProjectSearch(args.query, { statuses, types, limit, scopeFilter }) : [];
-    const hits = includeParents ? [...primary, ...parents] : primary;
+    if (scopeFilter !== null) {
+      const ancestorScope = this.parents.find(
+        (candidate) => candidate.coreId !== null && `project:${candidate.coreId}` === scopeFilter
+      );
+      if (ancestorScope !== void 0) {
+        const hits3 = this.ancestorLevelSearch(args.query, ancestorScope, { statuses, types, limit, scopeFilter });
+        return { hits: hits3, total: hits3.length };
+      }
+      const raw = this.store.search(args.query, { visibility, statuses, types, limit: 20 });
+      const hits2 = raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit).map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }));
+      return { hits: hits2, total: hits2.length };
+    }
+    const hits = this.cascadeSearch(args.query, {
+      statuses,
+      types,
+      limit,
+      visibility,
+      preferProject: workspace.id ?? void 0
+    });
     return {
       hits,
       total: hits.length
     };
   }
   /**
-   * 在全部祖先核心 Hub 上检索各自的 project:<祖先核心> 条目（各层的既有蒸馏知识）。
-   * 只取该层作用域，避免 global 在跨 Hub 检索里重复；按 近→远 排列。
+   * 金字塔回退检索：本层（自己的 Hub）有 ≥1 个合格命中即返回、不再上溯；
+   * 本层为空才回退到最近的祖先层，依次类推。每层命中都带 core 标注。
    */
-  ancestorProjectSearch(query, options) {
-    const hits = [];
+  cascadeSearch(query, options) {
+    const own = this.store.search(query, {
+      visibility: options.visibility,
+      statuses: options.statuses,
+      ...options.types === void 0 ? {} : { types: options.types },
+      limit: Math.max(1, options.limit),
+      ...options.minScore === void 0 ? {} : { minScore: options.minScore },
+      ...options.preferProject === void 0 ? {} : { preferProject: options.preferProject },
+      ...options.localBoost === void 0 ? {} : { localBoost: options.localBoost }
+    });
+    if (own.length > 0) return own.slice(0, options.limit);
     for (const parent of this.parents) {
-      const coreId = parent.coreId;
-      if (coreId === null) continue;
-      const raw = parent.store.search(query, {
-        visibility: { global: false, domains: /* @__PURE__ */ new Set(), projects: /* @__PURE__ */ new Set([coreId]) },
+      const levelHits = this.ancestorLevelSearch(query, parent, {
         statuses: options.statuses,
-        ...options.types === void 0 ? {} : { types: options.types },
-        limit: Math.max(1, options.limit),
-        ...options.minScore === void 0 ? {} : { minScore: options.minScore },
-        coreTag: coreId
+        types: options.types,
+        limit: options.limit,
+        minScore: options.minScore,
+        scopeFilter: null
       });
-      const parentOnly = options.scopeFilter === null || options.scopeFilter === void 0 ? raw.filter((hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId) : raw.filter((hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId && formatScope(hit.scope) === options.scopeFilter);
-      for (const hit of parentOnly.slice(0, options.limit)) {
-        hits.push({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) });
-      }
+      if (levelHits.length > 0) return levelHits;
     }
-    return hits.slice(0, options.limit);
+    return [];
+  }
+  /**
+   * 在单个祖先核心 Hub 上检索其 project:<祖先核心> 蒸馏条目（只取该层作用域，
+   * 避免 global 在跨 Hub 检索里重复）。
+   */
+  ancestorLevelSearch(query, parent, options) {
+    const coreId = parent.coreId;
+    if (coreId === null) return [];
+    const raw = parent.store.search(query, {
+      visibility: { global: false, domains: /* @__PURE__ */ new Set(), projects: /* @__PURE__ */ new Set([coreId]) },
+      statuses: options.statuses,
+      ...options.types === void 0 ? {} : { types: options.types },
+      limit: Math.max(1, options.limit),
+      ...options.minScore === void 0 ? {} : { minScore: options.minScore },
+      coreTag: coreId
+    });
+    return raw.filter(
+      (hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId && (options.scopeFilter === null || options.scopeFilter === void 0 || formatScope(hit.scope) === options.scopeFilter)
+    ).slice(0, options.limit).map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) }));
   }
   async get(agent, id, version, core) {
     const workspace = await this.resolveWorkspace(agent);
@@ -14558,7 +14594,8 @@ var MemoryService = class {
         parentKnowledge.push(describe(record, coreId));
       }
     }
-    const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
+    const tierOf = (row) => row.core === void 0 || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1;
+    const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
     const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => ({
       id: proposal.id,
       operation: proposal.operation,
@@ -14835,21 +14872,14 @@ var MemoryService = class {
   async runSearch(intent, workspace, visibility) {
     const statuses = /* @__PURE__ */ new Set(["accepted"]);
     const maxHits = this.hub.config.policy.preflight.max_hits;
-    const primary = this.store.search(intent, {
+    return this.cascadeSearch(intent, {
+      statuses,
+      limit: maxHits,
+      minScore: this.hub.config.policy.preflight.min_score,
       visibility,
-      statuses,
-      limit: maxHits,
-      minScore: this.hub.config.policy.preflight.min_score,
-      localBoost: this.hub.config.policy.preflight.local_boost,
-      preferProject: workspace.id ?? void 0
+      preferProject: workspace.id ?? void 0,
+      localBoost: this.hub.config.policy.preflight.local_boost
     });
-    const ancestors = this.ancestorProjectSearch(intent, {
-      statuses,
-      limit: maxHits,
-      minScore: this.hub.config.policy.preflight.min_score,
-      scopeFilter: null
-    });
-    return [...primary, ...ancestors].slice(0, maxHits);
   }
   buildPack(hits, workspace, budget) {
     if (hits.length === 0) return { pack: "", tokens: 0 };

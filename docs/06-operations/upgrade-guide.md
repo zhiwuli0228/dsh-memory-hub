@@ -75,8 +75,8 @@ dsh plugin --profile web list        # 确认 dsh-memory-hub 变为 0.1.7
 
 ```powershell
 # 会话里
-memory_status                # 面板或工具应显示 0.1.7 与金字塔祖先链（parentCoreIds / ancestors）
-memory_search query: "蒸馏"  # 仍能命中自己的 Hub 与上级核心的知识
+memory_status                # 面板或工具应显示当前版本与金字塔祖先链（parentCoreIds / ancestors）
+memory_search query: "蒸馏"  # 本层有命中即返回当前工作区知识；本层无命中时自动回退命中上级核心知识
 ```
 
 或直接看面板：知识列表顶部工具版本显示 0.1.7；双角色条目带「父核心蒸馏」标签。

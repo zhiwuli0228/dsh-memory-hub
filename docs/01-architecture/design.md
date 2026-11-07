@@ -118,7 +118,8 @@ serviceFor(会话目录 R)
   L1 自身：scope:"core"                     → project:W，写自己的 Hub（最完整）
   L2 父层：scope:"parent"                   → 候选写父核心 Hub 的 pending/，commit 用 core:"P"
   L3+ 上层：scope:"project:<祖父核心>"      → 逐层上推
-检索：memory_search / 预检 / get / cite 按 近→远 合并各层 project:<祖先>，命中带 core:"<层>"
+检索：memory_search / 预检 / get / cite —— 以当前工作区为主，本层有命中即返回；
+     本层无命中才按 近→远 回退到上一层 core:"<层>"；显式 scope 只查指定层
 ```
 
 同 ID 跨 Hub 冲突时默认取自己的 Hub；`memory_get` / `memory_cite` / `memory_commit` 支持可选 `core` 参数显式指向任一祖先 Hub。

@@ -548,16 +548,32 @@ export class MemoryService {
       scopeFilter = formatScope(scope)
     }
     const limit = Math.max(1, Math.min(20, args.limit ?? 8))
-    const raw = this.store.search(args.query, { visibility, statuses, types, limit: scopeFilter === null ? limit : 20 })
-    const primary = (scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit))
-      .map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }))
-    // 金字塔：上级核心 Hub 里 project:<祖先核心> 的既有蒸馏知识一并可见
-    // （无过滤或显式指定某个祖先作用域时）。按 近→远 合并，近层优先。
-    const includeParents = scopeFilter === null || this.parentCoreIds.includes(scopeFilter)
-    const parents = includeParents
-      ? this.ancestorProjectSearch(args.query, { statuses, types, limit, scopeFilter })
-      : []
-    const hits = includeParents ? [...primary, ...parents] : primary
+    // 显式作用域：不做回退。祖先作用域只查对应祖先层；其余（project:<self>、
+    // 普通工作区作用域、global/domain）只在自己的 Hub 里找。
+    if (scopeFilter !== null) {
+      const ancestorScope = this.parents.find(
+        (candidate) => candidate.coreId !== null && `project:${candidate.coreId}` === scopeFilter,
+      )
+      if (ancestorScope !== undefined) {
+        const hits = this.ancestorLevelSearch(args.query, ancestorScope, { statuses, types, limit, scopeFilter })
+        return { hits, total: hits.length }
+      }
+      const raw = this.store.search(args.query, { visibility, statuses, types, limit: 20 })
+      const hits = raw
+        .filter((hit) => formatScope(hit.scope) === scopeFilter)
+        .slice(0, limit)
+        .map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }))
+      return { hits, total: hits.length }
+    }
+    // 无过滤：金字塔回退检索 —— 当前工作区（自己的 Hub）优先，本层没有任何
+    // 合格命中时，才按 近→远 逐层回退到父、祖父…核心的 project:<祖先> 蒸馏知识。
+    const hits = this.cascadeSearch(args.query, {
+      statuses,
+      types,
+      limit,
+      visibility,
+      preferProject: workspace.id ?? undefined,
+    })
     return {
       hits,
       total: hits.length,
@@ -565,11 +581,51 @@ export class MemoryService {
   }
 
   /**
-   * 在全部祖先核心 Hub 上检索各自的 project:<祖先核心> 条目（各层的既有蒸馏知识）。
-   * 只取该层作用域，避免 global 在跨 Hub 检索里重复；按 近→远 排列。
+   * 金字塔回退检索：本层（自己的 Hub）有 ≥1 个合格命中即返回、不再上溯；
+   * 本层为空才回退到最近的祖先层，依次类推。每层命中都带 core 标注。
    */
-  private ancestorProjectSearch(
+  private cascadeSearch(
     query: string,
+    options: {
+      statuses: ReadonlySet<KnowledgeStatus>
+      types?: ReadonlySet<KnowledgeType>
+      limit: number
+      minScore?: number
+      visibility: Visibility
+      preferProject?: string
+      localBoost?: number
+    },
+  ): KnowledgeHit[] {
+    const own = this.store.search(query, {
+      visibility: options.visibility,
+      statuses: options.statuses,
+      ...(options.types === undefined ? {} : { types: options.types }),
+      limit: Math.max(1, options.limit),
+      ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
+      ...(options.preferProject === undefined ? {} : { preferProject: options.preferProject }),
+      ...(options.localBoost === undefined ? {} : { localBoost: options.localBoost }),
+    })
+    if (own.length > 0) return own.slice(0, options.limit)
+    for (const parent of this.parents) {
+      const levelHits = this.ancestorLevelSearch(query, parent, {
+        statuses: options.statuses,
+        types: options.types,
+        limit: options.limit,
+        minScore: options.minScore,
+        scopeFilter: null,
+      })
+      if (levelHits.length > 0) return levelHits
+    }
+    return []
+  }
+
+  /**
+   * 在单个祖先核心 Hub 上检索其 project:<祖先核心> 蒸馏条目（只取该层作用域，
+   * 避免 global 在跨 Hub 检索里重复）。
+   */
+  private ancestorLevelSearch(
+    query: string,
+    parent: ParentPack,
     options: {
       statuses: ReadonlySet<KnowledgeStatus>
       types?: ReadonlySet<KnowledgeType>
@@ -578,27 +634,27 @@ export class MemoryService {
       scopeFilter?: string | null
     },
   ): KnowledgeHit[] {
-    const hits: KnowledgeHit[] = []
-    for (const parent of this.parents) {
-      const coreId = parent.coreId
-      if (coreId === null) continue
-      const raw = parent.store.search(query, {
-        visibility: { global: false, domains: new Set(), projects: new Set([coreId]) },
-        statuses: options.statuses,
-        ...(options.types === undefined ? {} : { types: options.types }),
-        limit: Math.max(1, options.limit),
-        ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
-        coreTag: coreId,
-      })
-      const parentOnly =
-        options.scopeFilter === null || options.scopeFilter === undefined
-          ? raw.filter((hit) => hit.scope.level === 'project' && hit.scope.workspaceId === coreId)
-          : raw.filter((hit) => hit.scope.level === 'project' && hit.scope.workspaceId === coreId && formatScope(hit.scope) === options.scopeFilter)
-      for (const hit of parentOnly.slice(0, options.limit)) {
-        hits.push({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) })
-      }
-    }
-    return hits.slice(0, options.limit)
+    const coreId = parent.coreId
+    if (coreId === null) return []
+    const raw = parent.store.search(query, {
+      visibility: { global: false, domains: new Set(), projects: new Set([coreId]) },
+      statuses: options.statuses,
+      ...(options.types === undefined ? {} : { types: options.types }),
+      limit: Math.max(1, options.limit),
+      ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
+      coreTag: coreId,
+    })
+    return raw
+      .filter(
+        (hit) =>
+          hit.scope.level === 'project' &&
+          hit.scope.workspaceId === coreId &&
+          (options.scopeFilter === null ||
+            options.scopeFilter === undefined ||
+            formatScope(hit.scope) === options.scopeFilter),
+      )
+      .slice(0, options.limit)
+      .map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) }))
   }
 
   async get(agent: AgentLike, id: string, version?: number, core?: string): Promise<{
@@ -1226,8 +1282,11 @@ export class MemoryService {
         parentKnowledge.push(describe(record, coreId))
       }
     }
+    // 金字塔面板：自己的 Hub 在前，随后按 近→远 是各祖先层，层内按更新时间倒序。
+    const tierOf = (row: KnowledgeRow): number =>
+      row.core === undefined || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1
     const knowledge = [...ownKnowledge, ...parentKnowledge]
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, 200)
     const pending = [...this.store.proposals.values()]
       .filter((proposal) => proposal.status === 'pending')
@@ -1540,22 +1599,15 @@ export class MemoryService {
   private async runSearch(intent: string, workspace: WorkspaceMatch, visibility: Visibility): Promise<KnowledgeHit[]> {
     const statuses = new Set<KnowledgeStatus>(['accepted'])
     const maxHits = this.hub.config.policy.preflight.max_hits
-    const primary = this.store.search(intent, {
+    // 金字塔回退：以当前工作区（自己的 Hub）为主，本层无命中才逐层上溯。
+    return this.cascadeSearch(intent, {
+      statuses,
+      limit: maxHits,
+      minScore: this.hub.config.policy.preflight.min_score,
       visibility,
-      statuses,
-      limit: maxHits,
-      minScore: this.hub.config.policy.preflight.min_score,
-      localBoost: this.hub.config.policy.preflight.local_boost,
       preferProject: workspace.id ?? undefined,
+      localBoost: this.hub.config.policy.preflight.local_boost,
     })
-    // 金字塔：各上级核心 Hub 的 project:<祖先核心> 蒸馏知识并入预检（本地优先，上级随后）。
-    const ancestors = this.ancestorProjectSearch(intent, {
-      statuses,
-      limit: maxHits,
-      minScore: this.hub.config.policy.preflight.min_score,
-      scopeFilter: null,
-    })
-    return [...primary, ...ancestors].slice(0, maxHits)
   }
 
   private buildPack(hits: KnowledgeHit[], workspace: WorkspaceMatch, budget: number): { pack: string; tokens: number } {

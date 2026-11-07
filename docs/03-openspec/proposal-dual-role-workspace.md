@@ -47,7 +47,7 @@
 
 ## 5.1 实现要点（已完成）
 
-- **金字塔祖先链**：`ancestorIds(config, coreId)` 沿 `workspaces[].core_id` 逐层上推到父、祖父、…（近→远），最多 8 层，带 visited 环检测；每层 `project:<祖先核心>` 只读可见，检索按 近→远 合并，本地优先。
+- **金字塔祖先链**：`ancestorIds(config, coreId)` 沿 `workspaces[].core_id` 逐层上推到父、祖父、…（近→远），最多 8 层，带 visited 环检测；每层 `project:<祖先核心>` 只读可见。**检索以当前工作区为主**：本层有 ≥1 个合格命中即返回、不再上溯，本层无命中才按 近→远 回退到上一层。
 - **分级蒸馏 L1/L2/L3+**：`scope:"core"` → 自己的 Hub；`scope:"parent"`（或 `project:<父核心>`）→ 父核心 Hub；显式 `project:<任意祖先核心>` → 对应层 Hub 的 `pending/`；commit 落到该层账本。
 - **跨 Hub 显式参数**：`memory_get`、`memory_cite`、`memory_commit`、`knowledgeDetail`（面板详情）均支持可选 `core`（自己的 Hub 或任一祖先 Hub）；propose 结果回报 `core` 与 `scope`。
 - **配置热更新**：watcher 触发 `reloadConfig` 后执行 `reconfigureCores()`——按最新配置增删 core、刷新各 pack 工作区清单、重算并重新接线祖先链、同步最新 `config` 对象到核心 Hub；新增核心 / 开启双角色无需重启（`storage.watch: true` 时）。

@@ -482,15 +482,17 @@ describe('memory service', () => {
       const agent: AgentLike = { id: 'session-dual', ctx, session: { id: 'session-dual', seq: 0 } }
       await ownService.preflightForTurn(agent, 1, '核心蒸馏')
       const state = ownService.stateFor(agent.id)
+      // 金字塔回退：自己的 Hub 有命中时预检只带当前工作区的知识。
       expect(state?.pack).toContain('自己的核心蒸馏')
-      expect(state?.pack).toContain('父核心既有蒸馏')
+      expect(state?.pack).not.toContain('父核心既有蒸馏')
 
       const result = await ownService.search(agent, { query: '蒸馏' })
-      const titles = result.hits.map((hit) => hit.title)
-      expect(titles).toContain('自己的核心蒸馏')
-      expect(titles).toContain('父核心既有蒸馏')
-      const parentHit = result.hits.find((hit) => hit.title === '父核心既有蒸馏')
-      expect(parentHit?.core).toBe('parent')
+      expect(result.hits.map((hit) => hit.title)).toEqual(['自己的核心蒸馏'])
+
+      // 本层无命中才回退到父核心层，命中带 core 标注。
+      const fallback = await ownService.search(agent, { query: '既有' })
+      expect(fallback.hits.map((hit) => hit.title)).toEqual(['父核心既有蒸馏'])
+      expect(fallback.hits[0]?.core).toBe('parent')
 
       // 默认解析：自己的 Hub 没有该条目时回退到父核心 Hub。
       const got = await ownService.get(agent, parentKnowledgeId)
@@ -657,17 +659,28 @@ describe('memory service', () => {
       const agent: AgentLike = { id: 'session-pyramid', ctx, session: { id: 'session-pyramid', seq: 0 } }
       await ownService.preflightForTurn(agent, 1, '蒸馏')
       const state = ownService.stateFor(agent.id)
+      // 金字塔回退：自己的 Hub 有命中时，预检不带上层知识。
       expect(state?.pack).toContain('L1 自身蒸馏记忆')
-      expect(state?.pack).toContain('L2 父核心蒸馏')
-      expect(state?.pack).toContain('L3 顶层蒸馏')
+      expect(state?.pack).not.toContain('L2 父核心蒸馏')
+      expect(state?.pack).not.toContain('L3 顶层蒸馏')
 
       const result = await ownService.search(agent, { query: '蒸馏' })
-      const titles = result.hits.map((hit) => hit.title)
-      expect(titles).toContain('L1 自身蒸馏记忆')
-      expect(titles).toContain('L2 父核心蒸馏')
-      expect(titles).toContain('L3 顶层蒸馏')
-      const grandHit = result.hits.find((hit) => hit.title === 'L3 顶层蒸馏')
-      expect(grandHit?.core).toBe('grand')
+      expect(result.hits.map((hit) => hit.title)).toEqual(['L1 自身蒸馏记忆'])
+
+      // 本层无命中 → 回退到最近的父层；命中带 core 标注。
+      const parentFallback = await ownService.search(agent, { query: '父核心' })
+      expect(parentFallback.hits.map((hit) => hit.title)).toEqual(['L2 父核心蒸馏'])
+      expect(parentFallback.hits[0]?.core).toBe('parent')
+
+      // 本层与父层都无命中 → 再回退到祖父层。
+      const grandFallback = await ownService.search(agent, { query: '顶层' })
+      expect(grandFallback.hits.map((hit) => hit.title)).toEqual(['L3 顶层蒸馏'])
+      expect(grandFallback.hits[0]?.core).toBe('grand')
+
+      // 显式祖先作用域：只查对应层，不做回退。
+      const scoped = await ownService.search(agent, { query: '蒸馏', scope: 'project:grand' })
+      expect(scoped.hits.map((hit) => hit.title)).toEqual(['L3 顶层蒸馏'])
+      expect(scoped.hits[0]?.core).toBe('grand')
 
       // 回退读取：自己的 Hub 没有时按 近→远 穿透到顶层。
       const got = await ownService.get(agent, grandRecord.id)

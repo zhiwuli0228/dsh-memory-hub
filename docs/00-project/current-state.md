@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.1.7 已发布：双角色工作区升级为**金字塔记忆**——同一 `id` 可同时是核心工作区与上层核心的子工作区，沿 `workspaces[].core_id` 逐层上推形成祖先链（父、祖父、…，最多 8 层，带环检测）；越靠自己的工作区记忆越完整，越往顶层越是蒸馏后的共享知识。检索/预检/读取按 近→远 合并各层 `project:<祖先>`，命中带 `core` 标注；L1 `scope:"core"` 写自己的 Hub，L2 `scope:"parent"` 写父核心 Hub，L3+ 显式 `project:<任意祖先核心>` 逐层上推；配置热更新自动重算并重接祖先链。npm 包 `dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+V0.1.7 已发布：双角色工作区升级为**金字塔记忆**——同一 `id` 可同时是核心工作区与上层核心的子工作区，沿 `workspaces[].core_id` 逐层上推形成祖先链（父、祖父、…，最多 8 层，带环检测）；越靠自己的工作区记忆越完整，越往顶层越是蒸馏后的共享知识。检索/预检/读取**以当前工作区为主**：本层有命中即返回、不再上溯，本层无命中才按 近→远 回退到上一层 `project:<祖先>`；命中带 `core` 标注；L1 `scope:"core"` 写自己的 Hub，L2 `scope:"parent"` 写父核心 Hub，L3+ 显式 `project:<任意祖先核心>` 逐层上推；配置热更新自动重算并重接祖先链。npm 包 `dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 当前工作树为 **V0.1.7（已发布）**：在 V0.1.6 的多核心仓、独立写锁、系统级 `memory-hub` skill 之上，双角色工作区支持多层上级链与逐层分级蒸馏（见上）。`npm dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布。
 
@@ -45,7 +45,7 @@ V0.1.7 已发布：双角色工作区升级为**金字塔记忆**——同一 `i
 - [x] 双角色工作区（V0.1.7）：同一个 `id` 可同时出现在 `core_workspaces` 与 `workspaces`；会话路由到自己的核心 Hub，父核心 Hub 挂为二级检索来源；等长前缀平局时自己的核心优先，不再依赖配置顺序
 - [x] 金字塔记忆（多层上级链）：沿 `workspaces[].core_id` 逐层推导父、祖父、…（近→远，最多 8 层，带环检测，成环截断告警）；`memory_status` 报告 `parentCoreIds` / `ancestors` 完整链
 - [x] 分级蒸馏（L1/L2/L3+）：L1 `scope:"core"` / `project:<self>` 写自己的 Hub；L2 `scope:"parent"` 写父核心 Hub 的 `pending/`；L3+ 显式 `project:<任意祖先核心>` 逐层上推；commit 落到对应层 Hub 的账本
-- [x] 跨 Hub 检索：`memory_search` / 预检 / `memory_get` / `memory_cite` 按 近→远 合并各层 `project:<祖先>` 知识，命中带 `core` 标注；`memory_get` / `memory_cite` / `memory_commit` 支持可选 `core` 参数
+- [x] 跨 Hub 检索（金字塔回退）：`memory_search` / 预检以当前工作区为主，本层有 ≥1 个合格命中即返回、不再上溯；本层无命中才按 近→远 回退到上一层 `project:<祖先>`，命中带 `core` 标注；`memory_get` / `memory_cite` 默认同样按 近→远 回退读取，`memory_get` / `memory_cite` / `memory_commit` 支持可选 `core` 参数
 - [x] 双角色安全约束：`core_id` 不得指向自身（配置保存时拒绝）；同 ID 跨 Hub 冲突默认取自己的 Hub
 - [x] L2 别名：`memory_propose` 支持 `scope: "parent"`（等价于 `project:<父核心>`），结果回报 `core` 与 `scope` 便于 commit 显式指定
 - [x] 配置热更新重接线：watcher 触发 `reloadConfig` 后执行 `reconfigureCores()`，按最新配置增删 core、刷新工作区清单、重新接线金字塔祖先链并同步最新 config 对象；新增核心 / 开启双角色无需重启

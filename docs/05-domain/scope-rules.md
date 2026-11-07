@@ -61,7 +61,7 @@ workspaces:
 ```
 
 - 可见性：`project:<self>` + **每一层**祖先的 `project:<祖先>` + `global`（global 只取自己的 Hub）。
-- 检索与预检按 近→远 合并各层蒸馏知识，本地优先；命中带 `core` 标注所属层。
+- 检索（`memory_search` / 预检 / `memory_get` 回退）以当前工作区为主：自己的 Hub 有 ≥1 个合格命中即返回、不再上溯；本层无命中才按 近→远 回退到上一层核心的 `project:<祖先>` 知识。命中带 `core` 标注所属层；显式 `scope:` 指定某层时只查该层、不做回退。
 - `memory_status` 的 `workspace.parentCoreIds` 与 `ancestors` 报告完整上级链。
 
 ## 模型权限
