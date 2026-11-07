@@ -284,6 +284,44 @@ describe('memory service', () => {
     }
   })
 
+  it('updateConfig replaces the whole list so removing sub-workspaces takes effect', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.service.updateConfig({
+        core_workspaces: [
+          { id: 'core1', name: 'Core One' },
+          { id: 'core2', name: 'Core Two' },
+        ],
+        workspaces: [
+          { id: 'sub1', core_id: 'core1', root: '/tmp/sub1', domains: [], admin: false, enabled: true },
+          { id: 'sub2', core_id: 'core1', root: '/tmp/sub2', domains: [], admin: false, enabled: true },
+        ],
+      })
+
+      // 仍有子工作区引用 core1 时直接删它 → 校验拒绝（面板因此先解绑再删）。
+      await expect(
+        harness.service.updateConfig({ core_workspaces: [{ id: 'core2', name: 'Core Two' }] }),
+      ).rejects.toThrow(/references unknown core/)
+
+      // 面板“删除子工作区”：提交去掉该项后的完整列表，后端整表替换。
+      const afterSub = (await harness.service.updateConfig({
+        workspaces: [{ id: 'sub2', core_id: 'core1', root: '/tmp/sub2', domains: [], admin: false, enabled: true }],
+      })) as { workspaces: { id: string }[] }
+      expect(afterSub.workspaces.map((workspace) => workspace.id)).toEqual(['sub2'])
+      expect(harness.hub.config.workspaces.map((workspace) => workspace.id)).toEqual(['sub2'])
+
+      // 面板“删除核心工作区”：引用它的子工作区解绑为未分配，核心本身移除。
+      const afterCore = (await harness.service.updateConfig({
+        core_workspaces: [{ id: 'core2', name: 'Core Two' }],
+        workspaces: [{ id: 'sub2', core_id: null, root: '/tmp/sub2', domains: [], admin: false, enabled: true }],
+      })) as { core_workspaces: { id: string }[]; workspaces: { core_id: string | null }[] }
+      expect(afterCore.core_workspaces.map((core) => core.id)).toEqual(['core2'])
+      expect(afterCore.workspaces[0]!.core_id).toBeNull()
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('commits with test:auto when approval mode is auto', async () => {
     const harness = await createHarness()
     try {

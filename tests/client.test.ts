@@ -169,5 +169,7 @@ describe('client bundle', () => {
     expect(configHtml).toContain('核心工作区')
     expect(configHtml).toContain('添加核心工作区')
     expect(configHtml).toContain('添加子工作区')
+    // 配置页提供删除入口：未分配工作区卡片带“删除”按钮。
+    expect(configHtml).toContain('删除')
   })
 })

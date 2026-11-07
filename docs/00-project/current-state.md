@@ -49,6 +49,7 @@ V0.1.8 已发布：金字塔检索改为**回退式**——检索/预检/读取�
 - [x] 双角色安全约束：`core_id` 不得指向自身（配置保存时拒绝）；同 ID 跨 Hub 冲突默认取自己的 Hub
 - [x] L2 别名：`memory_propose` 支持 `scope: "parent"`（等价于 `project:<父核心>`），结果回报 `core` 与 `scope` 便于 commit 显式指定
 - [x] 配置热更新重接线：watcher 触发 `reloadConfig` 后执行 `reconfigureCores()`，按最新配置增删 core、刷新工作区清单、重新接线金字塔祖先链并同步最新 config 对象；新增核心 / 开启双角色无需重启
+- [x] 配置页增删：面板「配置」页可添加核心/子工作区，并可删除子工作区（整表替换保存）与核心工作区（引用它的子工作区先解绑为未分配）；后端校验拒绝“引用未知核心 / 自引用”，删除有确认提示
 - [x] 面板知识列表对上级核心条目显示「父核心蒸馏」标签；详情打开携带 `core` 查询参数
 - [x] 测试模式 `policy.approval.mode: auto`：跳过 DSH 审批，账本 `approvalRef` 记为 `test:auto`（默认仍为 `manual`）
 - [x] 核心共享：`memory_propose` 支持 `scope: "core"` 别名，子工作区可把可复用知识回填到 `project:<core-id>`

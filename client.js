@@ -138,6 +138,9 @@
     'config.readonly': '当前为只读模式，无法保存配置。',
     'config.saved': '已保存',
     'config.error': '保存失败',
+    'config.delete': '删除',
+    'config.deleteSubConfirm': '确认删除子工作区 {id}？',
+    'config.deleteCoreConfirm': '确认删除核心工作区 {id}？其子工作区将变为未分配。',
     'config.emptyId': '标识不能为空',
     'config.emptyRoot': '子工作区需要根目录',
   };
@@ -264,6 +267,9 @@
     'config.readonly': 'Read-only mode; configuration cannot be saved.',
     'config.saved': 'Saved',
     'config.error': 'Save failed',
+    'config.delete': 'Delete',
+    'config.deleteSubConfirm': 'Delete sub-workspace {id}?',
+    'config.deleteCoreConfirm': 'Delete core workspace {id}? Its sub-workspaces become unassigned.',
     'config.emptyId': 'Id is required',
     'config.emptyRoot': 'Sub-workspace requires a root path',
   };
@@ -320,6 +326,7 @@
 .dmh-two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .dmh-list{display:flex;flex-direction:column;gap:8px}
 .dmh-row{display:flex;flex-direction:column;gap:4px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:10px 12px;cursor:pointer;text-align:left;font:inherit;color:inherit}
+.dmh-row-main{display:flex;flex-direction:column;gap:4px;cursor:pointer}
 .dmh-row:hover{background:var(--dsw-alias-bg-layer-2)}
 .dmh-row[data-selected="true"]{border-color:var(--dsw-alias-brand-primary)}
 .dmh-row-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -744,8 +751,8 @@
               h('div', { className: 'dmh-cap-desc' }, t(capability.key)))))));
     }
 
-    function useConfig() {
-      const [state, setState] = useState({ phase: 'loading', data: null, error: null });
+    function useConfig(initialData = null) {
+      const [state, setState] = useState({ phase: initialData === null ? 'loading' : 'ready', data: initialData, error: null });
       const load = useCallback(async () => {
         setState((current) => ({ ...current, phase: current.data === null ? 'loading' : 'refreshing' }));
         try {
@@ -776,12 +783,14 @@
           throw error;
         }
       }, []);
-      useEffect(() => { void load(); }, [load]);
+      useEffect(() => {
+        void load();
+      }, [load]);
       return { state, load, save };
     }
 
-    function ConfigTab() {
-      const { state, load, save } = useConfig();
+    function ConfigTab(props) {
+      const { state, load, save } = useConfig(props && props.initialData ? props.initialData : null);
       const data = state.data || { core_workspaces: [], workspaces: [], readOnly: false };
       const coreWorkspaces = Array.isArray(data.core_workspaces) ? data.core_workspaces : [];
       const workspaces = Array.isArray(data.workspaces) ? data.workspaces : [];
@@ -873,6 +882,33 @@
         }
       };
 
+      // 删除子工作区：直接把它从 workspaces[] 里移除（后端整表替换保存）。
+      const handleDeleteWorkspace = async (id) => {
+        if (!window.confirm(t('config.deleteSubConfirm').replace('{id}', id))) return;
+        try {
+          await save({ workspaces: workspaces.filter((w) => w.id !== id) });
+          showMessage(t('config.saved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
+      // 删除核心工作区：核心本身移除，引用它的子工作区全部改为未分配
+      // （先解绑再删，避免触发 "references unknown core" 校验）。
+      const handleDeleteCore = async (id) => {
+        if (!window.confirm(t('config.deleteCoreConfirm').replace('{id}', id))) return;
+        try {
+          await save({
+            core_workspaces: coreWorkspaces.filter((c) => c.id !== id),
+            workspaces: workspaces.map((w) => (w.core_id === id ? { ...w, core_id: null } : w)),
+          });
+          if (selectedCore === id) setSelectedCore('');
+          showMessage(t('config.saved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
       // The form only needs config.yaml to be writable. A busy knowledge lock or a
       // broken config must not disable the very form that repairs it; hosts older
       // than the `configWritable` field fall back to `readOnly`.
@@ -909,19 +945,27 @@
         coreWorkspaces.length === 0
           ? h(Empty, { title: t('config.noCore'), hint: t('config.noCoreHint') })
           : h('div', { className: 'dmh-list' }, coreWorkspaces.map((core) =>
-            h('button', {
+            h('div', {
               key: core.id,
-              type: 'button',
               className: 'dmh-row',
               'data-selected': activeCore === core.id ? 'true' : 'false',
-              onClick: () => {
-                setSelectedCore(core.id);
-                setSubCore(null);
-              },
             },
-              h('div', { className: 'dmh-row-title' }, core.name || core.id),
-              h('div', { className: 'dmh-row-id dmh-mono' }, core.id),
-              core.root ? h('div', { className: 'dmh-row-summary' }, core.root) : null))),
+              h('div', {
+                className: 'dmh-row-main',
+                onClick: () => {
+                  setSelectedCore(core.id);
+                  setSubCore(null);
+                },
+              },
+                h('div', { className: 'dmh-row-title' }, core.name || core.id),
+                h('div', { className: 'dmh-row-id dmh-mono' }, core.id),
+                core.root ? h('div', { className: 'dmh-row-summary' }, core.root) : null),
+              h('button', {
+                type: 'button',
+                className: 'dmh-btn',
+                disabled: readOnly || state.phase === 'saving',
+                onClick: () => handleDeleteCore(core.id),
+              }, t('config.delete'))))),
         h('div', { className: 'dmh-form-actions' },
           h('button', {
             type: 'button',
@@ -934,7 +978,13 @@
         h('div', { className: 'dmh-row-top' },
           h('span', { className: 'dmh-row-title' }, workspace.id),
           workspace.admin === true ? h(Tag, { tone: 'ok' }, t('workspace.admin')) : null,
-          workspace.enabled === false ? h(Tag, { tone: 'warn' }, t('workspace.disabled')) : null),
+          workspace.enabled === false ? h(Tag, { tone: 'warn' }, t('workspace.disabled')) : null,
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            disabled: readOnly || state.phase === 'saving',
+            onClick: () => handleDeleteWorkspace(workspace.id),
+          }, t('config.delete'))),
         h('div', { className: 'dmh-row-id dmh-mono' }, workspace.root),
         (workspace.domains || []).length === 0
           ? null
@@ -1054,7 +1104,7 @@
                   setTab('knowledge');
                 },
               })
-                : tab === 'config' ? h(ConfigTab)
+                : tab === 'config' ? h(ConfigTab, { initialData: data })
                   : tab === 'knowledge' ? h(KnowledgeTab, { data, openRequest, core: selectedCore })
                     : tab === 'pending' ? h(PendingTab, { data })
                       : tab === 'activity' ? h(ActivityTab, { data })
