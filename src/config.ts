@@ -84,6 +84,10 @@ export const configSchema = z.object({
     approval: z.object({
       mode: z.enum(['manual', 'auto']).default('manual'),
     }).default({}),
+    panel: z.object({
+      // 面板「待审批」是否提供人工点击的批准/拒绝；关闭时面板恢复只读。
+      review: z.boolean().default(true),
+    }).default({}),
     preflight: preflightSchema,
     gate: gateSchema,
     evidence: z.object({

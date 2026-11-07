@@ -967,6 +967,35 @@ export class MemoryService {
     }
   }
 
+  /** 面板人工审核：批准候选。账本 approvalRef 记为 panel:human，面板请求本身即人工点击。 */
+  async approveProposal(proposalId: string): Promise<{
+    knowledgeId: string
+    version: number
+    status: KnowledgeStatus
+    superseded: string[]
+  }> {
+    const owning = this.owningStoreFor(proposalId)
+    if (owning === null) throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
+    const proposal = owning.getProposal(proposalId)
+    if (proposal === null) throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
+    const precheck = this.precheckCommitOn(owning, proposal)
+    if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason)
+    const result = await owning.commit(proposalId, 'panel:human')
+    return {
+      knowledgeId: result.record.id,
+      version: result.record.version,
+      status: result.record.status,
+      superseded: result.superseded,
+    }
+  }
+
+  /** 面板人工审核：拒绝候选。 */
+  async rejectProposal(proposalId: string, reason?: string): Promise<{ proposalId: string; status: 'rejected' }> {
+    const owning = this.owningStoreFor(proposalId)
+    if (owning === null) throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
+    return owning.reject(proposalId, reason)
+  }
+
   /** 在“自己的 Hub → 父核心 Hub”顺序里查找 proposal（跨 Hub 分级蒸馏）。 */
   private resolveProposalAcrossStores(proposalId: string): ProposalRecord | null {
     const own = this.store.getProposal(proposalId)

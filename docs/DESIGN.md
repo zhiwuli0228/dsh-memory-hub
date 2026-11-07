@@ -10,7 +10,7 @@
 
 本文是 `dsh-memory-hub` 的唯一权威设计。它回答四件事：**记什么、怎么查、什么时候信、怎么不闯祸**。实现位于 `src/` 与 `client.js`，构建产物为 `dist/index.js`；验证状态见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
-> V0.1.1 在 V0.1.0 之上增加只读 Web 面板（能力总览、知识浏览、待审批、活动与策略）。面板不提供批准按钮，写入/审批路径不变。
+> V0.1.1 在 V0.1.0 之上增加 Web 面板（能力总览、知识浏览、待审批、活动与策略）。V0.3.0 起面板「待审批」提供人工点击的批准/拒绝（账本 `approvalRef` 记为 `panel:human`，受 `policy.panel.review` 控制），模型仍不能自批；原生 DSH 审批在会话内继续可用。
 
 `E:\009workspace\dsh\dsh-memory-hub\docs` 下的参考设计包与 `code\dsh-memory-evolve` 只作为需求与风险清单使用。本文不复刻参考代码的模块、UI、技能系统或同步机制；与参考材料的取舍见 [§18](#18-与参考材料的关系)。
 
@@ -89,7 +89,7 @@ DSH Memory Hub 是一个**本地优先、文件即真相、人类批准写入**�
 
 | 不做 | 原因 |
 | --- | --- |
-| 复杂审批/编辑型 WebUI | 批准仍在会话中经 DSH 审批完成；V0.1.1 仅增加只读观察面板 |
+| 复杂审批/编辑型 WebUI | 批准以人工点击面板或会话内 DSH 审批完成；面板不提供批量编辑/重写知识 |
 | 向量检索 / Embedding / 图数据库 | 项目知识量级小，确定性检索足够；引入外部服务与隐私成本 |
 | 自动扫描历史会话 | 会话里有大量噪声与秘密；需要显式授权和独立设计 |
 | 后台定时巩固 / 自动总结 | 无人值守的写入无法保证质量与批准；先做手动 |
@@ -377,7 +377,7 @@ tests/
 | --- | --- |
 | `session.append` / 自定义会话事件 | 插件记录仅限 `packages/experimental/`；本插件不满足条件，强行写会破坏会话格式承诺 |
 | `ctx.storage` / profile 存储 | 数据应在用户可见、可备份的普通目录，而不是 profile 内部状态 |
-| Web Client / Slot | V0.1.0 不依赖；V0.1.1 的只读面板通过 `sidebar.panellist` + `main` 注册，不参与 Host 业务与审批 |
+| Web Client / Slot | V0.1.0 不依赖；V0.1.1 的面板通过 `sidebar.panellist` + `main` 注册；V0.3.0 起「待审批」支持人工点击批准/拒绝（`panel:human`），不走 Host 业务回合 |
 | MCP server 形态 | 工具在 Host 内注册更直接；MCP 桥接留到需要跨客户端复用时评估 |
 
 ---

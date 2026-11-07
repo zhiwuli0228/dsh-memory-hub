@@ -55,6 +55,11 @@ export type LedgerEvent =
       approvalRef: string
     })
   | (EventBase & {
+      type: 'proposal.rejected'
+      proposalId: string
+      reason?: string
+    })
+  | (EventBase & {
       type: 'task.closed'
       taskId: string
       assessment: WritebackAssessment

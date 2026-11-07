@@ -390,6 +390,58 @@ describe('memory service', () => {
     }
   })
 
+  it('approves and rejects pending proposals from the panel', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.service.preflightForTurn(harness.agent, 1, '面板审核')
+      const approve = await harness.service.propose(harness.agent, {
+        operation: 'create',
+        type: 'decision',
+        scope: 'global',
+        title: '面板批准',
+        summary: '面板点击批准。',
+        content: '## 结论\n\n由面板批准。\n',
+        source_refs: ['note:panel'],
+      })
+      const approved = await harness.service.approveProposal(approve.proposalId)
+      expect(approved.knowledgeId).toMatch(/^DEC-/)
+      expect(approved.status).toBe('accepted')
+      const raw = await readFile(harness.hub.ledgerPath(), 'utf8')
+      const committed = raw
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as { type: string; proposalId?: string; approvalRef?: string })
+        .find((event) => event.type === 'proposal.committed' && event.proposalId === approve.proposalId)
+      expect(committed?.approvalRef).toBe('panel:human')
+
+      const reject = await harness.service.propose(harness.agent, {
+        operation: 'create',
+        type: 'knowledge',
+        scope: 'global',
+        title: '面板拒绝',
+        summary: '面板点击拒绝。',
+        content: '## 结论\n\n由面板拒绝。\n',
+        source_refs: ['note:panel'],
+      })
+      const rejected = await harness.service.rejectProposal(reject.proposalId, '不相关')
+      expect(rejected.status).toBe('rejected')
+      expect(harness.store.getProposal(reject.proposalId)?.status).toBe('rejected')
+      expect(harness.store.counts().pending).toBe(0)
+      const afterReject = await readFile(harness.hub.ledgerPath(), 'utf8')
+      const rejection = afterReject
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as { type: string; proposalId?: string; reason?: string })
+        .find((event) => event.type === 'proposal.rejected' && event.proposalId === reject.proposalId)
+      expect(rejection?.reason).toBe('不相关')
+
+      await expect(harness.service.approveProposal('PRO-999999')).rejects.toThrow(/does not exist/)
+      await expect(harness.service.rejectProposal(reject.proposalId)).rejects.toThrow(/rejected/)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('promotes sub-workspace knowledge to the core scope with scope=core', async () => {
     const coreRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-core-'))
     const subRoot = join(coreRoot, 'plugin-a')

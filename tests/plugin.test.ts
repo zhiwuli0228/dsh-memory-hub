@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -14,6 +14,12 @@ import type {
 } from '../src/host.js'
 import type { KnowledgeRecord } from '../src/types.js'
 
+interface FakeWebServer {
+  routes: Map<string, (request: unknown, response: unknown) => unknown>
+  register(route: { kind: 'exact'; path: string; handler: (request: unknown, response: unknown) => unknown }): () => void
+  getOrigin: () => string
+}
+
 interface FakeHost {
   ctx: Context
   tools: Map<string, ToolDefinition>
@@ -21,6 +27,7 @@ interface FakeHost {
   listeners: Map<string, Array<(...args: any[]) => unknown>>
   disposers: Array<() => void>
   contexts: Array<{ name: string; text: string | ((context: unknown) => string) }>
+  webServer?: FakeWebServer
 }
 
 function createFakeHost(root: string): FakeHost {
@@ -29,6 +36,14 @@ function createFakeHost(root: string): FakeHost {
   const listeners = new Map<string, Array<(...args: any[]) => unknown>>()
   const disposers: Array<() => void> = []
   const contexts: FakeHost['contexts'] = []
+  const webServer: FakeWebServer = {
+    routes: new Map(),
+    register(route) {
+      this.routes.set(route.path, route.handler)
+      return () => {}
+    },
+    getOrigin: () => 'http://127.0.0.1:54935',
+  }
 
   const ctx: Context = {
     tools: {
@@ -51,7 +66,10 @@ function createFakeHost(root: string): FakeHost {
       warn: () => {},
       error: () => {},
     },
-    get: () => undefined,
+    get(name: string) {
+      if (name === 'webServer') return webServer
+      return undefined
+    },
     on(name, listener) {
       const list = listeners.get(name) ?? []
       list.push(listener)
@@ -67,7 +85,7 @@ function createFakeHost(root: string): FakeHost {
       return result ?? (() => {})
     },
     inject(deps, callback) {
-      if (deps.includes('skills')) callback(ctx)
+      if (deps.includes('skills') || deps.includes('webServer')) callback(ctx)
     },
     workingDirectory: {
       defaultDirectory: root,
@@ -78,7 +96,7 @@ function createFakeHost(root: string): FakeHost {
     },
   }
 
-  return { ctx, tools, skills, listeners, disposers, contexts }
+  return { ctx, tools, skills, listeners, disposers, contexts, webServer }
 }
 
 function makeAgent(host: FakeHost, id = 'session-plugin'): AgentLike {
@@ -210,6 +228,108 @@ describe('plugin entry', () => {
     }
     expect(section.body).toContain('插件测试')
     expect(section.section).toBe('结论')
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('reviews pending proposals through the panel endpoint', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-review-'))
+    const host = createFakeHost(root)
+    apply(host.ctx, { root })
+    const agent = makeAgent(host)
+    for (const listener of host.listeners.get('agent/created') ?? []) listener({ agent })
+    const messages: Array<{ role: 'user'; content: ContentBlock[]; source: { kind: string } }> = [
+      { role: 'user', content: [{ type: 'text', text: '面板审核' }], source: { kind: 'user' } },
+    ]
+    for (const listener of host.listeners.get('agent/pre-step') ?? []) {
+      await listener(
+        { agent, messages, turn: 1, step: 1, signal: new AbortController().signal },
+        async () => ({ kind: 'enter', messages }),
+      )
+    }
+
+    const proposal = (await invoke('memory_propose', host, {
+      operation: 'create',
+      type: 'decision',
+      scope: 'global',
+      title: '面板审核决策',
+      summary: '验证面板批准与拒绝。',
+      content: '## 结论\n\n面板批准。\n',
+      source_refs: ['note:panel'],
+    }, agent)) as { proposalId: string }
+    expect(proposal.proposalId).toMatch(/^PRO-/)
+
+    const route = host.webServer?.routes.get('/dsh-memory-hub/api/pending')
+    expect(route).toBeDefined()
+
+    const call = async (headers: Record<string, string>, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
+      const state = { status: 0, text: '', writableEnded: false }
+      const response = {
+        get writableEnded() { return state.writableEnded },
+        writeHead(status: number) { state.status = status; return response },
+        end(text?: string) { state.text = text ?? ''; state.writableEnded = true; return response },
+      }
+      const listeners: Record<string, Array<(...args: unknown[]) => void>> = {}
+      const request = {
+        method: 'POST',
+        url: '/dsh-memory-hub/api/pending',
+        socket: { remoteAddress: '127.0.0.1' },
+        headers,
+        on(event: string, listener: (...args: unknown[]) => void) {
+          listeners[event] = [...(listeners[event] ?? []), listener]
+          return request
+        },
+      }
+      const done = Promise.resolve(route!(request, response))
+      // readJsonBody 在 handler 内同步订阅 data/end，因此在调用 handler 之后再送 body。
+      queueMicrotask(() => {
+        const text = JSON.stringify(body)
+        for (const listener of listeners['data'] ?? []) listener(Buffer.from(text))
+        for (const listener of listeners['end'] ?? []) listener()
+      })
+      await done
+      return { status: state.status, json: JSON.parse(state.text === '' ? '{}' : state.text) as Record<string, unknown> }
+    }
+
+    const missingHeader = await call({}, { id: proposal.proposalId, action: 'approve' })
+    expect(missingHeader.status).toBe(403)
+    expect(missingHeader.json.error).toBe('review-header-required')
+
+    const crossOrigin = await call({ 'x-dmh-review': '1', origin: 'http://evil.example' }, { id: proposal.proposalId, action: 'approve' })
+    expect(crossOrigin.status).toBe(403)
+    expect(crossOrigin.json.error).toBe('origin-forbidden')
+
+    const badAction = await call({ 'x-dmh-review': '1' }, { id: proposal.proposalId, action: 'delete' })
+    expect(badAction.status).toBe(400)
+    expect(badAction.json.error).toBe('invalid-action')
+
+    const approved = await call({ 'x-dmh-review': '1', origin: 'http://127.0.0.1:54935' }, { id: proposal.proposalId, action: 'approve' })
+    expect(approved.status).toBe(200)
+    expect(approved.json.ok).toBe(true)
+    expect(String(approved.json.knowledgeId)).toMatch(/^DEC-/)
+    const ledger = await readFile(join(root, 'records', 'ledger.jsonl'), 'utf8')
+    expect(ledger).toContain('panel:human')
+    expect(ledger).toContain(proposal.proposalId)
+
+    const second = (await invoke('memory_propose', host, {
+      operation: 'create',
+      type: 'knowledge',
+      scope: 'global',
+      title: '面板拒绝决策',
+      summary: '验证面板拒绝。',
+      content: '## 结论\n\n面板拒绝。\n',
+      source_refs: ['note:panel'],
+    }, agent)) as { proposalId: string }
+    const rejected = await call({ 'x-dmh-review': '1' }, { id: second.proposalId, action: 'reject', reason: '不相关' })
+    expect(rejected.status).toBe(200)
+    expect(rejected.json.status).toBe('rejected')
+    expect((await readFile(join(root, 'records', 'ledger.jsonl'), 'utf8'))).toContain('proposal.rejected')
+
+    const missing = await call({ 'x-dmh-review': '1' }, { id: 'PRO-999999', action: 'approve' })
+    expect(missing.status).toBe(409)
 
     for (const dispose of host.disposers.reverse()) {
       await dispose()

@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.2.0 已发布：面向长上下文（200k 频繁压缩）的**按需读取**优化——`memory_get` 默认只返回「结论摘要 + 小节目录」（约 700 字符封顶），需要证据/边界时用 `section` 读单个小节，确实需要全文才传 `full: true`；`memory_search` 新增 `detail: "ids"` 紧凑模式（只回 id/版本/类型/标题/作用域，输出小一个数量级）。scope-rules 的金字塔回退检索保持不变。npm 包 `dsh-memory-hub@0.2.0` 与 GitHub Release `v0.2.0` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+V0.3.0 开发中：**面板人工审核**——「待审批」列表可直接批准/拒绝，不再需要为了审批单开一个会话。批准走 `panel:human` 账本（`policy.panel.review` 可关闭），请求只接受回环 + `x-dmh-review` 头 + 同源 Origin。V0.2.0 的按需读取优化（`memory_get` 默认摘要、`memory_search` `detail: "ids"`）保持不变。
 
-当前工作树为 **V0.2.0（已发布）**：在 V0.1.9 的配置页删除入口之上，加入按需读取以控制上下文体积（见上）。`npm dsh-memory-hub@0.2.0` 与 GitHub Release `v0.2.0` 已发布。
+当前工作树为 **V0.3.0（待发布）**：在 V0.2.0 的按需读取之上，加入面板人工审核与 `proposal.rejected` 账本事件。发布后 npm 包 `dsh-memory-hub@0.3.0` 与 GitHub Release `v0.3.0` 同步；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
@@ -26,6 +26,8 @@ V0.2.0 已发布：面向长上下文（200k 频繁压缩）的**按需读取**�
 - [x] 引用记录（`memory_cite`）区分检索命中与实际使用
 - [x] 面板任务行显示预检命中数与引用数，暴露“命中但未引用”的断点
 - [x] 候选创建（`memory_propose`）与提交审批（`memory_commit`）
+- [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
+- [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
 - [x] 夜间维护（`memory_maintenance`）：确定性巡检，报告写 `<hub>/reports/<timestamp>.md` + `latest.md`
@@ -61,8 +63,8 @@ V0.2.0 已发布：面向长上下文（200k 频繁压缩）的**按需读取**�
 - [x] 系统级 skill 经验已回填核心：`API-000004`（`ctx.skills.register` 与按需加载）；本仓决定：`DEC-000003`（采用 `memory-hub` skill）
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
-- [x] 面板只读，配置回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 59 个 vitest 测试（10 个文件）
+- [x] 面板除「待审批」人工审核外只读；配置与审核走回环 HTTP 路由（`/dsh-memory-hub/api/*`）
+- [x] 71 个 vitest 测试（10 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
@@ -83,14 +85,16 @@ V0.2.0 已发布：面向长上下文（200k 频繁压缩）的**按需读取**�
 
 - Markdown / YAML / JSONL 是唯一权威数据格式。
 - 默认不使用向量数据库。
-- `memory_commit` 必须经过 DSH 原生人工审批；模型不可自批。
-- Web 面板只读；面板路由只允许回环请求。
+- `memory_commit` 在会话内必须经过 DSH 原生人工审批；面板「待审批」由人点击批准/拒绝，账本记为 `panel:human`；模型不可自批。
+- Web 面板路由只允许回环请求；除人工审核外不提供写入端点。
 - 每根一把写锁：第二个写者只让该根降级为只读，不跨根级联；显式 `readOnly: true` 才是全局只读。
 - Windows 原生路径语义。
 
 ## 已知限制
 
 - DSH 原生审批提示的**真实点击通过**路径未验证；本机审批提示关闭。测试模式 `auto` 已验证自动提交与 `test:auto` 账本记录。
+- 面板审核已在假 Host 的 HTTP 路由上验证（头/Origin/批准/拒绝/账本）；桌面端真实点击路径尚未人工确认。
+- 回环 HTTP 无法从技术上区分“人点击”和“本机脚本调用”；面板审核适合单人本机使用，不要在本机运行不可信脚本时把它当作唯一防线。
 - 门禁的宿主级拒绝未在真实会话中强制触发，由单元测试覆盖。
 - PTC `run_code` 嵌套调用未验证。
 - 外部 CLI / 多进程共享 Hub 未验证；每根一把锁、按根降级、跨机锁回收由单元测试覆盖。

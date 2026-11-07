@@ -741,7 +741,7 @@ export class MemoryRuntime implements ToolHost {
       this.ctx.inject(['webServer'], (scope) => {
         const server = scope.get('webServer') as WebServerService | undefined
         if (server === undefined || typeof server.register !== 'function') return
-        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge', '/dsh-memory-hub/api/config', '/dsh-memory-hub/api/hubs']) {
+        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge', '/dsh-memory-hub/api/config', '/dsh-memory-hub/api/hubs', '/dsh-memory-hub/api/pending']) {
           try {
             scope.effect(() =>
               server.register({
@@ -845,6 +845,57 @@ export class MemoryRuntime implements ToolHost {
           }
           return
         }
+      }
+      if (url.pathname === '/dsh-memory-hub/api/pending') {
+        if (method !== 'POST') {
+          sendJson(response, 405, { error: 'method-not-allowed' }, method)
+          return
+        }
+        // 面板审核把“人工点击”当作批准依据：只接受面板自己发的同源请求
+        // （自定义头 + 同源 Origin），并受 policy.panel.review 开关约束。
+        const headers = request.headers ?? {}
+        const header = (name: string): string => {
+          const value = headers[name] ?? headers[name.toLowerCase()]
+          return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
+        }
+        if (header('x-dmh-review') !== '1') {
+          sendJson(response, 403, { error: 'review-header-required', message: 'missing x-dmh-review header' }, method)
+          return
+        }
+        const origin = header('origin')
+        if (origin !== '' && !isLocalOrigin(origin)) {
+          sendJson(response, 403, { error: 'origin-forbidden', message: `origin ${origin} is not allowed` }, method)
+          return
+        }
+        try {
+          if (this.fallback === null) throw new Error('not initialized')
+          const pack = this.getPackFromQuery(url)
+          if (pack.hub.config.policy.panel.review === false) {
+            sendJson(response, 403, { error: 'review-disabled', message: 'panel review is disabled by policy.panel.review' }, method)
+            return
+          }
+          const body = (await readJsonBody(request)) as Record<string, unknown>
+          const id = typeof body.id === 'string' ? body.id.trim() : ''
+          const action = typeof body.action === 'string' ? body.action : ''
+          if (id === '') {
+            sendJson(response, 400, { error: 'missing-id' }, method)
+            return
+          }
+          if (action === 'approve') {
+            sendJson(response, 200, { ok: true, action, ...(await pack.service.approveProposal(id)) }, method)
+            return
+          }
+          if (action === 'reject') {
+            const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined
+            sendJson(response, 200, { ok: true, action, ...(await pack.service.rejectProposal(id, reason)) }, method)
+            return
+          }
+          sendJson(response, 400, { error: 'invalid-action', message: 'action must be approve or reject' }, method)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          sendJson(response, 409, { error: 'review-failed', message }, method)
+        }
+        return
       }
       sendJson(response, 404, { error: 'not-found', path: url.pathname }, method)
     } catch (error) {
@@ -1061,6 +1112,17 @@ function relativeIsEscape(rel: string): boolean {
 function isLoopbackRequest(request: HttpRequestLike): boolean {
   const address = request.socket?.remoteAddress ?? ''
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
+}
+
+/** 面板审核只接受本机 Origin（http://127.0.0.1|localhost:<port>）。 */
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    return url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]' || url.hostname === '::1'
+  } catch {
+    return false
+  }
 }
 
 function sendJson(

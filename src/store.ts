@@ -366,6 +366,25 @@ export class KnowledgeStore {
     return { record, superseded }
   }
 
+  /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
+  async reject(proposalId: string, reason?: string): Promise<{ proposalId: string; status: 'rejected' }> {
+    this.assertWritable()
+    const proposal = this.proposals.get(proposalId)
+    if (proposal === undefined) {
+      throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
+    }
+    if (proposal.status !== 'pending') {
+      throw new MemoryError('INVALID_STATE', `proposal ${proposalId} is ${proposal.status}`)
+    }
+    await this.ledger.append({
+      type: 'proposal.rejected',
+      proposalId: proposal.id,
+      ...(reason === undefined || reason === '' ? {} : { reason }),
+    })
+    await this.archiveProposal(proposal, 'rejected', null)
+    return { proposalId, status: 'rejected' }
+  }
+
   private async createFromProposal(proposal: ProposalRecord, now: string): Promise<KnowledgeRecord> {
     const prefix = TYPE_PREFIX[proposal.type]
     const number = await this.allocate(prefix)

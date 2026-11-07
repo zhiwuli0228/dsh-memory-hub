@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.2.0
+// dsh-memory-hub 0.3.0
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11639,6 +11639,10 @@ var configSchema = external_exports.object({
     approval: external_exports.object({
       mode: external_exports.enum(["manual", "auto"]).default("manual")
     }).default({}),
+    panel: external_exports.object({
+      // 面板「待审批」是否提供人工点击的批准/拒绝；关闭时面板恢复只读。
+      review: external_exports.boolean().default(true)
+    }).default({}),
     preflight: preflightSchema,
     gate: gateSchema,
     evidence: external_exports.object({
@@ -12818,6 +12822,24 @@ var KnowledgeStore = class {
     await this.archiveProposal(proposal, "committed", `${record.id}@${record.version}`);
     return { record, superseded };
   }
+  /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
+  async reject(proposalId, reason) {
+    this.assertWritable();
+    const proposal = this.proposals.get(proposalId);
+    if (proposal === void 0) {
+      throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
+    }
+    if (proposal.status !== "pending") {
+      throw new MemoryError("INVALID_STATE", `proposal ${proposalId} is ${proposal.status}`);
+    }
+    await this.ledger.append({
+      type: "proposal.rejected",
+      proposalId: proposal.id,
+      ...reason === void 0 || reason === "" ? {} : { reason }
+    });
+    await this.archiveProposal(proposal, "rejected", null);
+    return { proposalId, status: "rejected" };
+  }
   async createFromProposal(proposal, now) {
     const prefix = TYPE_PREFIX[proposal.type];
     const number = await this.allocate(prefix);
@@ -13219,7 +13241,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.2.0",
+  version: "0.3.0",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -14307,6 +14329,28 @@ var MemoryService = class {
       status: result.record.status,
       superseded: result.superseded
     };
+  }
+  /** 面板人工审核：批准候选。账本 approvalRef 记为 panel:human，面板请求本身即人工点击。 */
+  async approveProposal(proposalId) {
+    const owning = this.owningStoreFor(proposalId);
+    if (owning === null) throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
+    const proposal = owning.getProposal(proposalId);
+    if (proposal === null) throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
+    const precheck = this.precheckCommitOn(owning, proposal);
+    if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason);
+    const result = await owning.commit(proposalId, "panel:human");
+    return {
+      knowledgeId: result.record.id,
+      version: result.record.version,
+      status: result.record.status,
+      superseded: result.superseded
+    };
+  }
+  /** 面板人工审核：拒绝候选。 */
+  async rejectProposal(proposalId, reason) {
+    const owning = this.owningStoreFor(proposalId);
+    if (owning === null) throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
+    return owning.reject(proposalId, reason);
   }
   /** 在“自己的 Hub → 父核心 Hub”顺序里查找 proposal（跨 Hub 分级蒸馏）。 */
   resolveProposalAcrossStores(proposalId) {
@@ -16167,7 +16211,7 @@ var MemoryRuntime = class {
       this.ctx.inject(["webServer"], (scope) => {
         const server = scope.get("webServer");
         if (server === void 0 || typeof server.register !== "function") return;
-        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge", "/dsh-memory-hub/api/config", "/dsh-memory-hub/api/hubs"]) {
+        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge", "/dsh-memory-hub/api/config", "/dsh-memory-hub/api/hubs", "/dsh-memory-hub/api/pending"]) {
           try {
             scope.effect(
               () => server.register({
@@ -16270,6 +16314,55 @@ var MemoryRuntime = class {
           }
           return;
         }
+      }
+      if (url.pathname === "/dsh-memory-hub/api/pending") {
+        if (method !== "POST") {
+          sendJson(response, 405, { error: "method-not-allowed" }, method);
+          return;
+        }
+        const headers = request.headers ?? {};
+        const header = (name2) => {
+          const value = headers[name2] ?? headers[name2.toLowerCase()];
+          return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+        };
+        if (header("x-dmh-review") !== "1") {
+          sendJson(response, 403, { error: "review-header-required", message: "missing x-dmh-review header" }, method);
+          return;
+        }
+        const origin = header("origin");
+        if (origin !== "" && !isLocalOrigin(origin)) {
+          sendJson(response, 403, { error: "origin-forbidden", message: `origin ${origin} is not allowed` }, method);
+          return;
+        }
+        try {
+          if (this.fallback === null) throw new Error("not initialized");
+          const pack = this.getPackFromQuery(url);
+          if (pack.hub.config.policy.panel.review === false) {
+            sendJson(response, 403, { error: "review-disabled", message: "panel review is disabled by policy.panel.review" }, method);
+            return;
+          }
+          const body = await readJsonBody(request);
+          const id = typeof body.id === "string" ? body.id.trim() : "";
+          const action = typeof body.action === "string" ? body.action : "";
+          if (id === "") {
+            sendJson(response, 400, { error: "missing-id" }, method);
+            return;
+          }
+          if (action === "approve") {
+            sendJson(response, 200, { ok: true, action, ...await pack.service.approveProposal(id) }, method);
+            return;
+          }
+          if (action === "reject") {
+            const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : void 0;
+            sendJson(response, 200, { ok: true, action, ...await pack.service.rejectProposal(id, reason) }, method);
+            return;
+          }
+          sendJson(response, 400, { error: "invalid-action", message: "action must be approve or reject" }, method);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          sendJson(response, 409, { error: "review-failed", message }, method);
+        }
+        return;
       }
       sendJson(response, 404, { error: "not-found", path: url.pathname }, method);
     } catch (error) {
@@ -16458,6 +16551,15 @@ function relativeIsEscape(rel) {
 function isLoopbackRequest(request) {
   const address = request.socket?.remoteAddress ?? "";
   return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+function isLocalOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]" || url.hostname === "::1";
+  } catch {
+    return false;
+  }
 }
 function sendJson(response, status, body, method) {
   if (response.writableEnded === true) return;

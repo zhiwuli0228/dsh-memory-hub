@@ -171,5 +171,16 @@ describe('client bundle', () => {
     expect(configHtml).toContain('添加子工作区')
     // 配置页提供删除入口：未分配工作区卡片带“删除”按钮。
     expect(configHtml).toContain('删除')
+
+    const pendingHtml = renderToStaticMarkup(
+      React.createElement(main?.component as React.ComponentType<{ initialData: unknown; initialTab: string }>, {
+        initialData: sample,
+        initialTab: 'pending',
+      }),
+    )
+    expect(pendingHtml).toContain('PRO-000001')
+    expect(pendingHtml).toContain('批准')
+    expect(pendingHtml).toContain('拒绝')
+    expect(pendingHtml).toContain('panel:human')
   })
 })

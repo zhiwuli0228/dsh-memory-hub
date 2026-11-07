@@ -15,6 +15,7 @@
   const API_KNOWLEDGE = '/dsh-memory-hub/api/knowledge';
   const API_CONFIG = '/dsh-memory-hub/api/config';
   const API_HUBS = '/dsh-memory-hub/api/hubs';
+  const API_PENDING = '/dsh-memory-hub/api/pending';
 
   const ZH = {
     title: '记忆中枢',
@@ -80,8 +81,15 @@
     'knowledge.core': '核心共享',
     'knowledge.parent': '父核心蒸馏',
     'pending.empty': '没有待审批候选',
-    'pending.emptyHint': '新的候选会出现在这里，等待你在对话中调用 memory_commit 并批准。',
-    'pending.hint': '本面板只读，不能代替 DSH 审批。请在会话中提交，或在文件系统里直接编辑 pending/。',
+    'pending.emptyHint': '新的候选会出现在这里，你可以直接在这里批准或拒绝。',
+    'pending.hint': '在这里点击「批准 / 拒绝」即可完成人工审核；批准后账本记为 panel:human，与 DSH 会话内审批等效。',
+    'pending.approve': '批准',
+    'pending.reject': '拒绝',
+    'pending.approved': '已批准',
+    'pending.rejected': '已拒绝',
+    'pending.confirmApprove': '确认批准候选 {id}？批准后立即成为权威知识。',
+    'pending.confirmReject': '确认拒绝候选 {id}？候选将归档为 rejected。',
+    'pending.reviewDisabled': '面板审核已被 policy.panel.review 关闭，请使用会话内 memory_commit 审批。',
     'activity.empty': '还没有任务记录',
     'activity.task': '任务',
     'activity.session': '会话',
@@ -213,8 +221,15 @@
     'knowledge.core': 'Core shared',
     'knowledge.parent': 'Parent core',
     'pending.empty': 'No pending proposals',
-    'pending.emptyHint': 'New candidates appear here and wait for memory_commit plus approval.',
-    'pending.hint': 'This panel is read-only and cannot replace DSH approval. Commit in a session, or edit pending/ directly.',
+    'pending.emptyHint': 'New candidates appear here; approve or reject them right on this panel.',
+    'pending.hint': 'Click approve/reject here to review by hand; an approval is recorded as panel:human in the ledger.',
+    'pending.approve': 'Approve',
+    'pending.reject': 'Reject',
+    'pending.approved': 'Approved',
+    'pending.rejected': 'Rejected',
+    'pending.confirmApprove': 'Approve proposal {id}? It becomes authoritative knowledge immediately.',
+    'pending.confirmReject': 'Reject proposal {id}? The candidate will be archived as rejected.',
+    'pending.reviewDisabled': 'Panel review is disabled by policy.panel.review; use memory_commit approval in a session.',
     'activity.empty': 'No task records yet',
     'activity.task': 'Task',
     'activity.session': 'Session',
@@ -673,11 +688,40 @@
 
     function PendingTab(props) {
       const pending = Array.isArray(props.data.pending) ? props.data.pending : [];
+      const policy = props.data.policy || {};
+      const reviewEnabled = !(policy.panel && policy.panel.review === false);
+      const [busy, setBusy] = useState(null);
+      const [message, setMessage] = useState(null);
+
+      const review = async (proposal, action) => {
+        const confirmText = action === 'approve' ? t('pending.confirmApprove') : t('pending.confirmReject');
+        if (!window.confirm(confirmText.replace('{id}', proposal.id))) return;
+        setBusy(proposal.id);
+        try {
+          const url = props.hubCore ? `${API_PENDING}?core=${encodeURIComponent(props.hubCore)}` : API_PENDING;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-dmh-review': '1' },
+            body: JSON.stringify({ id: proposal.id, action }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+          setMessage({ text: action === 'approve' ? t('pending.approved') : t('pending.rejected'), isError: false });
+          if (typeof props.onReviewed === 'function') await props.onReviewed();
+        } catch (error) {
+          setMessage({ text: error.message || t('config.error'), isError: true });
+        } finally {
+          setBusy(null);
+        }
+      };
+
       if (pending.length === 0) {
         return h(Empty, { title: t('pending.empty'), hint: t('pending.emptyHint') });
       }
       return h(React.Fragment, null,
-        h('div', { className: 'dmh-banner' }, t('pending.hint')),
+        message
+          ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text)
+          : h('div', { className: 'dmh-banner' }, reviewEnabled ? t('pending.hint') : t('pending.reviewDisabled')),
         h('div', { className: 'dmh-list' }, pending.map((proposal) =>
           h('div', { key: proposal.id, className: 'dmh-card' },
             h('div', { className: 'dmh-row-top' },
@@ -687,7 +731,20 @@
               h(Tag, null, proposal.scope)),
             h('div', { className: 'dmh-row-title' }, proposal.title),
             h('div', { className: 'dmh-row-summary' }, proposal.summary),
-            h('div', { className: 'dmh-row-id dmh-mono' }, `${proposal.taskId} · ${formatTime(proposal.createdAt)}`)))));
+            h('div', { className: 'dmh-row-id dmh-mono' }, `${proposal.taskId} · ${formatTime(proposal.createdAt)}`),
+            h('div', { className: 'dmh-form-actions' },
+              h('button', {
+                type: 'button',
+                className: 'dmh-btn',
+                disabled: !reviewEnabled || busy === proposal.id,
+                onClick: () => review(proposal, 'reject'),
+              }, t('pending.reject')),
+              h('button', {
+                type: 'button',
+                className: 'dmh-btn',
+                disabled: !reviewEnabled || busy === proposal.id,
+                onClick: () => review(proposal, 'approve'),
+              }, t('pending.approve')))))));
     }
 
     function ActivityTab(props) {
@@ -1106,7 +1163,7 @@
               })
                 : tab === 'config' ? h(ConfigTab, { initialData: data })
                   : tab === 'knowledge' ? h(KnowledgeTab, { data, openRequest, core: selectedCore })
-                    : tab === 'pending' ? h(PendingTab, { data })
+                    : tab === 'pending' ? h(PendingTab, { data, hubCore: selectedCore, onReviewed: load })
                       : tab === 'activity' ? h(ActivityTab, { data })
                         : h(CapabilitiesTab)
             )),

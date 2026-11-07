@@ -176,6 +176,7 @@ export interface HttpRequestLike {
   readonly method?: string
   readonly url?: string
   readonly socket?: { readonly remoteAddress?: string }
+  readonly headers?: Record<string, string | string[] | undefined>
   on?(event: string, listener: (...args: any[]) => void): this
 }
 
