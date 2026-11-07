@@ -82,6 +82,8 @@ export interface KnowledgeHit {
   path: string
   snippet: string
   score: number
+  /** 来源核心 Hub（跨 Hub 检索时标注；null/undefined 表示当前 Hub）。 */
+  core?: string | null
 }
 
 export type ProposalOperation = 'create' | 'update' | 'deprecate'
@@ -141,6 +143,8 @@ export interface CitationRecord {
   version: number
   purpose: string
   createdAt: string
+  /** 被引用条目所在的核心 Hub（跨 Hub 引用时标注；同 Hub 为 null）。 */
+  coreId?: string | null
 }
 
 export interface TaskRecord {
@@ -169,4 +173,8 @@ export interface WorkspaceMatch {
   path: string
   registered: boolean
   coreId: string | null
+  /** 双角色工作区：本工作区同时是 coreId 的子工作区时，指向最近的父核心 id。 */
+  parentCoreId: string | null
+  /** 金字塔上级链：全部祖先核心 id，按 近→远 排列（父、祖父、…）。 */
+  parentCoreIds: string[]
 }

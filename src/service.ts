@@ -125,6 +125,16 @@ interface RuntimeOptions {
   ledger: Ledger
   ledgerState: LedgerState
   workspaces?: WorkspaceConfig[]
+  /** 本 pack 对应的核心 id（fallback 为 null）。 */
+  coreId?: string | null
+}
+
+/** 上级核心 pack 的读写接口（跨 Hub 金字塔分级蒸馏用）。 */
+export interface ParentPack {
+  coreId: string
+  store: KnowledgeStore
+  ledger: Ledger
+  hub: Hub
 }
 
 export class MemoryService {
@@ -132,7 +142,10 @@ export class MemoryService {
   private readonly hub: Hub
   private readonly store: KnowledgeStore
   private readonly ledger: Ledger
-  private readonly customWorkspaces: WorkspaceConfig[] | undefined
+  private customWorkspaces: WorkspaceConfig[] | undefined
+  private readonly coreId: string | null
+  /** 金字塔上级链：按 近→远 排列的祖先核心 pack（父、祖父、…）。 */
+  private parents: ParentPack[] = []
   private readonly sessions = new Map<string, SessionState>()
   private readonly tasks: Map<string, TaskRecord>
   private readonly citationKeys = new Set<string>()
@@ -144,11 +157,44 @@ export class MemoryService {
     this.store = options.store
     this.ledger = options.ledger
     this.customWorkspaces = options.workspaces
+    this.coreId = options.coreId ?? null
     this.tasks = options.ledgerState.tasks
     this.citations = options.ledgerState.citations
     for (const citation of this.citations) {
       this.citationKeys.add(citationKey(citation.taskId, citation.knowledgeId, citation.version))
     }
+  }
+
+  /** 最近的父核心 pack（金字塔第一级）。 */
+  get parent(): ParentPack | null {
+    return this.parents[0] ?? null
+  }
+
+  /** 最近的父核心 id。 */
+  get parentCoreId(): string | null {
+    return this.parents[0]?.coreId ?? null
+  }
+
+  /** 全部祖先核心 id，按 近→远 排列。 */
+  get parentCoreIds(): string[] {
+    return this.parents
+      .map((parent) => parent.coreId)
+      .filter((id): id is string => id !== null)
+  }
+
+  /** 挂接单个父核心 pack（向后兼容；等价于 setParents([parent])）。 */
+  setParent(parent: ParentPack | null): void {
+    this.parents = parent === null ? [] : [parent]
+  }
+
+  /** 挂接金字塔上级链：parents 按 近→远 排列（父、祖父、…）。由 runtime 在所有核心打开后调用。 */
+  setParents(parents: ParentPack[]): void {
+    this.parents = parents
+  }
+
+  /** 配置热更新：由 runtime 刷新工作区清单（新增/移除 core 与子工作区）。 */
+  updateWorkspaces(workspaces: WorkspaceConfig[]): void {
+    this.customWorkspaces = workspaces
   }
 
   get activeWorkspaces(): WorkspaceConfig[] {
@@ -189,6 +235,8 @@ export class MemoryService {
       path: resolved,
       registered: false,
       coreId: null,
+      parentCoreId: null,
+      parentCoreIds: [],
     }
     let bestLength = -1
     for (const workspace of this.activeWorkspaces) {
@@ -212,6 +260,8 @@ export class MemoryService {
           path: resolved,
           registered: true,
           coreId,
+          parentCoreId: workspace.id === this.coreId ? this.parentCoreId : null,
+          parentCoreIds: workspace.id === this.coreId ? this.parentCoreIds : [],
         }
       }
     }
@@ -237,6 +287,8 @@ export class MemoryService {
       path: directory,
       registered: false,
       coreId: null,
+      parentCoreId: null,
+      parentCoreIds: [],
     }
     let bestLength = -1
     for (const workspace of this.activeWorkspaces) {
@@ -253,6 +305,8 @@ export class MemoryService {
           path: directory,
           registered: true,
           coreId: workspace.core_id ?? workspace.id,
+          parentCoreId: workspace.id === this.coreId ? this.parentCoreId : null,
+          parentCoreIds: workspace.id === this.coreId ? this.parentCoreIds : [],
         }
       }
     }
@@ -260,7 +314,7 @@ export class MemoryService {
   }
 
   visibilityFor(workspace: WorkspaceMatch): Visibility {
-    const coreIds = workspace.coreId === null ? [] : [workspace.coreId]
+    const coreIds = [workspace.coreId, ...(workspace.parentCoreIds ?? [])].filter((id): id is string => id !== null)
     return visibilityFor(workspace.id, workspace.domains, coreIds)
   }
 
@@ -495,24 +549,81 @@ export class MemoryService {
     }
     const limit = Math.max(1, Math.min(20, args.limit ?? 8))
     const raw = this.store.search(args.query, { visibility, statuses, types, limit: scopeFilter === null ? limit : 20 })
-    const filtered = scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit)
+    const primary = (scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit))
+      .map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }))
+    // 金字塔：上级核心 Hub 里 project:<祖先核心> 的既有蒸馏知识一并可见
+    // （无过滤或显式指定某个祖先作用域时）。按 近→远 合并，近层优先。
+    const includeParents = scopeFilter === null || this.parentCoreIds.includes(scopeFilter)
+    const parents = includeParents
+      ? this.ancestorProjectSearch(args.query, { statuses, types, limit, scopeFilter })
+      : []
+    const hits = includeParents ? [...primary, ...parents] : primary
     return {
-      hits: filtered.map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) })),
-      total: filtered.length,
+      hits,
+      total: hits.length,
     }
   }
 
-  async get(agent: AgentLike, id: string, version?: number): Promise<{
+  /**
+   * 在全部祖先核心 Hub 上检索各自的 project:<祖先核心> 条目（各层的既有蒸馏知识）。
+   * 只取该层作用域，避免 global 在跨 Hub 检索里重复；按 近→远 排列。
+   */
+  private ancestorProjectSearch(
+    query: string,
+    options: {
+      statuses: ReadonlySet<KnowledgeStatus>
+      types?: ReadonlySet<KnowledgeType>
+      limit: number
+      minScore?: number
+      scopeFilter?: string | null
+    },
+  ): KnowledgeHit[] {
+    const hits: KnowledgeHit[] = []
+    for (const parent of this.parents) {
+      const coreId = parent.coreId
+      if (coreId === null) continue
+      const raw = parent.store.search(query, {
+        visibility: { global: false, domains: new Set(), projects: new Set([coreId]) },
+        statuses: options.statuses,
+        ...(options.types === undefined ? {} : { types: options.types }),
+        limit: Math.max(1, options.limit),
+        ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
+        coreTag: coreId,
+      })
+      const parentOnly =
+        options.scopeFilter === null || options.scopeFilter === undefined
+          ? raw.filter((hit) => hit.scope.level === 'project' && hit.scope.workspaceId === coreId)
+          : raw.filter((hit) => hit.scope.level === 'project' && hit.scope.workspaceId === coreId && formatScope(hit.scope) === options.scopeFilter)
+      for (const hit of parentOnly.slice(0, options.limit)) {
+        hits.push({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) })
+      }
+    }
+    return hits.slice(0, options.limit)
+  }
+
+  async get(agent: AgentLike, id: string, version?: number, core?: string): Promise<{
     metadata: Omit<KnowledgeRecord, 'body' | 'path' | 'extra'>
     body: string
     path: string
+    core: string | null
   }> {
     const workspace = await this.resolveWorkspace(agent)
     const visibility = this.visibilityFor(workspace)
-    const record = await this.store.get(id, version)
-    if (record === null) {
+    let resolved: { record: KnowledgeRecord; core: string | null; root: string } | null
+    if (core !== undefined && core !== '') {
+      const store = this.storeForCore(core)
+      if (store === null) {
+        throw new MemoryError('NOT_FOUND', `knowledge ${id} does not exist in core ${core}`)
+      }
+      const record = await store.store.get(id, version)
+      resolved = record === null ? null : { record, core: store.coreId, root: store.hub.root }
+    } else {
+      resolved = await this.resolveRecordForRead(id, version)
+    }
+    if (resolved === null) {
       throw new MemoryError('NOT_FOUND', `knowledge ${id}${version === undefined ? '' : `@${version}`} does not exist`)
     }
+    const { record } = resolved
     if (!isScopeVisible(record.scope, visibility)) {
       throw new MemoryError('SCOPE_FORBIDDEN', `knowledge ${id} is not visible from this workspace`)
     }
@@ -524,8 +635,33 @@ export class MemoryService {
     return {
       metadata,
       body,
-      path: KnowledgeStore.relativePath(this.hub.root, path),
+      path: KnowledgeStore.relativePath(resolved.root, path),
+      core: resolved.core,
     }
+  }
+
+  /** 在“自己的 Hub → 父核心 Hub”顺序里查找可读条目。 */
+  private async resolveRecordForRead(
+    id: string,
+    version?: number,
+  ): Promise<{ record: KnowledgeRecord; core: string | null; root: string } | null> {
+    const primary = await this.store.get(id, version)
+    if (primary !== null) return { record: primary, core: this.coreId, root: this.hub.root }
+    for (const parent of this.parents) {
+      const fromParent = await parent.store.get(id, version)
+      if (fromParent !== null) return { record: fromParent, core: parent.coreId, root: parent.hub.root }
+    }
+    return null
+  }
+
+  private storeForCore(core: string): { store: KnowledgeStore; hub: Hub; coreId: string | null } | null {
+    if (this.coreId === core) return { store: this.store, hub: this.hub, coreId: this.coreId }
+    for (const parent of this.parents) {
+      if (parent.coreId === core) {
+        return { store: parent.store, hub: parent.hub, coreId: parent.coreId }
+      }
+    }
+    return null
   }
 
   async cite(agent: AgentLike, args: {
@@ -533,6 +669,7 @@ export class MemoryService {
     version?: number
     purpose: string
     task_id?: string
+    core?: string
   }): Promise<{ citationId: string }> {
     const state = this.sessions.get(agent.id)
     if (state === undefined) throw new MemoryError('NO_TASK', 'no open task for this session')
@@ -544,8 +681,17 @@ export class MemoryService {
     if (purpose.length === 0 || purpose.length > 200) {
       throw new MemoryError('INVALID_INPUT', 'purpose must be 1..200 characters')
     }
-    const record = await this.store.get(args.knowledge_id, args.version)
-    if (record === null) throw new MemoryError('NOT_FOUND', `knowledge ${args.knowledge_id} does not exist`)
+    let resolved: { record: KnowledgeRecord; core: string | null; root: string } | null
+    if (args.core !== undefined && args.core !== '') {
+      const store = this.storeForCore(args.core)
+      if (store === null) throw new MemoryError('NOT_FOUND', `knowledge ${args.knowledge_id} does not exist in core ${args.core}`)
+      const record = await store.store.get(args.knowledge_id, args.version)
+      resolved = record === null ? null : { record, core: store.coreId, root: store.hub.root }
+    } else {
+      resolved = await this.resolveRecordForRead(args.knowledge_id, args.version)
+    }
+    if (resolved === null) throw new MemoryError('NOT_FOUND', `knowledge ${args.knowledge_id} does not exist`)
+    const { record } = resolved
     if (record.status !== 'accepted') {
       throw new MemoryError('INVALID_STATE', `knowledge ${record.id} is ${record.status}`)
     }
@@ -570,6 +716,7 @@ export class MemoryService {
       knowledgeId: record.id,
       version: record.version,
       purpose,
+      ...(resolved.core === this.coreId ? {} : { coreId: resolved.core }),
     })
     this.citationKeys.add(key)
     this.citations.push({
@@ -579,26 +726,52 @@ export class MemoryService {
       version: record.version,
       purpose,
       createdAt: nowIso(),
+      coreId: resolved.core,
     })
     return { citationId }
   }
 
-  async propose(agent: AgentLike, args: ProposeArgs): Promise<{ proposalId: string; pendingPath: string }> {
+  async propose(agent: AgentLike, args: ProposeArgs): Promise<{
+    proposalId: string
+    pendingPath: string
+    core: string | null
+    scope: string
+  }> {
     const state = this.sessions.get(agent.id)
     if (state === undefined) throw new MemoryError('NO_TASK', 'no open task for this session')
     if (state.closed) throw new MemoryError('INVALID_STATE', 'task is already closed')
     const coreId = state.workspace.coreId
     const rawScope = args.scope === 'core'
       ? (coreId === null ? null : `project:${coreId}`)
-      : args.scope
+      : args.scope === 'parent'
+        ? (this.parentCoreId === null ? null : `project:${this.parentCoreId}`)
+        : args.scope
     if (rawScope === null) {
-      throw new MemoryError('INVALID_INPUT', 'scope "core" is only available inside a configured core workspace')
+      throw new MemoryError(
+        'INVALID_INPUT',
+        args.scope === 'parent'
+          ? 'scope "parent" is only available inside a dual-role workspace with an open parent core'
+          : 'scope "core" is only available inside a configured core workspace',
+      )
     }
     const scope = parseScope(rawScope)
     if (!isScopeVisible(scope, state.visibility)) {
       throw new MemoryError('SCOPE_FORBIDDEN', `scope ${rawScope} is not visible from this workspace`)
     }
-    const pending = this.store.pendingForTask(state.taskId)
+    // 金字塔蒸馏：L1 `project:<self>`/`core` 写自己的 Hub；L2 `project:<父核心>`（或别名 parent）
+    // 写最近的父核心 Hub；再往上可用显式 `project:<任意祖先核心>` 逐层上推。
+    let target: ParentPack | null = null
+    if (scope.level === 'project') {
+      target = this.parents.find((parent) => parent.coreId === scope.workspaceId) ?? null
+    }
+    const owningStore = target === null ? this.store : target.store
+    const owningHub = target === null ? this.hub : target.hub
+    const owningCoreId = target === null ? this.coreId : target.coreId
+    const formattedScope = formatScope(scope)
+    const pending = [
+      ...this.store.pendingForTask(state.taskId),
+      ...(target === null ? [] : target.store.pendingForTask(state.taskId)),
+    ]
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
       throw new MemoryError('INVALID_STATE', `task already has ${pending.length} pending proposals`)
     }
@@ -606,18 +779,20 @@ export class MemoryService {
       (proposal) =>
         proposal.operation === args.operation &&
         proposal.type === args.type &&
-        formatScope(proposal.scope) === formatScope(scope) &&
+        formatScope(proposal.scope) === formattedScope &&
         proposal.title === args.title.trim() &&
         proposal.target === (args.target ?? null),
     )
     if (duplicate !== undefined) {
       return {
         proposalId: duplicate.id,
-        pendingPath: KnowledgeStore.relativePath(this.hub.root, duplicate.path),
+        pendingPath: KnowledgeStore.relativePath(owningHub.root, duplicate.path),
+        core: owningCoreId,
+        scope: formattedScope,
       }
     }
 
-    const proposal = await this.store.propose(
+    const proposal = await owningStore.propose(
       {
         operation: args.operation,
         type: args.type,
@@ -636,29 +811,45 @@ export class MemoryService {
       },
       { taskId: state.taskId },
     )
-    await this.ledger.append({ type: 'proposal.created', taskId: state.taskId, proposalId: proposal.id })
+    await (target === null ? this.ledger : target.ledger).append({
+      type: 'proposal.created',
+      taskId: state.taskId,
+      proposalId: proposal.id,
+    })
     return {
       proposalId: proposal.id,
-      pendingPath: KnowledgeStore.relativePath(this.hub.root, proposal.path),
+      pendingPath: KnowledgeStore.relativePath(owningHub.root, proposal.path),
+      core: owningCoreId,
+      scope: formattedScope,
     }
   }
 
-  async commit(agent: AgentLike, proposalId: string): Promise<{
+  async commit(agent: AgentLike, proposalId: string, core?: string): Promise<{
     knowledgeId: string
     version: number
     status: KnowledgeStatus
     superseded: string[]
   }> {
-    const proposal = this.store.getProposal(proposalId)
+    let proposal: ProposalRecord | null
+    let owning: KnowledgeStore
+    if (core !== undefined && core !== '') {
+      const target = this.storeForCore(core)
+      if (target === null) throw new MemoryError('NOT_FOUND', `core ${core} is not reachable from this workspace`)
+      proposal = target.store.getProposal(proposalId)
+      owning = target.store
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId)
+      owning = this.owningStoreFor(proposalId) ?? this.store
+    }
     if (proposal === null) throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
     const workspace = await this.resolveWorkspace(agent)
     const visibility = this.visibilityFor(workspace)
     if (!isScopeVisible(proposal.scope, visibility) && !workspace.admin) {
       throw new MemoryError('SCOPE_FORBIDDEN', `proposal ${proposalId} targets a scope not visible from this workspace`)
     }
-    const precheck = this.precheckCommit(proposal)
+    const precheck = this.precheckCommitOn(owning, proposal)
     if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason)
-    const result = await this.store.commit(
+    const result = await owning.commit(
       proposalId,
       this.approvalMode() === 'auto' ? 'test:auto' : 'dsh:approval',
     )
@@ -670,7 +861,31 @@ export class MemoryService {
     }
   }
 
-  precheckCommit(proposal: ProposalRecord): { ok: true } | { ok: false; code: 'INVALID_STATE' | 'INVALID_INPUT' | 'VERSION_CONFLICT' | 'NOT_FOUND' | 'SCOPE_FORBIDDEN'; reason: string } {    if (proposal.status !== 'pending') {
+  /** 在“自己的 Hub → 父核心 Hub”顺序里查找 proposal（跨 Hub 分级蒸馏）。 */
+  private resolveProposalAcrossStores(proposalId: string): ProposalRecord | null {
+    const own = this.store.getProposal(proposalId)
+    if (own !== null) return own
+    for (const parent of this.parents) {
+      const found = parent.store.getProposal(proposalId)
+      if (found !== null) return found
+    }
+    return null
+  }
+
+  private owningStoreFor(proposalId: string): KnowledgeStore | null {
+    if (this.store.getProposal(proposalId) !== null) return this.store
+    for (const parent of this.parents) {
+      if (parent.store.getProposal(proposalId) !== null) return parent.store
+    }
+    return null
+  }
+
+  precheckCommit(proposal: ProposalRecord): { ok: true } | { ok: false; code: 'INVALID_STATE' | 'INVALID_INPUT' | 'VERSION_CONFLICT' | 'NOT_FOUND' | 'SCOPE_FORBIDDEN'; reason: string } {
+    return this.precheckCommitOn(this.owningStoreFor(proposal.id) ?? this.store, proposal)
+  }
+
+  private precheckCommitOn(store: KnowledgeStore, proposal: ProposalRecord): { ok: true } | { ok: false; code: 'INVALID_STATE' | 'INVALID_INPUT' | 'VERSION_CONFLICT' | 'NOT_FOUND' | 'SCOPE_FORBIDDEN'; reason: string } {
+    if (proposal.status !== 'pending') {
       return { ok: false, code: 'INVALID_STATE', reason: `proposal ${proposal.id} is ${proposal.status}` }
     }
     if (proposal.operation !== 'deprecate' && proposal.sourceRefs.length === 0) {
@@ -687,7 +902,7 @@ export class MemoryService {
       if (proposal.target === null || proposal.expectedVersion === null) {
         return { ok: false, code: 'INVALID_INPUT', reason: `${proposal.operation} requires target and expected_version` }
       }
-      const target = this.store.docs.get(proposal.target)
+      const target = store.docs.get(proposal.target)
       if (target === undefined) {
         return { ok: false, code: 'NOT_FOUND', reason: `target ${proposal.target} does not exist` }
       }
@@ -706,7 +921,7 @@ export class MemoryService {
       }
     }
     for (const oldId of proposal.supersedes) {
-      const old = this.store.docs.get(oldId)
+      const old = store.docs.get(oldId)
       if (old === undefined || old.status !== 'accepted') {
         return { ok: false, code: 'INVALID_STATE', reason: `supersedes target ${oldId} is not accepted` }
       }
@@ -714,16 +929,26 @@ export class MemoryService {
     return { ok: true }
   }
 
-  precheckProposal(proposalId: string): { ok: true } | { ok: false; code: string; reason: string } {
-    const proposal = this.store.getProposal(proposalId)
+  precheckProposal(proposalId: string, core?: string): { ok: true } | { ok: false; code: string; reason: string } {
+    let proposal: ProposalRecord | null
+    if (core !== undefined && core !== '') {
+      proposal = this.storeForCore(core)?.store.getProposal(proposalId) ?? null
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId)
+    }
     if (proposal === null) {
       return { ok: false, code: 'NOT_FOUND', reason: `proposal ${proposalId} does not exist` }
     }
     return this.precheckCommit(proposal)
   }
 
-  describeCommit(proposalId: string): { reason: string; displayReason: { en: string; zh: string } } {
-    const proposal = this.store.getProposal(proposalId)
+  describeCommit(proposalId: string, core?: string): { reason: string; displayReason: { en: string; zh: string } } {
+    let proposal: ProposalRecord | null
+    if (core !== undefined && core !== '') {
+      proposal = this.storeForCore(core)?.store.getProposal(proposalId) ?? null
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId)
+    }
     if (proposal === null) {
       return {
         reason: `Commit memory proposal ${proposalId}`,
@@ -968,19 +1193,42 @@ export class MemoryService {
   }
 
   overview(): Record<string, unknown> {
-    const knowledge = [...this.store.docs.values()]
+    interface KnowledgeRow {
+      id: string
+      type: KnowledgeType
+      status: KnowledgeStatus
+      version: number
+      title: string
+      summary: string
+      scope: string
+      updatedAt: string
+      core?: string | null
+    }
+    const describe = (record: KnowledgeRecord, core?: string | null): KnowledgeRow => ({
+      id: record.id,
+      type: record.type,
+      status: record.status,
+      version: record.version,
+      title: record.title,
+      summary: record.summary,
+      scope: formatScope(record.scope),
+      updatedAt: record.updatedAt,
+      ...(core === undefined ? {} : { core }),
+    })
+    const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record))
+    // 金字塔：把各上级核心 Hub 的 project:<祖先核心> 蒸馏知识并入面板列表，带 core 标注。
+    const parentKnowledge: KnowledgeRow[] = []
+    for (const parent of this.parents) {
+      const coreId = parent.coreId
+      if (coreId === null) continue
+      for (const record of parent.store.docs.values()) {
+        if (record.scope.level !== 'project' || record.scope.workspaceId !== coreId) continue
+        parentKnowledge.push(describe(record, coreId))
+      }
+    }
+    const knowledge = [...ownKnowledge, ...parentKnowledge]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, 200)
-      .map((record) => ({
-        id: record.id,
-        type: record.type,
-        status: record.status,
-        version: record.version,
-        title: record.title,
-        summary: record.summary,
-        scope: formatScope(record.scope),
-        updatedAt: record.updatedAt,
-      }))
     const pending = [...this.store.proposals.values()]
       .filter((proposal) => proposal.status === 'pending')
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
@@ -1016,6 +1264,21 @@ export class MemoryService {
       readOnlySource: this.hub.readOnlySource,
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
+      coreId: this.coreId,
+      parentCoreId: this.parentCoreId,
+      parent: this.parent === null
+        ? null
+        : {
+            coreId: this.parentCoreId,
+            root: this.parent.hub.displayRoot(),
+            counts: this.parent.store.counts(),
+          },
+      ancestors: this.parents.map((parent) => ({
+        coreId: parent.coreId,
+        root: parent.hub.displayRoot(),
+        counts: parent.store.counts(),
+      })),
+      parentCoreIds: this.parentCoreIds,
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
@@ -1048,19 +1311,25 @@ export class MemoryService {
     }
   }
 
-  knowledgeDetail(id: string): {
+  knowledgeDetail(id: string, core?: string): {
     metadata: Record<string, unknown>
     body: string
     path: string
   } | null {
-    const record = this.store.docs.get(id)
+    let record = this.store.docs.get(id)
+    let root = this.hub.root
+    if (record === undefined && core !== undefined && core !== '') {
+      const target = this.storeForCore(core)
+      record = target?.store.docs.get(id)
+      if (target !== null && record !== undefined) root = target.hub.root
+    }
     if (record === undefined) return null
     const { body, path, extra: _extra, scope, ...rest } = record
     void _extra
     return {
       metadata: { ...rest, scope: formatScope(scope) },
       body,
-      path: KnowledgeStore.relativePath(this.hub.root, path),
+      path: KnowledgeStore.relativePath(root, path),
     }
   }
 
@@ -1101,6 +1370,12 @@ export class MemoryService {
       if (workspace.core_id !== null && workspace.core_id !== undefined && !validCoreIds.has(workspace.core_id)) {
         throw new MemoryError('INVALID_INPUT', `workspace ${workspace.id} references unknown core ${workspace.core_id}`)
       }
+      if (workspace.core_id === workspace.id) {
+        throw new MemoryError(
+          'INVALID_INPUT',
+          `workspace ${workspace.id} cannot reference itself as its core; a core workspace that is also a sub-workspace must point at a different parent core`,
+        )
+      }
     }
 
     const next: MemoryConfig = configSchema.parse({
@@ -1137,7 +1412,30 @@ export class MemoryService {
       configError: this.hub.configError,
       workspace: workspace === null || !workspace.registered
         ? null
-        : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
+        : {
+            id: workspace.id,
+            root: workspace.root,
+            domains: workspace.domains,
+            registered: workspace.registered,
+            coreId: workspace.coreId,
+            parentCoreId: workspace.parentCoreId,
+            parentCoreIds: workspace.parentCoreIds,
+          },
+      // 金字塔：同时报告上级核心 Hub 链，便于确认分级蒸馏链路。
+      parent: this.parent === null
+        ? null
+        : {
+            coreId: this.parentCoreId,
+            root: this.parent.hub.displayRoot(),
+            readOnly: this.parent.hub.readOnly,
+            counts: this.parent.store.counts(),
+          },
+      ancestors: this.parents.map((parent) => ({
+        coreId: parent.coreId,
+        root: parent.hub.displayRoot(),
+        readOnly: parent.hub.readOnly,
+        counts: parent.store.counts(),
+      })),
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
@@ -1220,7 +1518,14 @@ export class MemoryService {
       if (assessment.proposalIds.length === 0) {
         throw new MemoryError('INVALID_INPUT', 'proposed requires at least one proposal id')
       }
-      const pending = new Set(this.store.pendingForTask(taskId).map((proposal) => proposal.id))
+      const pending = new Set<string>([
+        ...this.store.pendingForTask(taskId).map((proposal) => proposal.id),
+      ])
+      for (const parent of this.parents) {
+        for (const proposal of parent.store.pendingForTask(taskId)) {
+          pending.add(proposal.id)
+        }
+      }
       for (const id of assessment.proposalIds) {
         if (!pending.has(id)) {
           throw new MemoryError('INVALID_STATE', `proposal ${id} is not pending for this task`)
@@ -1233,14 +1538,24 @@ export class MemoryService {
   }
 
   private async runSearch(intent: string, workspace: WorkspaceMatch, visibility: Visibility): Promise<KnowledgeHit[]> {
-    return this.store.search(intent, {
+    const statuses = new Set<KnowledgeStatus>(['accepted'])
+    const maxHits = this.hub.config.policy.preflight.max_hits
+    const primary = this.store.search(intent, {
       visibility,
-      statuses: new Set<KnowledgeStatus>(['accepted']),
-      limit: this.hub.config.policy.preflight.max_hits,
+      statuses,
+      limit: maxHits,
       minScore: this.hub.config.policy.preflight.min_score,
       localBoost: this.hub.config.policy.preflight.local_boost,
       preferProject: workspace.id ?? undefined,
     })
+    // 金字塔：各上级核心 Hub 的 project:<祖先核心> 蒸馏知识并入预检（本地优先，上级随后）。
+    const ancestors = this.ancestorProjectSearch(intent, {
+      statuses,
+      limit: maxHits,
+      minScore: this.hub.config.policy.preflight.min_score,
+      scopeFilter: null,
+    })
+    return [...primary, ...ancestors].slice(0, maxHits)
   }
 
   private buildPack(hits: KnowledgeHit[], workspace: WorkspaceMatch, budget: number): { pack: string; tokens: number } {
@@ -1259,7 +1574,8 @@ export class MemoryService {
     const lines: string[] = [...header]
     let included = 0
     for (const hit of hits) {
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} · ${hit.title} — ${truncate(hit.summary, 160)} (${formatScope(hit.scope)})`
+      const source = hit.core !== undefined && hit.core !== null && hit.core !== this.coreId ? ` · core:${hit.core}` : ''
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} · ${hit.title} — ${truncate(hit.summary, 160)} (${formatScope(hit.scope)}${source})`
       const candidate = [...lines, line, ...footer].join('\n')
       if (this.estimateTokens(candidate) > budget && included > 0) break
       lines.push(line)

@@ -1,10 +1,13 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Hub } from '../src/hub.js'
-import type { AgentLike, ToolRunContext } from '../src/host.js'
-import type { WritebackAssessment } from '../src/types.js'
+import type { AgentLike, Context, ToolRunContext } from '../src/host.js'
+import { Ledger } from '../src/ledger.js'
+import { MemoryService } from '../src/service.js'
+import { KnowledgeStore } from '../src/store.js'
+import type { KnowledgeType, WritebackAssessment } from '../src/types.js'
 import { createHarness } from './helpers.js'
 
 async function ledgerTypes(path: string): Promise<string[]> {
@@ -409,4 +412,322 @@ describe('memory service', () => {
       await harness.cleanup()
     }
   })
+
+  it('rejects a workspace that references itself as its core', async () => {
+    const harness = await createHarness()
+    try {
+      await expect(
+        harness.service.updateConfig({
+          core_workspaces: [{ id: 'self', name: 'Self' }],
+          workspaces: [{ id: 'self', core_id: 'self', root: '/tmp/self', domains: [], admin: false, enabled: true }],
+        }),
+      ).rejects.toThrow(/reference itself/)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('lets a dual-role workspace retrieve both its own core and the parent core', async () => {
+    const ownRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-own-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-parent-'))
+    const ownHub = await Hub.open({ root: ownRoot, lock: false })
+    const parentHub = await Hub.open({ root: parentRoot, lock: false })
+    const ownLedger = new Ledger(ownHub.ledgerPath())
+    const parentLedger = new Ledger(parentHub.ledgerPath())
+    const ownStore = new KnowledgeStore(ownHub, ownLedger)
+    const parentStore = new KnowledgeStore(parentHub, parentLedger)
+    await ownStore.load()
+    await parentStore.load()
+
+    const ctx = createDualCtx(ownRoot)
+    const ownService = new MemoryService({
+      ctx,
+      hub: ownHub,
+      store: ownStore,
+      ledger: ownLedger,
+      ledgerState: await ownLedger.load(),
+      workspaces: [{ id: 'own', root: ownRoot, domains: [], admin: true, enabled: true }],
+      coreId: 'own',
+    })
+    ownService.setParent({ coreId: 'parent', store: parentStore, ledger: parentLedger, hub: parentHub })
+
+    try {
+      const ownProposal = await ownStore.propose(
+        {
+          operation: 'create',
+          type: 'decision',
+          scope: 'project:own',
+          title: '自己的核心蒸馏',
+          summary: 'L1 知识，只属于 own。',
+          content: '## 结论\n\nL1。\n',
+          sourceRefs: ['note:test'],
+        },
+        { taskId: 'TSK-seed' },
+      )
+      await ownStore.commit(ownProposal.id)
+      const parentProposal = await parentStore.propose(
+        {
+          operation: 'create',
+          type: 'constraint',
+          scope: 'project:parent',
+          title: '父核心既有蒸馏',
+          summary: 'L2 基线，属于 parent。',
+          content: '## 结论\n\nL2 基线。\n',
+          sourceRefs: ['note:test'],
+        },
+        { taskId: 'TSK-seed' },
+      )
+      const parentKnowledgeId = (await parentStore.commit(parentProposal.id)).record.id
+
+      const agent: AgentLike = { id: 'session-dual', ctx, session: { id: 'session-dual', seq: 0 } }
+      await ownService.preflightForTurn(agent, 1, '核心蒸馏')
+      const state = ownService.stateFor(agent.id)
+      expect(state?.pack).toContain('自己的核心蒸馏')
+      expect(state?.pack).toContain('父核心既有蒸馏')
+
+      const result = await ownService.search(agent, { query: '蒸馏' })
+      const titles = result.hits.map((hit) => hit.title)
+      expect(titles).toContain('自己的核心蒸馏')
+      expect(titles).toContain('父核心既有蒸馏')
+      const parentHit = result.hits.find((hit) => hit.title === '父核心既有蒸馏')
+      expect(parentHit?.core).toBe('parent')
+
+      // 默认解析：自己的 Hub 没有该条目时回退到父核心 Hub。
+      const got = await ownService.get(agent, parentKnowledgeId)
+      expect(got.core).toBe('parent')
+      expect(got.metadata.title).toBe('父核心既有蒸馏')
+      // 显式 core 参数取父核心副本。
+      const gotParent = await ownService.get(agent, parentKnowledgeId, undefined, 'parent')
+      expect(gotParent.core).toBe('parent')
+      expect(gotParent.metadata.title).toBe('父核心既有蒸馏')
+    } finally {
+      await ownHub.close()
+      await parentHub.close()
+      await ownLedger.close()
+      await parentLedger.close()
+      await rm(ownRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('routes scope=core to the own hub and project:<parent> to the parent hub', async () => {
+    const ownRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-own2-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-parent2-'))
+    const ownHub = await Hub.open({ root: ownRoot, lock: false })
+    const parentHub = await Hub.open({ root: parentRoot, lock: false })
+    const ownLedger = new Ledger(ownHub.ledgerPath())
+    const parentLedger = new Ledger(parentHub.ledgerPath())
+    const ownStore = new KnowledgeStore(ownHub, ownLedger)
+    const parentStore = new KnowledgeStore(parentHub, parentLedger)
+    await ownStore.load()
+    await parentStore.load()
+
+    const ctx = createDualCtx(ownRoot)
+    const ownService = new MemoryService({
+      ctx,
+      hub: ownHub,
+      store: ownStore,
+      ledger: ownLedger,
+      ledgerState: await ownLedger.load(),
+      workspaces: [{ id: 'own', root: ownRoot, domains: [], admin: true, enabled: true }],
+      coreId: 'own',
+    })
+    ownService.setParent({ coreId: 'parent', store: parentStore, ledger: parentLedger, hub: parentHub })
+
+    try {
+      const agent: AgentLike = { id: 'session-dual2', ctx, session: { id: 'session-dual2', seq: 0 } }
+      await ownService.preflightForTurn(agent, 1, '蒸馏落点')
+
+      // L1：scope=core 落到自己的 Hub。
+      const l1 = await ownService.propose(agent, {
+        operation: 'create',
+        type: 'decision',
+        scope: 'core',
+        title: 'L1 回填',
+        summary: '写进自己的核心仓。',
+        content: '## 结论\n\nL1。\n',
+        source_refs: ['note:test'],
+      })
+      expect(l1.core).toBe('own')
+      expect(l1.scope).toBe('project:own')
+      expect(ownStore.getProposal(l1.proposalId)?.scope).toEqual({ level: 'project', workspaceId: 'own' })
+      expect(parentStore.getProposal(l1.proposalId)).toBeNull()
+
+      // L2：显式 project:parent 落到父核心 Hub（两个 Hub 各自从 PRO-000001 起号，
+      // 同 ID 是预期的；用归属 Hub 与 pending 路径断言落点）。
+      const l2 = await ownService.propose(agent, {
+        operation: 'create',
+        type: 'decision',
+        scope: 'project:parent',
+        title: 'L2 继续蒸馏',
+        summary: '写进父核心仓。',
+        content: '## 结论\n\nL2。\n',
+        source_refs: ['note:test'],
+      })
+      const parentCopy = parentStore.getProposal(l2.proposalId)
+      expect(parentCopy?.scope).toEqual({ level: 'project', workspaceId: 'parent' })
+      expect(parentCopy?.path).toContain('dsh-memory-hub-parent2-')
+      const ownCopy = ownStore.getProposal(l2.proposalId)
+      if (ownCopy !== null) {
+        expect(ownCopy.scope).toEqual({ level: 'project', workspaceId: 'own' })
+      }
+      expect(l2.pendingPath).toMatch(/^pending\/PRO-/)
+
+      // 跨 Hub commit：同 ID 冲突时显式 core=parent，从 own 会话提交父核心的候选，
+      // 落到父核心账本与知识目录。
+      const committed = await ownService.commit(agent, l2.proposalId, 'parent')
+      expect(committed.status).toBe('accepted')
+      expect(parentStore.docs.has(committed.knowledgeId)).toBe(true)
+      expect(ownStore.docs.has(committed.knowledgeId)).toBe(false)
+      const parentLedgerTypes = await ledgerTypes(parentHub.ledgerPath())
+      expect(parentLedgerTypes).toContain('proposal.committed')
+
+      // 别名 parent：等价于 project:<父核心>，并回报归属 core 便于 commit 显式指定。
+      const l2b = await ownService.propose(agent, {
+        operation: 'create',
+        type: 'knowledge',
+        scope: 'parent',
+        title: 'L2 别名',
+        summary: '别名落到父核心。',
+        content: '## 结论\n\n别名。\n',
+        source_refs: ['note:test'],
+      })
+      expect(l2b.core).toBe('parent')
+      expect(l2b.scope).toBe('project:parent')
+      expect(parentStore.getProposal(l2b.proposalId)?.scope).toEqual({ level: 'project', workspaceId: 'parent' })
+    } finally {
+      await ownHub.close()
+      await parentHub.close()
+      await ownLedger.close()
+      await parentLedger.close()
+      await rm(ownRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('supports a two-level ancestor pyramid (self → parent → grandparent)', async () => {
+    const ownRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-own-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-parent-'))
+    const grandRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-grand-'))
+    const open = async (root: string) => {
+      const hub = await Hub.open({ root, lock: false })
+      const ledger = new Ledger(hub.ledgerPath())
+      const store = new KnowledgeStore(hub, ledger)
+      await store.load()
+      return { hub, ledger, store }
+    }
+    const own = await open(ownRoot)
+    const parent = await open(parentRoot)
+    const grand = await open(grandRoot)
+    const ctx = createDualCtx(ownRoot)
+    const ownService = new MemoryService({
+      ctx,
+      hub: own.hub,
+      store: own.store,
+      ledger: own.ledger,
+      ledgerState: await own.ledger.load(),
+      workspaces: [{ id: 'leaf', root: ownRoot, domains: [], admin: true, enabled: true }],
+      coreId: 'leaf',
+    })
+    ownService.setParents([
+      { coreId: 'parent', store: parent.store, ledger: parent.ledger, hub: parent.hub },
+      { coreId: 'grand', store: grand.store, ledger: grand.ledger, hub: grand.hub },
+    ])
+
+    try {
+      const seed = async (store: KnowledgeStore, scope: string, type: KnowledgeType, title: string) => {
+        const proposal = await store.propose(
+          {
+            operation: 'create',
+            type,
+            scope,
+            title,
+            summary: `${title} 摘要`,
+            content: `## 结论\n\n${title}。\n`,
+            sourceRefs: ['note:test'],
+          },
+          { taskId: 'TSK-pyramid' },
+        )
+        return (await store.commit(proposal.id)).record
+      }
+      await seed(own.store, 'project:leaf', 'decision', 'L1 自身蒸馏记忆')
+      await seed(parent.store, 'project:parent', 'constraint', 'L2 父核心蒸馏')
+      const grandRecord = await seed(grand.store, 'project:grand', 'knowledge', 'L3 顶层蒸馏')
+
+      const agent: AgentLike = { id: 'session-pyramid', ctx, session: { id: 'session-pyramid', seq: 0 } }
+      await ownService.preflightForTurn(agent, 1, '蒸馏')
+      const state = ownService.stateFor(agent.id)
+      expect(state?.pack).toContain('L1 自身蒸馏记忆')
+      expect(state?.pack).toContain('L2 父核心蒸馏')
+      expect(state?.pack).toContain('L3 顶层蒸馏')
+
+      const result = await ownService.search(agent, { query: '蒸馏' })
+      const titles = result.hits.map((hit) => hit.title)
+      expect(titles).toContain('L1 自身蒸馏记忆')
+      expect(titles).toContain('L2 父核心蒸馏')
+      expect(titles).toContain('L3 顶层蒸馏')
+      const grandHit = result.hits.find((hit) => hit.title === 'L3 顶层蒸馏')
+      expect(grandHit?.core).toBe('grand')
+
+      // 回退读取：自己的 Hub 没有时按 近→远 穿透到顶层。
+      const got = await ownService.get(agent, grandRecord.id)
+      expect(got.core).toBe('grand')
+      expect(got.metadata.title).toBe('L3 顶层蒸馏')
+
+      // 显式 scope 上推：L3 候选写进顶层 Hub。
+      const l3 = await ownService.propose(agent, {
+        operation: 'create',
+        type: 'knowledge',
+        scope: 'project:grand',
+        title: 'L3 上推候选',
+        summary: '写进顶层。',
+        content: '## 结论\n\n上推。\n',
+        source_refs: ['note:test'],
+      })
+      expect(l3.core).toBe('grand')
+      expect(l3.scope).toBe('project:grand')
+      expect(grand.store.getProposal(l3.proposalId)?.scope).toEqual({ level: 'project', workspaceId: 'grand' })
+
+      const status = (await ownService.status(agent)) as {
+        workspace?: { parentCoreIds?: string[] } | null
+        ancestors?: Array<{ coreId: string }>
+      }
+      expect(status.workspace?.parentCoreIds).toEqual(['parent', 'grand'])
+      expect(status.ancestors?.map((ancestor) => ancestor.coreId)).toEqual(['parent', 'grand'])
+    } finally {
+      for (const pack of [own, parent, grand]) {
+        await pack.hub.close()
+        await pack.ledger.close()
+      }
+      await rm(ownRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+      await rm(grandRoot, { recursive: true, force: true })
+    }
+  })
 })
+
+function createDualCtx(directory: string): Context {
+  const ctx: Context = {
+    tools: {
+      register: () => () => {},
+      get: () => undefined,
+    },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    get(name: string) {
+      if (name === 'workingDirectory') return ctx.workingDirectory
+      if (name === 'tokenMeter') return ctx.tokenMeter
+      return undefined
+    },
+    on: () => () => {},
+    effect: () => () => {},
+    inject: () => {},
+    workingDirectory: {
+      defaultDirectory: directory,
+      get: () => directory,
+    },
+    tokenMeter: {
+      estimateMessage: (message: unknown) => Math.max(1, Math.ceil(JSON.stringify(message).length / 3.2)),
+    },
+  }
+  return ctx
+}

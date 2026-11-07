@@ -78,6 +78,7 @@
     'knowledge.sources': '来源',
     'knowledge.updated': '更新于',
     'knowledge.core': '核心共享',
+    'knowledge.parent': '父核心蒸馏',
     'pending.empty': '没有待审批候选',
     'pending.emptyHint': '新的候选会出现在这里，等待你在对话中调用 memory_commit 并批准。',
     'pending.hint': '本面板只读，不能代替 DSH 审批。请在会话中提交，或在文件系统里直接编辑 pending/。',
@@ -207,6 +208,7 @@
     'knowledge.sources': 'Sources',
     'knowledge.updated': 'Updated',
     'knowledge.core': 'Core shared',
+    'knowledge.parent': 'Parent core',
     'pending.empty': 'No pending proposals',
     'pending.emptyHint': 'New candidates appear here and wait for memory_commit plus approval.',
     'pending.hint': 'This panel is read-only and cannot replace DSH approval. Commit in a session, or edit pending/ directly.',
@@ -462,17 +464,19 @@
     function KnowledgeRow(props) {
       const item = props.item;
       const isCore = props.core && item.scope === `project:${props.core}`;
+      const isParent = !!item.core;
       const tags = [
         h(Tag, { key: 'type' }, item.type),
         h(Tag, { key: 'status', tone: statusTone(item.status) }, item.status),
         h(Tag, { key: 'scope' }, item.scope),
         isCore ? h(Tag, { key: 'core', tone: 'ok' }, t('knowledge.core')) : null,
+        isParent ? h(Tag, { key: 'parent', tone: 'warn' }, t('knowledge.parent')) : null,
       ];
       return h('button', {
         type: 'button',
         className: 'dmh-row',
         'data-selected': props.selected === true ? 'true' : 'false',
-        onClick: () => props.onOpen(item.id),
+        onClick: () => props.onOpen(item.id, item.core),
       },
         h('div', { className: 'dmh-row-top' },
           h('span', { className: 'dmh-row-id' }, `${item.id}@v${item.version}`),
@@ -504,6 +508,9 @@
           h(Tag, null, String(metadata.scope || '')),
           props.core && metadata.scope === `project:${props.core}`
             ? h(Tag, { tone: 'ok' }, t('knowledge.core'))
+            : null,
+          props.parentCoreIds && props.parentCoreIds.some((id) => metadata.scope === `project:${id}`)
+            ? h(Tag, { tone: 'warn' }, t('knowledge.parent'))
             : null),
         h('div', { className: 'dmh-row-summary' }, metadata.summary || ''),
         h('div', { className: 'dmh-section-title' }, t('knowledge.body')),
@@ -592,6 +599,7 @@
       const [selected, setSelected] = useState(null);
       const [detail, setDetail] = useState({ phase: 'idle', data: null, error: null });
       const knowledge = Array.isArray(props.data.knowledge) ? props.data.knowledge : [];
+      const parentCoreIds = Array.isArray(props.data.parentCoreIds) ? props.data.parentCoreIds : [];
       const types = useMemo(() => [...new Set(knowledge.map((item) => item.type))].sort(), [knowledge]);
       const statuses = useMemo(() => [...new Set(knowledge.map((item) => item.status))].sort(), [knowledge]);
       const filtered = useMemo(() => {
@@ -604,11 +612,12 @@
         });
       }, [knowledge, query, type, status]);
 
-      const open = useCallback(async (id) => {
+      const open = useCallback(async (id, core) => {
         setSelected(id);
         setDetail({ phase: 'loading', data: null, error: null });
         try {
-          const coreParam = props.core ? `&core=${encodeURIComponent(props.core)}` : '';
+          const coreId = core || props.core;
+          const coreParam = coreId ? `&core=${encodeURIComponent(coreId)}` : '';
           const response = await fetch(`${API_KNOWLEDGE}?id=${encodeURIComponent(id)}${coreParam}`, { cache: 'no-store' });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           setDetail({ phase: 'ready', data: await response.json(), error: null });
@@ -643,10 +652,11 @@
           ? h(Empty, { title: t('knowledge.empty'), hint: t('knowledge.emptyHint') })
           : h('div', { className: selected === null ? 'dmh-split' : 'dmh-split has-detail' },
             h('div', { className: 'dmh-list' }, filtered.map((item) =>
-              h(KnowledgeRow, { key: item.id, item, core: props.core, selected: selected === item.id, onOpen: open }))),
+              h(KnowledgeRow, { key: `${item.core || 'self'}:${item.id}`, item, core: props.core, selected: selected === item.id, onOpen: open }))),
             selected === null ? null : h(KnowledgeDetail, {
               state: detail,
               core: props.core,
+              parentCoreIds,
               onClose: () => {
                 setSelected(null);
                 setDetail({ phase: 'idle', data: null, error: null });

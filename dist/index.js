@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.1.6
+// dsh-memory-hub 0.1.7
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -12525,7 +12525,8 @@ var KnowledgeIndex = class {
         summary: record.summary,
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
-        score
+        score,
+        core: filters.coreTag ?? null
       });
     }
     hits.sort((left, right) => {
@@ -13218,7 +13219,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.1.6",
+  version: "0.1.7",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -13617,6 +13618,9 @@ var MemoryService = class {
   store;
   ledger;
   customWorkspaces;
+  coreId;
+  /** 金字塔上级链：按 近→远 排列的祖先核心 pack（父、祖父、…）。 */
+  parents = [];
   sessions = /* @__PURE__ */ new Map();
   tasks;
   citationKeys = /* @__PURE__ */ new Set();
@@ -13627,11 +13631,36 @@ var MemoryService = class {
     this.store = options.store;
     this.ledger = options.ledger;
     this.customWorkspaces = options.workspaces;
+    this.coreId = options.coreId ?? null;
     this.tasks = options.ledgerState.tasks;
     this.citations = options.ledgerState.citations;
     for (const citation of this.citations) {
       this.citationKeys.add(citationKey(citation.taskId, citation.knowledgeId, citation.version));
     }
+  }
+  /** 最近的父核心 pack（金字塔第一级）。 */
+  get parent() {
+    return this.parents[0] ?? null;
+  }
+  /** 最近的父核心 id。 */
+  get parentCoreId() {
+    return this.parents[0]?.coreId ?? null;
+  }
+  /** 全部祖先核心 id，按 近→远 排列。 */
+  get parentCoreIds() {
+    return this.parents.map((parent) => parent.coreId).filter((id) => id !== null);
+  }
+  /** 挂接单个父核心 pack（向后兼容；等价于 setParents([parent])）。 */
+  setParent(parent) {
+    this.parents = parent === null ? [] : [parent];
+  }
+  /** 挂接金字塔上级链：parents 按 近→远 排列（父、祖父、…）。由 runtime 在所有核心打开后调用。 */
+  setParents(parents) {
+    this.parents = parents;
+  }
+  /** 配置热更新：由 runtime 刷新工作区清单（新增/移除 core 与子工作区）。 */
+  updateWorkspaces(workspaces) {
+    this.customWorkspaces = workspaces;
   }
   get activeWorkspaces() {
     return this.customWorkspaces ?? this.hub.config.workspaces;
@@ -13664,7 +13693,9 @@ var MemoryService = class {
       admin: false,
       path: resolved,
       registered: false,
-      coreId: null
+      coreId: null,
+      parentCoreId: null,
+      parentCoreIds: []
     };
     let bestLength = -1;
     for (const workspace of this.activeWorkspaces) {
@@ -13686,7 +13717,9 @@ var MemoryService = class {
           admin: workspace.admin,
           path: resolved,
           registered: true,
-          coreId
+          coreId,
+          parentCoreId: workspace.id === this.coreId ? this.parentCoreId : null,
+          parentCoreIds: workspace.id === this.coreId ? this.parentCoreIds : []
         };
       }
     }
@@ -13709,7 +13742,9 @@ var MemoryService = class {
       admin: false,
       path: directory,
       registered: false,
-      coreId: null
+      coreId: null,
+      parentCoreId: null,
+      parentCoreIds: []
     };
     let bestLength = -1;
     for (const workspace of this.activeWorkspaces) {
@@ -13725,14 +13760,16 @@ var MemoryService = class {
           admin: workspace.admin,
           path: directory,
           registered: true,
-          coreId: workspace.core_id ?? workspace.id
+          coreId: workspace.core_id ?? workspace.id,
+          parentCoreId: workspace.id === this.coreId ? this.parentCoreId : null,
+          parentCoreIds: workspace.id === this.coreId ? this.parentCoreIds : []
         };
       }
     }
     return match;
   }
   visibilityFor(workspace) {
-    const coreIds = workspace.coreId === null ? [] : [workspace.coreId];
+    const coreIds = [workspace.coreId, ...workspace.parentCoreIds ?? []].filter((id) => id !== null);
     return visibilityFor(workspace.id, workspace.domains, coreIds);
   }
   async preflightForTurn(agent, turn, intent) {
@@ -13954,19 +13991,57 @@ var MemoryService = class {
     }
     const limit = Math.max(1, Math.min(20, args.limit ?? 8));
     const raw = this.store.search(args.query, { visibility, statuses, types, limit: scopeFilter === null ? limit : 20 });
-    const filtered = scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit);
+    const primary = (scopeFilter === null ? raw : raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit)).map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }));
+    const includeParents = scopeFilter === null || this.parentCoreIds.includes(scopeFilter);
+    const parents = includeParents ? this.ancestorProjectSearch(args.query, { statuses, types, limit, scopeFilter }) : [];
+    const hits = includeParents ? [...primary, ...parents] : primary;
     return {
-      hits: filtered.map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) })),
-      total: filtered.length
+      hits,
+      total: hits.length
     };
   }
-  async get(agent, id, version) {
+  /**
+   * 在全部祖先核心 Hub 上检索各自的 project:<祖先核心> 条目（各层的既有蒸馏知识）。
+   * 只取该层作用域，避免 global 在跨 Hub 检索里重复；按 近→远 排列。
+   */
+  ancestorProjectSearch(query, options) {
+    const hits = [];
+    for (const parent of this.parents) {
+      const coreId = parent.coreId;
+      if (coreId === null) continue;
+      const raw = parent.store.search(query, {
+        visibility: { global: false, domains: /* @__PURE__ */ new Set(), projects: /* @__PURE__ */ new Set([coreId]) },
+        statuses: options.statuses,
+        ...options.types === void 0 ? {} : { types: options.types },
+        limit: Math.max(1, options.limit),
+        ...options.minScore === void 0 ? {} : { minScore: options.minScore },
+        coreTag: coreId
+      });
+      const parentOnly = options.scopeFilter === null || options.scopeFilter === void 0 ? raw.filter((hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId) : raw.filter((hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId && formatScope(hit.scope) === options.scopeFilter);
+      for (const hit of parentOnly.slice(0, options.limit)) {
+        hits.push({ ...hit, path: KnowledgeStore.relativePath(parent.hub.root, hit.path) });
+      }
+    }
+    return hits.slice(0, options.limit);
+  }
+  async get(agent, id, version, core) {
     const workspace = await this.resolveWorkspace(agent);
     const visibility = this.visibilityFor(workspace);
-    const record = await this.store.get(id, version);
-    if (record === null) {
+    let resolved;
+    if (core !== void 0 && core !== "") {
+      const store = this.storeForCore(core);
+      if (store === null) {
+        throw new MemoryError("NOT_FOUND", `knowledge ${id} does not exist in core ${core}`);
+      }
+      const record2 = await store.store.get(id, version);
+      resolved = record2 === null ? null : { record: record2, core: store.coreId, root: store.hub.root };
+    } else {
+      resolved = await this.resolveRecordForRead(id, version);
+    }
+    if (resolved === null) {
       throw new MemoryError("NOT_FOUND", `knowledge ${id}${version === void 0 ? "" : `@${version}`} does not exist`);
     }
+    const { record } = resolved;
     if (!isScopeVisible(record.scope, visibility)) {
       throw new MemoryError("SCOPE_FORBIDDEN", `knowledge ${id} is not visible from this workspace`);
     }
@@ -13978,8 +14053,28 @@ var MemoryService = class {
     return {
       metadata,
       body,
-      path: KnowledgeStore.relativePath(this.hub.root, path)
+      path: KnowledgeStore.relativePath(resolved.root, path),
+      core: resolved.core
     };
+  }
+  /** 在“自己的 Hub → 父核心 Hub”顺序里查找可读条目。 */
+  async resolveRecordForRead(id, version) {
+    const primary = await this.store.get(id, version);
+    if (primary !== null) return { record: primary, core: this.coreId, root: this.hub.root };
+    for (const parent of this.parents) {
+      const fromParent = await parent.store.get(id, version);
+      if (fromParent !== null) return { record: fromParent, core: parent.coreId, root: parent.hub.root };
+    }
+    return null;
+  }
+  storeForCore(core) {
+    if (this.coreId === core) return { store: this.store, hub: this.hub, coreId: this.coreId };
+    for (const parent of this.parents) {
+      if (parent.coreId === core) {
+        return { store: parent.store, hub: parent.hub, coreId: parent.coreId };
+      }
+    }
+    return null;
   }
   async cite(agent, args) {
     const state = this.sessions.get(agent.id);
@@ -13992,8 +14087,17 @@ var MemoryService = class {
     if (purpose.length === 0 || purpose.length > 200) {
       throw new MemoryError("INVALID_INPUT", "purpose must be 1..200 characters");
     }
-    const record = await this.store.get(args.knowledge_id, args.version);
-    if (record === null) throw new MemoryError("NOT_FOUND", `knowledge ${args.knowledge_id} does not exist`);
+    let resolved;
+    if (args.core !== void 0 && args.core !== "") {
+      const store = this.storeForCore(args.core);
+      if (store === null) throw new MemoryError("NOT_FOUND", `knowledge ${args.knowledge_id} does not exist in core ${args.core}`);
+      const record2 = await store.store.get(args.knowledge_id, args.version);
+      resolved = record2 === null ? null : { record: record2, core: store.coreId, root: store.hub.root };
+    } else {
+      resolved = await this.resolveRecordForRead(args.knowledge_id, args.version);
+    }
+    if (resolved === null) throw new MemoryError("NOT_FOUND", `knowledge ${args.knowledge_id} does not exist`);
+    const { record } = resolved;
     if (record.status !== "accepted") {
       throw new MemoryError("INVALID_STATE", `knowledge ${record.id} is ${record.status}`);
     }
@@ -14014,7 +14118,8 @@ var MemoryService = class {
       citationId,
       knowledgeId: record.id,
       version: record.version,
-      purpose
+      purpose,
+      ...resolved.core === this.coreId ? {} : { coreId: resolved.core }
     });
     this.citationKeys.add(key);
     this.citations.push({
@@ -14023,7 +14128,8 @@ var MemoryService = class {
       knowledgeId: record.id,
       version: record.version,
       purpose,
-      createdAt: nowIso()
+      createdAt: nowIso(),
+      coreId: resolved.core
     });
     return { citationId };
   }
@@ -14032,28 +14138,44 @@ var MemoryService = class {
     if (state === void 0) throw new MemoryError("NO_TASK", "no open task for this session");
     if (state.closed) throw new MemoryError("INVALID_STATE", "task is already closed");
     const coreId = state.workspace.coreId;
-    const rawScope = args.scope === "core" ? coreId === null ? null : `project:${coreId}` : args.scope;
+    const rawScope = args.scope === "core" ? coreId === null ? null : `project:${coreId}` : args.scope === "parent" ? this.parentCoreId === null ? null : `project:${this.parentCoreId}` : args.scope;
     if (rawScope === null) {
-      throw new MemoryError("INVALID_INPUT", 'scope "core" is only available inside a configured core workspace');
+      throw new MemoryError(
+        "INVALID_INPUT",
+        args.scope === "parent" ? 'scope "parent" is only available inside a dual-role workspace with an open parent core' : 'scope "core" is only available inside a configured core workspace'
+      );
     }
     const scope = parseScope(rawScope);
     if (!isScopeVisible(scope, state.visibility)) {
       throw new MemoryError("SCOPE_FORBIDDEN", `scope ${rawScope} is not visible from this workspace`);
     }
-    const pending = this.store.pendingForTask(state.taskId);
+    let target = null;
+    if (scope.level === "project") {
+      target = this.parents.find((parent) => parent.coreId === scope.workspaceId) ?? null;
+    }
+    const owningStore = target === null ? this.store : target.store;
+    const owningHub = target === null ? this.hub : target.hub;
+    const owningCoreId = target === null ? this.coreId : target.coreId;
+    const formattedScope = formatScope(scope);
+    const pending = [
+      ...this.store.pendingForTask(state.taskId),
+      ...target === null ? [] : target.store.pendingForTask(state.taskId)
+    ];
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
       throw new MemoryError("INVALID_STATE", `task already has ${pending.length} pending proposals`);
     }
     const duplicate = pending.find(
-      (proposal2) => proposal2.operation === args.operation && proposal2.type === args.type && formatScope(proposal2.scope) === formatScope(scope) && proposal2.title === args.title.trim() && proposal2.target === (args.target ?? null)
+      (proposal2) => proposal2.operation === args.operation && proposal2.type === args.type && formatScope(proposal2.scope) === formattedScope && proposal2.title === args.title.trim() && proposal2.target === (args.target ?? null)
     );
     if (duplicate !== void 0) {
       return {
         proposalId: duplicate.id,
-        pendingPath: KnowledgeStore.relativePath(this.hub.root, duplicate.path)
+        pendingPath: KnowledgeStore.relativePath(owningHub.root, duplicate.path),
+        core: owningCoreId,
+        scope: formattedScope
       };
     }
-    const proposal = await this.store.propose(
+    const proposal = await owningStore.propose(
       {
         operation: args.operation,
         type: args.type,
@@ -14072,23 +14194,39 @@ var MemoryService = class {
       },
       { taskId: state.taskId }
     );
-    await this.ledger.append({ type: "proposal.created", taskId: state.taskId, proposalId: proposal.id });
+    await (target === null ? this.ledger : target.ledger).append({
+      type: "proposal.created",
+      taskId: state.taskId,
+      proposalId: proposal.id
+    });
     return {
       proposalId: proposal.id,
-      pendingPath: KnowledgeStore.relativePath(this.hub.root, proposal.path)
+      pendingPath: KnowledgeStore.relativePath(owningHub.root, proposal.path),
+      core: owningCoreId,
+      scope: formattedScope
     };
   }
-  async commit(agent, proposalId) {
-    const proposal = this.store.getProposal(proposalId);
+  async commit(agent, proposalId, core) {
+    let proposal;
+    let owning;
+    if (core !== void 0 && core !== "") {
+      const target = this.storeForCore(core);
+      if (target === null) throw new MemoryError("NOT_FOUND", `core ${core} is not reachable from this workspace`);
+      proposal = target.store.getProposal(proposalId);
+      owning = target.store;
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId);
+      owning = this.owningStoreFor(proposalId) ?? this.store;
+    }
     if (proposal === null) throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
     const workspace = await this.resolveWorkspace(agent);
     const visibility = this.visibilityFor(workspace);
     if (!isScopeVisible(proposal.scope, visibility) && !workspace.admin) {
       throw new MemoryError("SCOPE_FORBIDDEN", `proposal ${proposalId} targets a scope not visible from this workspace`);
     }
-    const precheck = this.precheckCommit(proposal);
+    const precheck = this.precheckCommitOn(owning, proposal);
     if (!precheck.ok) throw new MemoryError(precheck.code, precheck.reason);
-    const result = await this.store.commit(
+    const result = await owning.commit(
       proposalId,
       this.approvalMode() === "auto" ? "test:auto" : "dsh:approval"
     );
@@ -14099,7 +14237,27 @@ var MemoryService = class {
       superseded: result.superseded
     };
   }
+  /** 在“自己的 Hub → 父核心 Hub”顺序里查找 proposal（跨 Hub 分级蒸馏）。 */
+  resolveProposalAcrossStores(proposalId) {
+    const own = this.store.getProposal(proposalId);
+    if (own !== null) return own;
+    for (const parent of this.parents) {
+      const found = parent.store.getProposal(proposalId);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  owningStoreFor(proposalId) {
+    if (this.store.getProposal(proposalId) !== null) return this.store;
+    for (const parent of this.parents) {
+      if (parent.store.getProposal(proposalId) !== null) return parent.store;
+    }
+    return null;
+  }
   precheckCommit(proposal) {
+    return this.precheckCommitOn(this.owningStoreFor(proposal.id) ?? this.store, proposal);
+  }
+  precheckCommitOn(store, proposal) {
     if (proposal.status !== "pending") {
       return { ok: false, code: "INVALID_STATE", reason: `proposal ${proposal.id} is ${proposal.status}` };
     }
@@ -14117,7 +14275,7 @@ var MemoryService = class {
       if (proposal.target === null || proposal.expectedVersion === null) {
         return { ok: false, code: "INVALID_INPUT", reason: `${proposal.operation} requires target and expected_version` };
       }
-      const target = this.store.docs.get(proposal.target);
+      const target = store.docs.get(proposal.target);
       if (target === void 0) {
         return { ok: false, code: "NOT_FOUND", reason: `target ${proposal.target} does not exist` };
       }
@@ -14136,22 +14294,32 @@ var MemoryService = class {
       }
     }
     for (const oldId of proposal.supersedes) {
-      const old = this.store.docs.get(oldId);
+      const old = store.docs.get(oldId);
       if (old === void 0 || old.status !== "accepted") {
         return { ok: false, code: "INVALID_STATE", reason: `supersedes target ${oldId} is not accepted` };
       }
     }
     return { ok: true };
   }
-  precheckProposal(proposalId) {
-    const proposal = this.store.getProposal(proposalId);
+  precheckProposal(proposalId, core) {
+    let proposal;
+    if (core !== void 0 && core !== "") {
+      proposal = this.storeForCore(core)?.store.getProposal(proposalId) ?? null;
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId);
+    }
     if (proposal === null) {
       return { ok: false, code: "NOT_FOUND", reason: `proposal ${proposalId} does not exist` };
     }
     return this.precheckCommit(proposal);
   }
-  describeCommit(proposalId) {
-    const proposal = this.store.getProposal(proposalId);
+  describeCommit(proposalId, core) {
+    let proposal;
+    if (core !== void 0 && core !== "") {
+      proposal = this.storeForCore(core)?.store.getProposal(proposalId) ?? null;
+    } else {
+      proposal = this.resolveProposalAcrossStores(proposalId);
+    }
     if (proposal === null) {
       return {
         reason: `Commit memory proposal ${proposalId}`,
@@ -14369,7 +14537,7 @@ var MemoryService = class {
     return false;
   }
   overview() {
-    const knowledge = [...this.store.docs.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200).map((record) => ({
+    const describe = (record, core) => ({
       id: record.id,
       type: record.type,
       status: record.status,
@@ -14377,8 +14545,20 @@ var MemoryService = class {
       title: record.title,
       summary: record.summary,
       scope: formatScope(record.scope),
-      updatedAt: record.updatedAt
-    }));
+      updatedAt: record.updatedAt,
+      ...core === void 0 ? {} : { core }
+    });
+    const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record));
+    const parentKnowledge = [];
+    for (const parent of this.parents) {
+      const coreId = parent.coreId;
+      if (coreId === null) continue;
+      for (const record of parent.store.docs.values()) {
+        if (record.scope.level !== "project" || record.scope.workspaceId !== coreId) continue;
+        parentKnowledge.push(describe(record, coreId));
+      }
+    }
+    const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
     const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => ({
       id: proposal.id,
       operation: proposal.operation,
@@ -14408,6 +14588,19 @@ var MemoryService = class {
       readOnlySource: this.hub.readOnlySource,
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
+      coreId: this.coreId,
+      parentCoreId: this.parentCoreId,
+      parent: this.parent === null ? null : {
+        coreId: this.parentCoreId,
+        root: this.parent.hub.displayRoot(),
+        counts: this.parent.store.counts()
+      },
+      ancestors: this.parents.map((parent) => ({
+        coreId: parent.coreId,
+        root: parent.hub.displayRoot(),
+        counts: parent.store.counts()
+      })),
+      parentCoreIds: this.parentCoreIds,
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
@@ -14439,15 +14632,21 @@ var MemoryService = class {
       generatedAt: nowIso()
     };
   }
-  knowledgeDetail(id) {
-    const record = this.store.docs.get(id);
+  knowledgeDetail(id, core) {
+    let record = this.store.docs.get(id);
+    let root = this.hub.root;
+    if (record === void 0 && core !== void 0 && core !== "") {
+      const target = this.storeForCore(core);
+      record = target?.store.docs.get(id);
+      if (target !== null && record !== void 0) root = target.hub.root;
+    }
     if (record === void 0) return null;
     const { body, path, extra: _extra, scope, ...rest } = record;
     void _extra;
     return {
       metadata: { ...rest, scope: formatScope(scope) },
       body,
-      path: KnowledgeStore.relativePath(this.hub.root, path)
+      path: KnowledgeStore.relativePath(root, path)
     };
   }
   config() {
@@ -14484,6 +14683,12 @@ var MemoryService = class {
       if (workspace.core_id !== null && workspace.core_id !== void 0 && !validCoreIds.has(workspace.core_id)) {
         throw new MemoryError("INVALID_INPUT", `workspace ${workspace.id} references unknown core ${workspace.core_id}`);
       }
+      if (workspace.core_id === workspace.id) {
+        throw new MemoryError(
+          "INVALID_INPUT",
+          `workspace ${workspace.id} cannot reference itself as its core; a core workspace that is also a sub-workspace must point at a different parent core`
+        );
+      }
     }
     const next = configSchema.parse({
       ...this.hub.config,
@@ -14513,7 +14718,28 @@ var MemoryService = class {
       readOnlySource: this.hub.readOnlySource,
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
-      workspace: workspace === null || !workspace.registered ? null : { id: workspace.id, root: workspace.root, domains: workspace.domains, registered: workspace.registered },
+      workspace: workspace === null || !workspace.registered ? null : {
+        id: workspace.id,
+        root: workspace.root,
+        domains: workspace.domains,
+        registered: workspace.registered,
+        coreId: workspace.coreId,
+        parentCoreId: workspace.parentCoreId,
+        parentCoreIds: workspace.parentCoreIds
+      },
+      // 金字塔：同时报告上级核心 Hub 链，便于确认分级蒸馏链路。
+      parent: this.parent === null ? null : {
+        coreId: this.parentCoreId,
+        root: this.parent.hub.displayRoot(),
+        readOnly: this.parent.hub.readOnly,
+        counts: this.parent.store.counts()
+      },
+      ancestors: this.parents.map((parent) => ({
+        coreId: parent.coreId,
+        root: parent.hub.displayRoot(),
+        readOnly: parent.hub.readOnly,
+        counts: parent.store.counts()
+      })),
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
@@ -14588,7 +14814,14 @@ var MemoryService = class {
       if (assessment.proposalIds.length === 0) {
         throw new MemoryError("INVALID_INPUT", "proposed requires at least one proposal id");
       }
-      const pending = new Set(this.store.pendingForTask(taskId).map((proposal) => proposal.id));
+      const pending = /* @__PURE__ */ new Set([
+        ...this.store.pendingForTask(taskId).map((proposal) => proposal.id)
+      ]);
+      for (const parent of this.parents) {
+        for (const proposal of parent.store.pendingForTask(taskId)) {
+          pending.add(proposal.id);
+        }
+      }
       for (const id of assessment.proposalIds) {
         if (!pending.has(id)) {
           throw new MemoryError("INVALID_STATE", `proposal ${id} is not pending for this task`);
@@ -14600,14 +14833,23 @@ var MemoryService = class {
     }
   }
   async runSearch(intent, workspace, visibility) {
-    return this.store.search(intent, {
+    const statuses = /* @__PURE__ */ new Set(["accepted"]);
+    const maxHits = this.hub.config.policy.preflight.max_hits;
+    const primary = this.store.search(intent, {
       visibility,
-      statuses: /* @__PURE__ */ new Set(["accepted"]),
-      limit: this.hub.config.policy.preflight.max_hits,
+      statuses,
+      limit: maxHits,
       minScore: this.hub.config.policy.preflight.min_score,
       localBoost: this.hub.config.policy.preflight.local_boost,
       preferProject: workspace.id ?? void 0
     });
+    const ancestors = this.ancestorProjectSearch(intent, {
+      statuses,
+      limit: maxHits,
+      minScore: this.hub.config.policy.preflight.min_score,
+      scopeFilter: null
+    });
+    return [...primary, ...ancestors].slice(0, maxHits);
   }
   buildPack(hits, workspace, budget) {
     if (hits.length === 0) return { pack: "", tokens: 0 };
@@ -14625,7 +14867,8 @@ var MemoryService = class {
     const lines = [...header];
     let included = 0;
     for (const hit of hits) {
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)})`;
+      const source = hit.core !== void 0 && hit.core !== null && hit.core !== this.coreId ? ` \xB7 core:${hit.core}` : "";
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)}${source})`;
       const candidate = [...lines, line, ...footer].join("\n");
       if (this.estimateTokens(candidate) > budget && included > 0) break;
       lines.push(line);
@@ -14827,18 +15070,19 @@ function createTools(host) {
     tool({
       name: "memory_get",
       concurrencySafe: true,
-      description: "Read one memory entry in full, including its frontmatter metadata and provenance. Use the id from memory_search or the preflight hint; pass version only when you need a historical version.",
+      description: "Read one memory entry in full, including its frontmatter metadata and provenance. Use the id from memory_search or the preflight hint; pass version only when you need a historical version. In a dual-role workspace (own core + parent core) the same id may exist in both hubs: pass core to pick the parent copy explicitly.",
       parameters: objectSchema(
         {
           id: { type: "string", description: "Knowledge id, for example DEC-000001." },
-          version: { type: "number", description: "Optional historical version; defaults to the current version." }
+          version: { type: "number", description: "Optional historical version; defaults to the current version." },
+          core: { type: "string", description: "Optional core hub id to read from (defaults to the current own core, then ancestor cores nearest-first)." }
         },
         ["id"]
       ),
       async execute(args, exec) {
         const input = args;
         const service = await host.service(requireAgent(exec));
-        return service.get(requireAgent(exec), input.id, input.version);
+        return service.get(requireAgent(exec), input.id, input.version, input.core);
       }
     }),
     tool({
@@ -14873,13 +15117,14 @@ function createTools(host) {
     }),
     tool({
       name: "memory_cite",
-      description: "Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task.",
+      description: "Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task. In a dual-role workspace pass core to cite the copy in a specific hub (defaults to the current own core first).",
       parameters: objectSchema(
         {
           knowledge_id: { type: "string", description: "Knowledge id being used." },
           version: { type: "number", description: "Optional version; defaults to the current version." },
           purpose: { type: "string", description: "How the entry was used, at most 200 characters." },
-          task_id: { type: "string", description: "Optional current task id; other tasks are rejected." }
+          task_id: { type: "string", description: "Optional current task id; other tasks are rejected." },
+          core: { type: "string", description: "Optional core hub id the entry lives in (defaults to the current own core, then ancestor cores nearest-first)." }
         },
         ["knowledge_id", "purpose"]
       ),
@@ -14890,7 +15135,8 @@ function createTools(host) {
           knowledge_id: input.knowledge_id,
           ...input.version === void 0 ? {} : { version: input.version },
           purpose: input.purpose,
-          ...input.task_id === void 0 ? {} : { task_id: input.task_id }
+          ...input.task_id === void 0 ? {} : { task_id: input.task_id },
+          ...input.core === void 0 ? {} : { core: input.core }
         });
       }
     }),
@@ -14901,7 +15147,7 @@ function createTools(host) {
         {
           operation: { type: "string", enum: ["create", "update", "deprecate"], description: "What to do with the knowledge." },
           type: { type: "string", enum: [...KNOWLEDGE_TYPES], description: "Knowledge type." },
-          scope: { type: "string", description: "global, domain:<id>, project:<workspace-id>, or core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge)." },
+          scope: { type: "string", description: "global, domain:<id>, project:<workspace-id>, core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge), or parent (alias for the nearest ancestor core project scope in a dual-role workspace, used for L2 distillation; deeper pyramid levels use explicit project:<ancestor-core-id>)." },
           title: { type: "string", description: "Short title, at most 200 characters." },
           summary: { type: "string", description: "One-sentence conclusion, at most 240 characters." },
           content: { type: "string", description: "Markdown body for create/update; optional for deprecate." },
@@ -14950,15 +15196,18 @@ function createTools(host) {
     }),
     tool({
       name: "memory_commit",
-      description: "Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto.",
+      description: "Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto. In a dual-role workspace the same proposal id may exist in both hubs: pass core to commit the copy in a specific hub (defaults to the current own core first).",
       parameters: objectSchema(
-        { proposal_id: { type: "string", description: "Pending proposal id, for example PRO-000001." } },
+        {
+          proposal_id: { type: "string", description: "Pending proposal id, for example PRO-000001." },
+          core: { type: "string", description: "Optional core hub id to commit in (defaults to the current own core, then ancestor cores nearest-first)." }
+        },
         ["proposal_id"]
       ),
       async execute(args, exec) {
         const input = args;
         const service = await host.service(requireAgent(exec));
-        return service.commit(requireAgent(exec), input.proposal_id);
+        return service.commit(requireAgent(exec), input.proposal_id, input.core);
       }
     }),
     tool({
@@ -15175,6 +15424,7 @@ var pluginConfigSchema = external_exports.object({
 }).passthrough();
 var AGENT_CONTEXT_NAME = "memory:pack";
 var AGENT_CONTEXT_ORDER = 130;
+var MAX_ANCESTOR_DEPTH = 8;
 var MemoryRuntime = class {
   ctx;
   config;
@@ -15263,7 +15513,7 @@ var MemoryRuntime = class {
       const configHub = await Hub.open({ root: configRoot, readOnly: forcedReadOnly });
       this.configHub = configHub;
       const globalConfig = configHub.config;
-      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null);
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null, []);
       for (const core of globalConfig.core_workspaces) {
         if (core.root === void 0) continue;
         const root = resolve2(expandHome(core.root));
@@ -15285,9 +15535,13 @@ var MemoryRuntime = class {
           dataHub,
           globalConfig,
           this.coreWorkspaces(globalConfig, core.id, root),
-          core.id
+          core.id,
+          this.ancestorIds(globalConfig, core.id)
         );
         this.cores.set(core.id, pack);
+      }
+      for (const pack of this.cores.values()) {
+        this.wireAncestors(pack);
       }
       this.registerExistingAgents();
       this.warmClientModule();
@@ -15455,7 +15709,7 @@ var MemoryRuntime = class {
       hubs
     };
   }
-  async openServicePack(hub, config, workspaces, coreId) {
+  async openServicePack(hub, config, workspaces, coreId, ancestorIds) {
     const ledger = new Ledger(hub.ledgerPath());
     const ledgerState = await ledger.load({ repair: !hub.readOnly });
     const store = new KnowledgeStore(hub, ledger);
@@ -15466,9 +15720,126 @@ var MemoryRuntime = class {
       store,
       ledger,
       ledgerState,
-      workspaces
+      workspaces,
+      coreId
     });
-    return { hub, store, ledger, service, workspaces, coreId };
+    return { hub, store, ledger, service, workspaces, coreId, ancestorIds };
+  }
+  /** 双角色声明：workspaces[] 里存在 id === coreId 且 core_id 指向另一个核心的条目 → 最近的父核心。 */
+  dualRoleParent(config, coreId) {
+    for (const workspace of config.workspaces) {
+      if (workspace.id !== coreId) continue;
+      if (workspace.core_id !== void 0 && workspace.core_id !== null && workspace.core_id !== coreId) {
+        return workspace.core_id;
+      }
+    }
+    return null;
+  }
+  /**
+   * 金字塔祖先链：沿 workspaces[].core_id 逐层向上推导（父、祖父、…，近→远）。
+   * 带环检测与最大深度保护，链上任一环节缺失即停止。
+   */
+  ancestorIds(config, coreId) {
+    const chain = [];
+    const seen = /* @__PURE__ */ new Set([coreId]);
+    let current = coreId;
+    while (chain.length < MAX_ANCESTOR_DEPTH) {
+      const next = this.dualRoleParent(config, current);
+      if (next === null) break;
+      if (seen.has(next)) {
+        this.ctx.logger.warn(`dsh-memory-hub: ancestor chain for core ${coreId} cycles at ${next}; stopping`);
+        break;
+      }
+      seen.add(next);
+      chain.push(next);
+      current = next;
+    }
+    return chain;
+  }
+  /** 把祖先核心 pack 链（近→远）挂到 service；缺失的祖先给出 warning 并跳过。 */
+  wireAncestors(pack) {
+    const parents = [];
+    for (const ancestorId of pack.ancestorIds) {
+      const ancestor = this.cores.get(ancestorId);
+      if (ancestor === void 0) {
+        this.ctx.logger.warn(
+          `dsh-memory-hub: core ${pack.coreId} declares ancestor ${ancestorId} without an open hub (no root?); that layer is unavailable`
+        );
+        continue;
+      }
+      parents.push({
+        coreId: ancestor.coreId ?? ancestorId,
+        store: ancestor.store,
+        ledger: ancestor.ledger,
+        hub: ancestor.hub
+      });
+    }
+    pack.service.setParents(parents);
+  }
+  /**
+   * 配置热更新：按最新 config.yaml 增删 core、刷新工作区清单并重新接线双角色父核心。
+   * 面板保存或 watcher 触发 reloadConfig 后调用，新增核心/开启双角色无需重启。
+   */
+  async reconfigureCores() {
+    if (this.configHub === null || this.disposed) return;
+    const globalConfig = this.configHub.config;
+    const forcedReadOnly = this.config.readOnly === true;
+    const desiredRoot = /* @__PURE__ */ new Map();
+    for (const core of globalConfig.core_workspaces) {
+      if (core.root === void 0) continue;
+      desiredRoot.set(core.id, normalizeForCompare2(resolve2(expandHome(core.root))));
+    }
+    const removedIds = /* @__PURE__ */ new Set();
+    for (const [id, pack] of this.cores) {
+      const want = desiredRoot.get(id);
+      if (want === void 0 || normalizeForCompare2(pack.hub.root) !== want) removedIds.add(id);
+    }
+    for (const id of removedIds) {
+      const pack = this.cores.get(id);
+      if (pack === void 0) continue;
+      this.cores.delete(id);
+      try {
+        await pack.hub.close();
+        await pack.ledger.close();
+      } catch (error) {
+        this.ctx.logger.warn(`dsh-memory-hub: failed to close removed core ${id}: ${error.message}`);
+      }
+    }
+    for (const core of globalConfig.core_workspaces) {
+      if (core.root === void 0) continue;
+      const root = resolve2(expandHome(core.root));
+      const key = normalizeForCompare2(root);
+      const exists = [...this.cores.values()].some((pack2) => normalizeForCompare2(pack2.hub.root) === key);
+      if (exists) continue;
+      const sharesConfigRoot = key === normalizeForCompare2(this.configHub.root);
+      const dataHub = await Hub.open({
+        root,
+        readOnly: sharesConfigRoot ? this.configHub.readOnly : forcedReadOnly,
+        ...sharesConfigRoot && this.configHub.readOnlyReason !== null ? { readOnlyReason: this.configHub.readOnlyReason } : {},
+        config: globalConfig,
+        configPath: this.configHub.configPath() ?? void 0,
+        lock: !sharesConfigRoot
+      });
+      const pack = await this.openServicePack(
+        dataHub,
+        globalConfig,
+        this.coreWorkspaces(globalConfig, core.id, root),
+        core.id,
+        this.ancestorIds(globalConfig, core.id)
+      );
+      this.cores.set(core.id, pack);
+      this.ctx.logger.info(`dsh-memory-hub: opened core hub ${core.id} at ${root}`);
+    }
+    for (const pack of this.cores.values()) {
+      pack.hub.config = globalConfig;
+      pack.service.updateWorkspaces(this.coreWorkspaces(globalConfig, pack.coreId ?? "", pack.hub.root));
+      pack.ancestorIds = this.ancestorIds(globalConfig, pack.coreId ?? "");
+      this.wireAncestors(pack);
+    }
+    if (this.fallback !== null) {
+      this.fallback.service.updateWorkspaces(this.standaloneWorkspaces(globalConfig));
+    }
+    this.startWatcher();
   }
   standaloneWorkspaces(config) {
     return config.workspaces.filter((workspace) => !workspace.core_id);
@@ -15519,9 +15890,12 @@ var MemoryRuntime = class {
       for (const workspace of pack2.service.activeWorkspaces) {
         const rootCompared = normalizeForCompare2(workspace.root);
         if (!containsPath2(rootCompared, compared)) continue;
+        const own = workspace.id === id;
         if (rootCompared.length > bestLength) {
           bestLength = rootCompared.length;
-          bestCore = { id, root: workspace.root };
+          bestCore = { id, root: workspace.root, own };
+        } else if (rootCompared.length === bestLength && own && bestCore !== null && !bestCore.own) {
+          bestCore = { id, root: workspace.root, own };
         }
       }
     }
@@ -15619,14 +15993,15 @@ var MemoryRuntime = class {
       try {
         const service = exec.agent === void 0 ? null : await this.service(exec.agent);
         const proposalId = readProposalId(exec.arguments);
+        const core = readOptionalCore(exec.arguments);
         if (service !== null && proposalId !== null) {
-          const precheck = service.precheckProposal(proposalId);
+          const precheck = service.precheckProposal(proposalId, core);
           if (!precheck.ok) return { kind: "deny", reason: precheck.reason };
           if (service.approvalMode() === "auto") {
             this.ctx.logger.warn(`dsh-memory-hub: approval mode is auto; committing ${proposalId} without approval`);
             return base;
           }
-          reason = service.describeCommit(proposalId);
+          reason = service.describeCommit(proposalId, core);
         }
       } catch {
       }
@@ -15716,7 +16091,8 @@ var MemoryRuntime = class {
         }
         try {
           const pack = this.getPackFromQuery(url);
-          const detail = pack.service.knowledgeDetail(id);
+          const core = url.searchParams.get("core");
+          const detail = pack.service.knowledgeDetail(id, core === null || core === "" ? void 0 : core);
           if (detail === null) {
             sendJson(response, 404, { error: "not-found", id }, method);
             return;
@@ -15815,6 +16191,7 @@ var MemoryRuntime = class {
     if (this.fallback !== null) roots.add(this.fallback.hub.root);
     for (const pack of this.cores.values()) roots.add(pack.hub.root);
     for (const root of roots) {
+      if (this.watchHandles.has(root)) continue;
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return;
@@ -15845,6 +16222,7 @@ var MemoryRuntime = class {
     if (basename3(path) === "config.yaml") {
       if (this.configHub.configPath() === path) {
         await this.configHub.reloadConfig();
+        await this.reconfigureCores();
       }
       return;
     }
@@ -15903,6 +16281,11 @@ function readProposalId(args) {
   if (args === null || typeof args !== "object") return null;
   const value = args.proposal_id;
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+function readOptionalCore(args) {
+  if (args === null || typeof args !== "object") return void 0;
+  const value = args.core;
+  return typeof value === "string" && value.length > 0 ? value : void 0;
 }
 function extractIntent(messages) {
   const preferred = messages.find((message) => message.source?.kind === "user") ?? messages[0];

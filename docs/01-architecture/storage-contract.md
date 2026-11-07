@@ -90,6 +90,38 @@ storage:
 - 配置热更新由 watcher 触发。
 - `policy.maintenance` 是**全局**策略；每个 core 不再有独立调度配置。
 - `maintenance-state.json` 只写在配置 Hub（默认 `~/.dsh/memory-hub`）；每个 core 的 `reports/` 与 `pending/` 仍写在自己的 root 下。
+- 同一个 `id` 可以同时出现在 `core_workspaces` 与 `workspaces`（V0.1.7 双角色）：`core_workspaces` 给 root 打开独立 Hub，`workspaces` 里该条目的 `core_id` 指向父核心。此时 `core_id` 不得等于 `id`；会话路由到自己的核心 Hub，父核心 Hub 作为分级蒸馏的二级来源。
+- 金字塔上级链由 `workspaces[].core_id` 逐层推导（父、祖父、…，最多 8 层）；运行时带环检测，成环即截断，不依赖任何额外配置字段。
+
+## 双角色 / 金字塔配置示例
+
+```yaml
+core_workspaces:
+  - id: dsh-memory-hub
+    name: 记忆中枢
+    root: 'E:/009workspace/dsh/dsh-memory-hub'   # 自己的 Hub
+  - id: dsh-plugin-dev
+    name: 插件开发
+    root: 'E:/009workspace/dsh/dsh-plugin-dev'
+  - id: product
+    name: 产品主仓
+    root: 'E:/009workspace/dsh/dsh-memory-hub/dsh-memory-hub'
+workspaces:
+  - id: dsh-plugin-dev
+    core_id: product                             # 插件开发同时是产品主仓的子工作区
+    root: 'E:/009workspace/dsh/dsh-plugin-dev'
+    domains: []
+    admin: true
+    enabled: true
+  - id: dsh-memory-hub
+    core_id: dsh-plugin-dev                      # 记忆中枢同时是插件开发的子工作区
+    root: 'E:/009workspace/dsh/dsh-memory-hub'
+    domains: []
+    admin: true
+    enabled: true
+```
+
+`dsh-memory-hub` 会话的金字塔链为 近→远 `[dsh-plugin-dev, product]`：L1 写 `project:dsh-memory-hub`（自己的 Hub，最完整）；L2 用 `scope:"parent"` 写 `project:dsh-plugin-dev`；L3+ 用显式 `project:product` 上推到顶层。
 
 ## 知识 Markdown
 

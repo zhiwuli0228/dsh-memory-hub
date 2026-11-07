@@ -103,6 +103,26 @@ Host 每 60 秒 tick
 
 维护是插件内部定时器，不创建 DSH `schedule`，不绑定会话，不消耗模型上下文；永不 commit、删除或改写正文。多 core 顺序、失败语义和官方自动化任务的区别见 [maintenance.md](maintenance.md)。
 
+### 双角色路由与金字塔分级蒸馏（V0.1.7）
+
+```text
+同一目录既是核心 W 的 root、又是父核心 P 的子工作区：
+  core_workspaces: [{id: W, root: R}, {id: P, ...}]
+  workspaces:      [{id: W, core_id: P, root: R}]
+
+serviceFor(会话目录 R)
+  → 等长前缀平局：workspace.id === core.id 的条目（自己的核心）优先
+  → 主 pack = 核心 W 的 Hub；祖先链 = 沿 workspaces[].core_id 逐层上推（最多 8 层，带环检测）
+
+金字塔（近→远）：
+  L1 自身：scope:"core"                     → project:W，写自己的 Hub（最完整）
+  L2 父层：scope:"parent"                   → 候选写父核心 Hub 的 pending/，commit 用 core:"P"
+  L3+ 上层：scope:"project:<祖父核心>"      → 逐层上推
+检索：memory_search / 预检 / get / cite 按 近→远 合并各层 project:<祖先>，命中带 core:"<层>"
+```
+
+同 ID 跨 Hub 冲突时默认取自己的 Hub；`memory_get` / `memory_cite` / `memory_commit` 支持可选 `core` 参数显式指向任一祖先 Hub。
+
 ## 主要输出
 
 - `dist/index.js`：Host 插件构建产物。

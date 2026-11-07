@@ -20,6 +20,40 @@ core_workspaces:
 
 所有子工作区与核心工作区共用同一个数据 Hub（`E:\009workspace\dsh\dsh-plugin-dev`），所以“回填核心”不是复制文件，而是把候选的 `scope` 设为 `project:dsh-plugin-dev`。
 
+## 双角色变体（V0.1.7）
+
+插件本身也可以同时是自己的核心工作区：同一个 `id` 同时出现在 `core_workspaces`（自己的 Hub）与 `workspaces`（`core_id: dsh-plugin-dev`，同一目录）。例如 `dsh-memory-hub`：
+
+```text
+core_workspaces:
+  dsh-memory-hub            root: E:\009workspace\dsh\dsh-memory-hub   # 自己的 Hub
+  dsh-plugin-dev            root: E:\009workspace\dsh\dsh-plugin-dev
+workspaces:
+  dsh-memory-hub            core_id: dsh-plugin-dev, root: 同一目录
+```
+
+效果：
+
+- 会话路由到 `dsh-memory-hub` 自己的 Hub；检索同时可见 `project:dsh-memory-hub`（L1）与 `project:dsh-plugin-dev`（L2，父核心既有蒸馏）。
+- `scope: "core"` 回填的是**自己的**核心仓（L1）；要回填 `dsh-plugin-dev` 用 `scope: "parent"`（L2）。
+- 面板知识列表对上级核心条目显示「父核心蒸馏」标签。
+
+`core_id` 不允许指向自身；同 ID 跨 Hub 冲突时默认取自己的 Hub，可用 `core` 参数显式取上级核心。
+
+### 金字塔扩展（多层上级）
+
+`dsh-plugin-dev` 自己也可以是更上层核心（如 `product`）的子工作区，形成 近→远 祖先链 `[dsh-plugin-dev, product]`：
+
+```text
+workspaces:
+  dsh-plugin-dev            core_id: product, root: E:\009workspace\dsh\dsh-plugin-dev
+  dsh-memory-hub            core_id: dsh-plugin-dev, root: E:\009workspace\dsh\dsh-memory-hub
+```
+
+- `dsh-memory-hub` 会话可见三层：`project:dsh-memory-hub`（L1 完整记忆）→ `project:dsh-plugin-dev`（L2）→ `project:product`（L3）。
+- 逐层上推用显式 `scope: "project:<上层核心>"`；`memory_status` 的 `parentCoreIds` / `ancestors` 展示完整链。
+- 链最多 8 层；运行时带环检测，配置成环时自动截断并告警，不中断会话。
+
 ## 可见性
 
 在插件子工作区中，检索和预检可见：

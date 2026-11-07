@@ -60,6 +60,8 @@ export interface SearchFilters {
   localBoost?: number
   /** The current workspace id; its project scope is boosted over the core. */
   preferProject?: string
+  /** 命中来源的核心 Hub 标注（跨 Hub 检索时由调用方传入）。 */
+  coreTag?: string | null
 }
 
 const TYPE_BOOST: Record<KnowledgeType, number> = {
@@ -194,6 +196,7 @@ export class KnowledgeIndex {
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
         score,
+        core: filters.coreTag ?? null,
       })
     }
 

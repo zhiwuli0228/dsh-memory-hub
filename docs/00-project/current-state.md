@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.1.6 已发布：Host 插件 + Web 面板（含核心/子工作区配置），并支持多核心仓（multi-hub）：每个 `core_workspace.root` 都是一个独立的记忆仓库，会话按当前工作目录最长前缀匹配到对应的核心仓；DSH Desktop Runtime `0.2.1-rc.5` 宿主冒烟通过。写锁自 V0.1.6 起按 hub 根独立降级。npm 包 `dsh-memory-hub@0.1.6` 已上架，仓库同时提供自托管插件市场索引。
+V0.1.7 已发布：双角色工作区升级为**金字塔记忆**——同一 `id` 可同时是核心工作区与上层核心的子工作区，沿 `workspaces[].core_id` 逐层上推形成祖先链（父、祖父、…，最多 8 层，带环检测）；越靠自己的工作区记忆越完整，越往顶层越是蒸馏后的共享知识。检索/预检/读取按 近→远 合并各层 `project:<祖先>`，命中带 `core` 标注；L1 `scope:"core"` 写自己的 Hub，L2 `scope:"parent"` 写父核心 Hub，L3+ 显式 `project:<任意祖先核心>` 逐层上推；配置热更新自动重算并重接祖先链。npm 包 `dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-当前工作树为 **V0.1.6（已发布）**：在 V0.1.5 的预检门控、指令式包尾、系统级 `memory-hub` skill、夜间确定性维护之上，修复了写锁级联——配置根或某个 core 的 `records/.writer.lock` 被占用时，只让该根只读，不再冻结全部工作区；跨机拷贝/进程退出留下的锁自动回收；`config.yaml` 写入不再依赖写锁，面板「配置」页可自助修复。npm `dsh-memory-hub@0.1.6` 与 GitHub Release `v0.1.6` 已发布。
+当前工作树为 **V0.1.7（已发布）**：在 V0.1.6 的多核心仓、独立写锁、系统级 `memory-hub` skill 之上，双角色工作区支持多层上级链与逐层分级蒸馏（见上）。`npm dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布。
 
 ## 已实现
 
@@ -42,6 +42,14 @@ V0.1.6 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - [x] 多核心仓（multi-hub）：每个 `core_workspace.root` 作为独立数据仓库，按工作目录最长前缀路由
 - [x] 子工作区可感知主工作区：同一核心仓下的子工作区可见 `project:<core-id>` 作用域知识
 - [x] 子工作区根目录参与路由：子工作区即使不在核心仓根目录下，也能路由到所属核心仓
+- [x] 双角色工作区（V0.1.7）：同一个 `id` 可同时出现在 `core_workspaces` 与 `workspaces`；会话路由到自己的核心 Hub，父核心 Hub 挂为二级检索来源；等长前缀平局时自己的核心优先，不再依赖配置顺序
+- [x] 金字塔记忆（多层上级链）：沿 `workspaces[].core_id` 逐层推导父、祖父、…（近→远，最多 8 层，带环检测，成环截断告警）；`memory_status` 报告 `parentCoreIds` / `ancestors` 完整链
+- [x] 分级蒸馏（L1/L2/L3+）：L1 `scope:"core"` / `project:<self>` 写自己的 Hub；L2 `scope:"parent"` 写父核心 Hub 的 `pending/`；L3+ 显式 `project:<任意祖先核心>` 逐层上推；commit 落到对应层 Hub 的账本
+- [x] 跨 Hub 检索：`memory_search` / 预检 / `memory_get` / `memory_cite` 按 近→远 合并各层 `project:<祖先>` 知识，命中带 `core` 标注；`memory_get` / `memory_cite` / `memory_commit` 支持可选 `core` 参数
+- [x] 双角色安全约束：`core_id` 不得指向自身（配置保存时拒绝）；同 ID 跨 Hub 冲突默认取自己的 Hub
+- [x] L2 别名：`memory_propose` 支持 `scope: "parent"`（等价于 `project:<父核心>`），结果回报 `core` 与 `scope` 便于 commit 显式指定
+- [x] 配置热更新重接线：watcher 触发 `reloadConfig` 后执行 `reconfigureCores()`，按最新配置增删 core、刷新工作区清单、重新接线金字塔祖先链并同步最新 config 对象；新增核心 / 开启双角色无需重启
+- [x] 面板知识列表对上级核心条目显示「父核心蒸馏」标签；详情打开携带 `core` 查询参数
 - [x] 测试模式 `policy.approval.mode: auto`：跳过 DSH 审批，账本 `approvalRef` 记为 `test:auto`（默认仍为 `manual`）
 - [x] 核心共享：`memory_propose` 支持 `scope: "core"` 别名，子工作区可把可复用知识回填到 `project:<core-id>`
 - [x] `dsh-plugin-dev` 核心工作区已写入 9 条插件开发基线（入口、工具、客户端、开发循环、常见坑、回填检查清单、npm 发布踩坑、发布 checklist、预检采用率诊断）
@@ -102,6 +110,9 @@ V0.1.6 已发布：Host 插件 + Web 面板（含核心/子工作区配置），
 - 官方「自动化任务」栏不可见；如需暂停/编辑/立即运行，需要改用 DSH `schedule`，代价是会话和模型回合。
 - 当前 Hub：13 条 accepted、1 条 pending（`PRO-000016`，本次设计决策候选）。
 - `approval.mode` 仍为测试遗留的 `auto`；维护本身不 commit，但若要求严格人工审批应改回 `manual`。
+- 金字塔上级链最多 **8 层**（含父/祖父/…）；超过上限的更深层配置不会参与检索与蒸馏，配置环（A→B→A）在运行时截断并告警，不中断会话。
+- 两个 Hub 的 ID 序列相互独立；同 ID 冲突时默认取自己的 Hub，上级副本需用 `core` 参数显式访问（面板详情同样带 `core` 查询参数）。
+- 上级核心 Hub 的夜间维护不会把子会话的 L2/L3+ 候选自动晋升；逐层蒸馏仍靠 `memory_propose(scope)` + 人工 `memory_commit`。
 
 ## 当前目录
 

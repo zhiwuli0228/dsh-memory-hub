@@ -152,18 +152,19 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       name: 'memory_get',
       concurrencySafe: true,
       description:
-        'Read one memory entry in full, including its frontmatter metadata and provenance. Use the id from memory_search or the preflight hint; pass version only when you need a historical version.',
+        'Read one memory entry in full, including its frontmatter metadata and provenance. Use the id from memory_search or the preflight hint; pass version only when you need a historical version. In a dual-role workspace (own core + parent core) the same id may exist in both hubs: pass core to pick the parent copy explicitly.',
       parameters: objectSchema(
         {
           id: { type: 'string', description: 'Knowledge id, for example DEC-000001.' },
           version: { type: 'number', description: 'Optional historical version; defaults to the current version.' },
+          core: { type: 'string', description: 'Optional core hub id to read from (defaults to the current own core, then ancestor cores nearest-first).' },
         },
         ['id'],
       ),
       async execute(args, exec) {
-        const input = args as { id: string; version?: number }
+        const input = args as { id: string; version?: number; core?: string }
         const service = await host.service(requireAgent(exec))
-        return service.get(requireAgent(exec), input.id, input.version)
+        return service.get(requireAgent(exec), input.id, input.version, input.core)
       },
     }),
 
@@ -204,24 +205,26 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     tool({
       name: 'memory_cite',
       description:
-        'Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task.',
+        'Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task. In a dual-role workspace pass core to cite the copy in a specific hub (defaults to the current own core first).',
       parameters: objectSchema(
         {
           knowledge_id: { type: 'string', description: 'Knowledge id being used.' },
           version: { type: 'number', description: 'Optional version; defaults to the current version.' },
           purpose: { type: 'string', description: 'How the entry was used, at most 200 characters.' },
           task_id: { type: 'string', description: 'Optional current task id; other tasks are rejected.' },
+          core: { type: 'string', description: 'Optional core hub id the entry lives in (defaults to the current own core, then ancestor cores nearest-first).' },
         },
         ['knowledge_id', 'purpose'],
       ),
       async execute(args, exec) {
-        const input = args as { knowledge_id: string; version?: number; purpose: string; task_id?: string }
+        const input = args as { knowledge_id: string; version?: number; purpose: string; task_id?: string; core?: string }
         const service = await host.service(requireAgent(exec))
         return service.cite(requireAgent(exec), {
           knowledge_id: input.knowledge_id,
           ...(input.version === undefined ? {} : { version: input.version }),
           purpose: input.purpose,
           ...(input.task_id === undefined ? {} : { task_id: input.task_id }),
+          ...(input.core === undefined ? {} : { core: input.core }),
         })
       },
     }),
@@ -234,7 +237,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
         {
           operation: { type: 'string', enum: ['create', 'update', 'deprecate'], description: 'What to do with the knowledge.' },
           type: { type: 'string', enum: [...KNOWLEDGE_TYPES], description: 'Knowledge type.' },
-          scope: { type: 'string', description: 'global, domain:<id>, project:<workspace-id>, or core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge).' },
+          scope: { type: 'string', description: 'global, domain:<id>, project:<workspace-id>, core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge), or parent (alias for the nearest ancestor core project scope in a dual-role workspace, used for L2 distillation; deeper pyramid levels use explicit project:<ancestor-core-id>).' },
           title: { type: 'string', description: 'Short title, at most 200 characters.' },
           summary: { type: 'string', description: 'One-sentence conclusion, at most 240 characters.' },
           content: { type: 'string', description: 'Markdown body for create/update; optional for deprecate.' },
@@ -285,15 +288,18 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     tool({
       name: 'memory_commit',
       description:
-        'Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto.',
+        'Commit a pending proposal after the user approves it. The harness asks the user through the native approval prompt before this tool executes; do not retry a rejected proposal and never claim approval yourself. In local test mode (policy.approval.mode=auto) the commit proceeds without a prompt and the ledger records approvalRef test:auto. In a dual-role workspace the same proposal id may exist in both hubs: pass core to commit the copy in a specific hub (defaults to the current own core first).',
       parameters: objectSchema(
-        { proposal_id: { type: 'string', description: 'Pending proposal id, for example PRO-000001.' } },
+        {
+          proposal_id: { type: 'string', description: 'Pending proposal id, for example PRO-000001.' },
+          core: { type: 'string', description: 'Optional core hub id to commit in (defaults to the current own core, then ancestor cores nearest-first).' },
+        },
         ['proposal_id'],
       ),
       async execute(args, exec) {
-        const input = args as { proposal_id: string }
+        const input = args as { proposal_id: string; core?: string }
         const service = await host.service(requireAgent(exec))
-        return service.commit(requireAgent(exec), input.proposal_id)
+        return service.commit(requireAgent(exec), input.proposal_id, input.core)
       },
     }),
 

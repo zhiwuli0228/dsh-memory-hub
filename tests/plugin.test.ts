@@ -302,6 +302,275 @@ workspaces:
     await rm(subA, { recursive: true, force: true })
   })
 
+  it('routes a dual-role workspace to its own core hub even when the parent core is configured first', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-dual-config-'))
+    const dualRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-dual-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-dual-parent-'))
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: parent
+    name: Parent
+    root: '${parentRoot.replace(/\\/g, '/')}'
+  - id: dual
+    name: Dual
+    root: '${dualRoot.replace(/\\/g, '/')}'
+workspaces:
+  - id: dual
+    core_id: parent
+    root: '${dualRoot.replace(/\\/g, '/')}'
+    domains: []
+    admin: false
+    enabled: true
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    const directories = new Map<string, string>()
+    directories.set('session-dual', dualRoot)
+    directories.set('session-parent', parentRoot)
+
+    const host = createDirectoryHost(configRoot, directories)
+    apply(host.ctx, { root: configRoot })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // 父核心在配置里排在前面；等长前缀平局时必须自己的核心优先。
+    const dualStatus = (await invoke(
+      'memory_status',
+      host,
+      {},
+      makeAgent(host, 'session-dual'),
+    )) as {
+      root: string
+      workspace: { id: string; parentCoreId: string | null; parentCoreIds: string[] } | null
+      parent: { coreId: string } | null
+    }
+    expect(dualStatus.root).toContain('dual-')
+    expect(dualStatus.workspace?.id).toBe('dual')
+    expect(dualStatus.workspace?.parentCoreId).toBe('parent')
+    expect(dualStatus.workspace?.parentCoreIds).toEqual(['parent'])
+    expect(dualStatus.parent?.coreId).toBe('parent')
+
+    const parentStatus = (await invoke(
+      'memory_status',
+      host,
+      {},
+      makeAgent(host, 'session-parent'),
+    )) as { root: string; workspace: { id: string } | null; parent: unknown }
+    expect(parentStatus.root).toContain('dual-parent')
+    expect(parentStatus.workspace?.id).toBe('parent')
+    expect(parentStatus.parent).toBeNull()
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(configRoot, { recursive: true, force: true })
+    await rm(dualRoot, { recursive: true, force: true })
+    await rm(parentRoot, { recursive: true, force: true })
+  })
+
+  it('re-wires cores and dual-role parents on config hot reload without a restart', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-reload-config-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-reload-parent-'))
+    const dualRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-reload-dual-'))
+    const slash = (value: string): string => value.replace(/\\/g, '/')
+    const head = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: parent
+    name: Parent
+    root: '${slash(parentRoot)}'
+`
+    const tail = `workspaces:
+  - id: dual
+    core_id: parent
+    root: '${slash(dualRoot)}'
+    domains: []
+    admin: false
+    enabled: true
+`
+    await writeFile(join(configRoot, 'config.yaml'), `${head}${tail}`, 'utf8')
+
+    const directories = new Map<string, string>()
+    directories.set('session-reload', dualRoot)
+
+    const host = createDirectoryHost(configRoot, directories)
+    apply(host.ctx, { root: configRoot })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    try {
+      const makeStatus = async (): Promise<{
+        root: string
+        workspace?: { id: string; parentCoreId: string | null } | null
+        parent?: { coreId: string } | null
+      }> =>
+        (await invoke('memory_status', host, {}, makeAgent(host, 'session-reload'))) as {
+          root: string
+          workspace?: { id: string; parentCoreId: string | null } | null
+          parent?: { coreId: string } | null
+        }
+
+      // 初始：dual 只是 parent 的子工作区。
+      const before = await makeStatus()
+      expect(before.root).toContain('reload-parent')
+      expect(before.parent).toBeNull()
+
+      // 热更新：把 dual 同时声明为核心工作区（双角色），无需重启。
+      const updated = `${head}  - id: dual
+    name: Dual
+    root: '${slash(dualRoot)}'
+${tail}`
+      await writeFile(join(configRoot, 'config.yaml'), updated, 'utf8')
+
+      const deadline = Date.now() + 6000
+      let after = await makeStatus()
+      while (Date.now() < deadline && !after.root.includes('reload-dual')) {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        after = await makeStatus()
+      }
+      expect(after.root).toContain('reload-dual')
+      expect(after.workspace?.id).toBe('dual')
+      expect(after.workspace?.parentCoreId).toBe('parent')
+      expect(after.parent?.coreId).toBe('parent')
+    } finally {
+      for (const dispose of host.disposers.reverse()) {
+        await dispose()
+      }
+      await rm(configRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+      await rm(dualRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('builds a two-level ancestor pyramid from the config chain (leaf → parent → grand)', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-config-'))
+    const leafRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-leaf-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-parent-'))
+    const grandRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-pyramid-grand-'))
+    const slash = (value: string): string => value.replace(/\\/g, '/')
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: grand
+    name: Grand
+    root: '${slash(grandRoot)}'
+  - id: parent
+    name: Parent
+    root: '${slash(parentRoot)}'
+  - id: leaf
+    name: Leaf
+    root: '${slash(leafRoot)}'
+workspaces:
+  - id: parent
+    core_id: grand
+    root: '${slash(parentRoot)}'
+    domains: []
+    admin: false
+    enabled: true
+  - id: leaf
+    core_id: parent
+    root: '${slash(leafRoot)}'
+    domains: []
+    admin: false
+    enabled: true
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    const directories = new Map<string, string>()
+    directories.set('session-leaf', leafRoot)
+    directories.set('session-parent', parentRoot)
+
+    const host = createDirectoryHost(configRoot, directories)
+    apply(host.ctx, { root: configRoot })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    try {
+      const leafStatus = (await invoke('memory_status', host, {}, makeAgent(host, 'session-leaf'))) as {
+        root: string
+        workspace?: { id: string; parentCoreId: string | null; parentCoreIds: string[] } | null
+        ancestors?: Array<{ coreId: string }> | null
+      }
+      expect(leafStatus.root).toContain('pyramid-leaf')
+      expect(leafStatus.workspace?.id).toBe('leaf')
+      expect(leafStatus.workspace?.parentCoreId).toBe('parent')
+      expect(leafStatus.workspace?.parentCoreIds).toEqual(['parent', 'grand'])
+      expect(leafStatus.ancestors?.map((ancestor) => ancestor.coreId)).toEqual(['parent', 'grand'])
+
+      const parentStatus = (await invoke('memory_status', host, {}, makeAgent(host, 'session-parent'))) as {
+        root: string
+        workspace?: { parentCoreIds?: string[] } | null
+      }
+      expect(parentStatus.root).toContain('pyramid-parent')
+      expect(parentStatus.workspace?.parentCoreIds).toEqual(['grand'])
+    } finally {
+      for (const dispose of host.disposers.reverse()) {
+        await dispose()
+      }
+      await rm(configRoot, { recursive: true, force: true })
+      await rm(leafRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+      await rm(grandRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('stops an ancestor chain that would cycle instead of hanging', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cycle-config-'))
+    const leafRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cycle-leaf-'))
+    const parentRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cycle-parent-'))
+    const slash = (value: string): string => value.replace(/\\/g, '/')
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: leaf
+    name: Leaf
+    root: '${slash(leafRoot)}'
+  - id: parent
+    name: Parent
+    root: '${slash(parentRoot)}'
+workspaces:
+  - id: leaf
+    core_id: parent
+    root: '${slash(leafRoot)}'
+    domains: []
+    admin: false
+    enabled: true
+  - id: parent
+    core_id: leaf
+    root: '${slash(parentRoot)}'
+    domains: []
+    admin: false
+    enabled: true
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    const directories = new Map<string, string>()
+    directories.set('session-cycle', leafRoot)
+
+    const host = createDirectoryHost(configRoot, directories)
+    apply(host.ctx, { root: configRoot })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    try {
+      const status = (await invoke('memory_status', host, {}, makeAgent(host, 'session-cycle'))) as {
+        root: string
+        workspace?: { parentCoreIds?: string[] } | null
+      }
+      expect(status.root).toContain('cycle-leaf')
+      // 环在第一个重复点截断：leaf → parent（回到 leaf 即停）。
+      expect(status.workspace?.parentCoreIds).toEqual(['parent'])
+    } finally {
+      for (const dispose of host.disposers.reverse()) {
+        await dispose()
+      }
+      await rm(configRoot, { recursive: true, force: true })
+      await rm(leafRoot, { recursive: true, force: true })
+      await rm(parentRoot, { recursive: true, force: true })
+    }
+  })
+
   it('keeps core workspaces writable when the config-root lock is busy', async () => {
     const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cfg-lock-'))
     const coreRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-core-free-'))

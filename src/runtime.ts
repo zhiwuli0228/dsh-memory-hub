@@ -6,7 +6,7 @@ import { expandHome, Hub, resolveHubRoot } from './hub.js'
 import { KnowledgeStore } from './store.js'
 import { Ledger } from './ledger.js'
 import { MemoryError } from './errors.js'
-import { MemoryService, PLUGIN_VERSION } from './service.js'
+import { MemoryService, PLUGIN_VERSION, type ParentPack } from './service.js'
 import { localDateKey, maintenanceDue } from './maintenance-schedule.js'
 import { createTools, type MaintenanceToolArgs, type ToolHost } from './tools.js'
 import { registerMemorySkill } from './skill.js'
@@ -41,7 +41,12 @@ interface ServicePack {
   service: MemoryService
   workspaces: WorkspaceConfig[]
   coreId: string | null
+  /** 金字塔：本核心的祖先核心链（近→远，父、祖父、…），由 workspaces[].core_id 逐层推导。 */
+  ancestorIds: string[]
 }
+
+/** 金字塔链的最大层级数（父 + 祖父 + …，不含自身），防环上限。 */
+const MAX_ANCESTOR_DEPTH = 8
 
 export class MemoryRuntime implements ToolHost {
   private readonly ctx: Context
@@ -142,7 +147,7 @@ export class MemoryRuntime implements ToolHost {
       this.configHub = configHub
 
       const globalConfig = configHub.config
-      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null)
+      this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null, [])
 
       for (const core of globalConfig.core_workspaces) {
         if (core.root === undefined) continue
@@ -170,8 +175,14 @@ export class MemoryRuntime implements ToolHost {
           globalConfig,
           this.coreWorkspaces(globalConfig, core.id, root),
           core.id,
+          this.ancestorIds(globalConfig, core.id),
         )
         this.cores.set(core.id, pack)
+      }
+
+      // 金字塔分级蒸馏：核心 Hub 打开后，把祖先核心 pack 链（近→远）挂到它自己的 service 上。
+      for (const pack of this.cores.values()) {
+        this.wireAncestors(pack)
       }
 
       this.registerExistingAgents()
@@ -364,6 +375,7 @@ export class MemoryRuntime implements ToolHost {
     config: MemoryConfig,
     workspaces: WorkspaceConfig[],
     coreId: string | null,
+    ancestorIds: string[],
   ): Promise<ServicePack> {
     const ledger = new Ledger(hub.ledgerPath())
     const ledgerState = await ledger.load({ repair: !hub.readOnly })
@@ -376,8 +388,144 @@ export class MemoryRuntime implements ToolHost {
       ledger,
       ledgerState,
       workspaces,
+      coreId,
     })
-    return { hub, store, ledger, service, workspaces, coreId }
+    return { hub, store, ledger, service, workspaces, coreId, ancestorIds }
+  }
+
+  /** 双角色声明：workspaces[] 里存在 id === coreId 且 core_id 指向另一个核心的条目 → 最近的父核心。 */
+  private dualRoleParent(config: MemoryConfig, coreId: string): string | null {
+    for (const workspace of config.workspaces) {
+      if (workspace.id !== coreId) continue
+      if (workspace.core_id !== undefined && workspace.core_id !== null && workspace.core_id !== coreId) {
+        return workspace.core_id
+      }
+    }
+    return null
+  }
+
+  /**
+   * 金字塔祖先链：沿 workspaces[].core_id 逐层向上推导（父、祖父、…，近→远）。
+   * 带环检测与最大深度保护，链上任一环节缺失即停止。
+   */
+  private ancestorIds(config: MemoryConfig, coreId: string): string[] {
+    const chain: string[] = []
+    const seen = new Set<string>([coreId])
+    let current = coreId
+    while (chain.length < MAX_ANCESTOR_DEPTH) {
+      const next = this.dualRoleParent(config, current)
+      if (next === null) break
+      if (seen.has(next)) {
+        this.ctx.logger.warn(`dsh-memory-hub: ancestor chain for core ${coreId} cycles at ${next}; stopping`)
+        break
+      }
+      seen.add(next)
+      chain.push(next)
+      current = next
+    }
+    return chain
+  }
+
+  /** 把祖先核心 pack 链（近→远）挂到 service；缺失的祖先给出 warning 并跳过。 */
+  private wireAncestors(pack: ServicePack): void {
+    const parents: ParentPack[] = []
+    for (const ancestorId of pack.ancestorIds) {
+      const ancestor = this.cores.get(ancestorId)
+      if (ancestor === undefined) {
+        this.ctx.logger.warn(
+          `dsh-memory-hub: core ${pack.coreId} declares ancestor ${ancestorId} without an open hub (no root?); that layer is unavailable`,
+        )
+        continue
+      }
+      parents.push({
+        coreId: ancestor.coreId ?? ancestorId,
+        store: ancestor.store,
+        ledger: ancestor.ledger,
+        hub: ancestor.hub,
+      })
+    }
+    pack.service.setParents(parents)
+  }
+
+  /**
+   * 配置热更新：按最新 config.yaml 增删 core、刷新工作区清单并重新接线双角色父核心。
+   * 面板保存或 watcher 触发 reloadConfig 后调用，新增核心/开启双角色无需重启。
+   */
+  private async reconfigureCores(): Promise<void> {
+    if (this.configHub === null || this.disposed) return
+    const globalConfig = this.configHub.config
+    const forcedReadOnly = this.config.readOnly === true
+
+    const desiredRoot = new Map<string, string>()
+    for (const core of globalConfig.core_workspaces) {
+      if (core.root === undefined) continue
+      desiredRoot.set(core.id, normalizeForCompare(resolve(expandHome(core.root))))
+    }
+
+    // 1) 移除不再配置或 root 变化的 core。
+    const removedIds = new Set<string>()
+    for (const [id, pack] of this.cores) {
+      const want = desiredRoot.get(id)
+      if (want === undefined || normalizeForCompare(pack.hub.root) !== want) removedIds.add(id)
+    }
+    for (const id of removedIds) {
+      const pack = this.cores.get(id)
+      if (pack === undefined) continue
+      this.cores.delete(id)
+      // 移除后的接线统一在步骤 3 的 wireAncestors 里重算（缺失祖先自然被跳过）。
+      try {
+        await pack.hub.close()
+        await pack.ledger.close()
+      } catch (error) {
+        this.ctx.logger.warn(`dsh-memory-hub: failed to close removed core ${id}: ${(error as Error).message}`)
+      }
+    }
+
+    // 2) 打开新增 core。
+    for (const core of globalConfig.core_workspaces) {
+      if (core.root === undefined) continue
+      const root = resolve(expandHome(core.root))
+      const key = normalizeForCompare(root)
+      const exists = [...this.cores.values()].some((pack) => normalizeForCompare(pack.hub.root) === key)
+      if (exists) continue
+      const sharesConfigRoot = key === normalizeForCompare(this.configHub.root)
+      const dataHub = await Hub.open({
+        root,
+        readOnly: sharesConfigRoot ? this.configHub.readOnly : forcedReadOnly,
+        ...(sharesConfigRoot && this.configHub.readOnlyReason !== null
+          ? { readOnlyReason: this.configHub.readOnlyReason }
+          : {}),
+        config: globalConfig,
+        configPath: this.configHub.configPath() ?? undefined,
+        lock: !sharesConfigRoot,
+      })
+      const pack = await this.openServicePack(
+        dataHub,
+        globalConfig,
+        this.coreWorkspaces(globalConfig, core.id, root),
+        core.id,
+        this.ancestorIds(globalConfig, core.id),
+      )
+      this.cores.set(core.id, pack)
+      this.ctx.logger.info(`dsh-memory-hub: opened core hub ${core.id} at ${root}`)
+    }
+
+    // 3) 重新接线父核心并刷新各 pack 的工作区清单。
+    for (const pack of this.cores.values()) {
+      // 核心 Hub 打开时持有旧的 config 对象；reloadConfig 只更新了配置 Hub，
+      // 这里把最新配置同步过去，让 policy/gate/limits 的热更新也作用到核心。
+      pack.hub.config = globalConfig
+      pack.service.updateWorkspaces(this.coreWorkspaces(globalConfig, pack.coreId ?? '', pack.hub.root))
+      pack.ancestorIds = this.ancestorIds(globalConfig, pack.coreId ?? '')
+      this.wireAncestors(pack)
+    }
+
+    if (this.fallback !== null) {
+      this.fallback.service.updateWorkspaces(this.standaloneWorkspaces(globalConfig))
+    }
+
+    // 4) 新 root 的 watcher 句柄（已有 root 跳过）。
+    this.startWatcher()
   }
 
   private standaloneWorkspaces(config: MemoryConfig): WorkspaceConfig[] {
@@ -429,15 +577,20 @@ export class MemoryRuntime implements ToolHost {
     if (directory === '') return this.fallback
 
     const compared = normalizeForCompare(directory)
-    let bestCore: { id: string; root: string } | null = null
+    let bestCore: { id: string; root: string; own: boolean } | null = null
     let bestLength = -1
     for (const [id, pack] of this.cores) {
       for (const workspace of pack.service.activeWorkspaces) {
         const rootCompared = normalizeForCompare(workspace.root)
         if (!containsPath(rootCompared, compared)) continue
+        const own = workspace.id === id
         if (rootCompared.length > bestLength) {
           bestLength = rootCompared.length
-          bestCore = { id, root: workspace.root }
+          bestCore = { id, root: workspace.root, own }
+        } else if (rootCompared.length === bestLength && own && bestCore !== null && !bestCore.own) {
+          // 双角色：同一目录既是某核心的 root、又是父核心的子工作区（等长前缀平局），
+          // 自己的核心仓优先，不再依赖 core_workspaces[] 配置顺序。
+          bestCore = { id, root: workspace.root, own }
         }
       }
     }
@@ -547,14 +700,15 @@ export class MemoryRuntime implements ToolHost {
       try {
         const service = exec.agent === undefined ? null : await this.service(exec.agent)
         const proposalId = readProposalId(exec.arguments)
+        const core = readOptionalCore(exec.arguments)
         if (service !== null && proposalId !== null) {
-          const precheck = service.precheckProposal(proposalId)
+          const precheck = service.precheckProposal(proposalId, core)
           if (!precheck.ok) return { kind: 'deny', reason: precheck.reason }
           if (service.approvalMode() === 'auto') {
             this.ctx.logger.warn(`dsh-memory-hub: approval mode is auto; committing ${proposalId} without approval`)
             return base
           }
-          reason = service.describeCommit(proposalId)
+          reason = service.describeCommit(proposalId, core)
         }
       } catch {
         // The approval still gates the call; execution will report initialization errors.
@@ -649,7 +803,8 @@ export class MemoryRuntime implements ToolHost {
         }
         try {
           const pack = this.getPackFromQuery(url)
-          const detail = pack.service.knowledgeDetail(id)
+          const core = url.searchParams.get('core')
+          const detail = pack.service.knowledgeDetail(id, core === null || core === '' ? undefined : core)
           if (detail === null) {
             sendJson(response, 404, { error: 'not-found', id }, method)
             return
@@ -763,6 +918,7 @@ export class MemoryRuntime implements ToolHost {
     if (this.fallback !== null) roots.add(this.fallback.hub.root)
     for (const pack of this.cores.values()) roots.add(pack.hub.root)
     for (const root of roots) {
+      if (this.watchHandles.has(root)) continue
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return
@@ -795,6 +951,7 @@ export class MemoryRuntime implements ToolHost {
     if (basename(path) === 'config.yaml') {
       if (this.configHub.configPath() === path) {
         await this.configHub.reloadConfig()
+        await this.reconfigureCores()
       }
       return
     }
@@ -858,6 +1015,12 @@ function readProposalId(args: unknown): string | null {
   if (args === null || typeof args !== 'object') return null
   const value = (args as Record<string, unknown>).proposal_id
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function readOptionalCore(args: unknown): string | undefined {
+  if (args === null || typeof args !== 'object') return undefined
+  const value = (args as Record<string, unknown>).core
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function extractIntent(messages: readonly UserMessage[]): string {
