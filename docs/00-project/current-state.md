@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.1.7 已发布：双角色工作区升级为**金字塔记忆**——同一 `id` 可同时是核心工作区与上层核心的子工作区，沿 `workspaces[].core_id` 逐层上推形成祖先链（父、祖父、…，最多 8 层，带环检测）；越靠自己的工作区记忆越完整，越往顶层越是蒸馏后的共享知识。检索/预检/读取**以当前工作区为主**：本层有命中即返回、不再上溯，本层无命中才按 近→远 回退到上一层 `project:<祖先>`；命中带 `core` 标注；L1 `scope:"core"` 写自己的 Hub，L2 `scope:"parent"` 写父核心 Hub，L3+ 显式 `project:<任意祖先核心>` 逐层上推；配置热更新自动重算并重接祖先链。npm 包 `dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+V0.1.8 已发布：金字塔检索改为**回退式**——检索/预检/读取以当前工作区为主，本层有 ≥1 个合格命中即返回、不再上溯；本层无命中才按 近→远 回退到上一层核心的 `project:<祖先>` 蒸馏知识（显式 `scope:` 只查指定层、不做回退）。面板知识列表按 自己的 Hub → 各祖先层 分层排序。npm 包 `dsh-memory-hub@0.1.8` 与 GitHub Release `v0.1.8` 已发布；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-当前工作树为 **V0.1.7（已发布）**：在 V0.1.6 的多核心仓、独立写锁、系统级 `memory-hub` skill 之上，双角色工作区支持多层上级链与逐层分级蒸馏（见上）。`npm dsh-memory-hub@0.1.7` 与 GitHub Release `v0.1.7` 已发布。
+当前工作树为 **V0.1.8（已发布）**：在 V0.1.7 的双角色金字塔记忆之上，把检索语义从“近→远合并”收紧为“当前工作区优先、本层无命中才逐层上溯”（见上）。`npm dsh-memory-hub@0.1.8` 与 GitHub Release `v0.1.8` 已发布。
 
 ## 已实现
 
