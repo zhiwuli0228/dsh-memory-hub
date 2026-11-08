@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed（2026-11-08，未实现）
+Accepted（2026-11-08 评审确认：aging 窗口取 90 天；待实现）
 
 ## 1. Problem
 
@@ -31,7 +31,7 @@ Proposed（2026-11-08，未实现）
 - 检索降权（`search.ts`，在类型加权之前乘系数）：
   - `scheduled`（`valid_from` 在未来）：× 0.3，仍可检索。
   - `stale`（`expires_at` 已过）：× 0.6，仍可检索。
-  - `aging`（`last_verified`/`updated_at` 超过 `policy.temporal.aging_days`，默认 180 天）：× 0.85。
+  - `aging`（`last_verified`/`updated_at` 超过 `policy.temporal.aging_days`，默认 90 天）：× 0.85。
   - `fresh`：× 1.0。
 - 预检（`service.preflight`）：
   - 命中项带 `temporal` 标记与一行说明（`过期于 2026-08-01` / `2026-12-01 起生效`）。
@@ -67,7 +67,7 @@ Proposed（2026-11-08，未实现）
 
 ## 6. Storage Impact
 
-- `config.yaml`：新增 `policy.temporal.aging_days`（180）、`stale_decay`（0.6）、`aging_decay`（0.85）、`scheduled_decay`（0.3）。
+- `config.yaml`：新增 `policy.temporal.aging_days`（90）、`stale_decay`（0.6）、`aging_decay`（0.85）、`scheduled_decay`（0.3）。
 - `knowledge/<type>/<id>.md`：新条目可带三字段；老条目不变，除非被更新时显式补齐。
 - `pending/PRO-*.md`：提案带三字段（可选）。
 - `records/ledger.jsonl`：`knowledge.committed` 事件附带 `temporal` 快照（不新增事件类型）。
@@ -96,7 +96,7 @@ Proposed（2026-11-08，未实现）
 - 单元测试（`tests/temporal.test.ts`）：
   - 三字段的解析/序列化往返；缺字段时序列化不输出多余行。
   - 非法时间（无时区、`valid_from > expires_at`、`last_verified` 超前）被拒绝且错误信息可读。
-  - 老文件（无新字段）在 `aging_decay: 1.0` 下检索分数与改动前完全一致；默认配置下只有 ≥ 180 天未更新的条目被降权。
+  - 老文件（无新字段）在 `aging_decay: 1.0` 下检索分数与改动前完全一致；默认配置下只有 ≥ 90 天未更新的条目被降权。
   - `stale`/`aging`/`scheduled` 的乘数按配置生效；`scheduled` 不出现在预检包但出现在 `memory_search`。
   - 边界：`expires_at` 恰好等于当前时刻 → `stale`；`valid_from` 恰好等于当前时刻 → `fresh`。
 - 维护测试：报告出现时效段落，计数与列表正确。
@@ -135,6 +135,6 @@ Proposed（2026-11-08，未实现）
 
 ## 11. Open Questions
 
-- `aging_days` 默认 180 是否太短？建议先按 180 上线，观察「aging 占比」再调；如果超过 40% 的条目都是 aging，说明默认值不合适。
+- `aging_days` 默认已定为 90 天。用户在 2026-11-08 评审时明确「180 天太久，90 天」，因此按 90 上线；若观察期发现 ≥ 40% 条目落入 aging，再考虑放宽到 120/180。
 - 是否需要在 `memory_get` 的 digest 顶部固定输出时效行？本提案只在预检与搜索结果里带标记，`memory_get` 保持原样，避免改变模型已习惯的输出。
 - `valid_from` 对「长期有效的约束」意义不大，是否需要按类型关闭该字段（例如 `constraint` 不显示）？先全部支持，面板按是否有值显示。

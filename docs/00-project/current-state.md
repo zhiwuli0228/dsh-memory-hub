@@ -196,13 +196,13 @@ dsh-memory-hub/
 - [proposal-maintenance.md](../03-openspec/proposal-maintenance.md) — 已实现的 OpenSpec 提案。
 - [COMPATIBILITY.md](../COMPATIBILITY.md) — 宿主冒烟与未验证项。
 - [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) — 2026-11 调研：ChatGPT/Claude/Qwen/OpenClaw 的记忆与萃取机制、开源记忆层、评测基准，以及由此重排的瓶颈与 P0/P1 路线。
-- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（未实现）。
-- [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（未实现）。
-- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（未实现）。
+- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；未实现）。
+- [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；未实现）。
+- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；未实现）。
 
 ## 下一步推荐工作
 
-1. 评审三份 P0 提案（[时效字段](../03-openspec/proposal-temporal-fields.md) → [去重合并](../03-openspec/proposal-dedupe-merge.md) → [回顾式萃取](../03-openspec/proposal-retrospective-extraction.md)），确认后按任务拆分实施。
+1. 按评审结论实施三份 P0 提案（均已 Accepted）：先 [时效字段](../03-openspec/proposal-temporal-fields.md)（aging 90 天），再 [去重合并](../03-openspec/proposal-dedupe-merge.md)（独立 `operation: 'merge'`），最后 [回顾式萃取](../03-openspec/proposal-retrospective-extraction.md)（定时任务 + 核心/子工作区各一条）。
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
 4. 压测 5k+ 条知识索引与检索性能。

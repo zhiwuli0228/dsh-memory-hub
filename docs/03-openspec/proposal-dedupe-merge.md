@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed（2026-11-08，未实现）
+Accepted（2026-11-08 评审确认：采用独立 `operation: 'merge'`，不复用 `update` + 多条 `supersedes`；待实现）
 
 ## 1. Problem
 
@@ -135,5 +135,6 @@ Proposed（2026-11-08，未实现）
 
 ## 11. Open Questions
 
+- 是否把「为什么需要独立 `merge`」写进 ADR？评审已确认采用独立操作（一条提案影响多条知识，且要留下「谁被并进了谁」的单点记录），建议在实现时补一条 ADR 记录该取舍。
 - `merge` 是否应该同时继承被合并项的 `tags`？首版只继承 `related` 与 `source_refs`，`tags` 由模型在提案里显式给。
 - 面板 diff 用「行级」还是「段落级」？行级实现简单，但长段落会整块变色；先做行级，观察可用性。
