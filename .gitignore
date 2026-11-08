@@ -16,6 +16,7 @@ records/
 reports/
 history/
 index/
+MEMORY-HUB.md
 
 .env
 .env.*

@@ -8,6 +8,7 @@ import {
   type MemoryConfig,
 } from './config.js'
 import { MemoryError } from './errors.js'
+import { ensureHubReadme } from './hub-readme.js'
 import { WriterLock, type LockOwner } from './lock.js'
 import { KNOWLEDGE_TYPES, TYPE_PREFIX, type KnowledgeType } from './types.js'
 
@@ -132,6 +133,15 @@ export class Hub {
       hub.markReadOnly('config', configError)
     } else if (!forcedReadOnly && lockAllowed) {
       await hub.acquireLock()
+    }
+
+    // 目录说明书写在 Hub 根部：初始化时生成，版本过旧时更新；失败不影响打开。
+    if (!hub.readOnly) {
+      try {
+        await ensureHubReadme(hub)
+      } catch {
+        // 说明书是辅助文件，写不进去也不能挡住 Hub 启动。
+      }
     }
 
     return hub
@@ -278,7 +288,6 @@ async function ensureLayout(root: string): Promise<void> {
     await ensureDir(join(root, 'pending', 'archive'))
     await ensureDir(join(root, 'history'))
     await ensureDir(join(root, 'records'))
-    await ensureDir(join(root, 'index'))
   } catch (error) {
     throw new MemoryError('STORAGE_ERROR', `cannot initialize memory hub at ${root}: ${(error as Error).message}`)
   }

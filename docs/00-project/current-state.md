@@ -104,7 +104,11 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] P0 原文取证（V0.7 WIP，按 [proposal-evidence-lifecycle-risk](../03-openspec/proposal-evidence-lifecycle-risk.md)）：`memory_reflect` 增加 `mode: "search"`，经宿主 `sessionQuery.searchEvents` 返回 `seq/type/time/snippet`；只读、不写水位与账本；缺省扫最近 3 个本工作区会话，`limit` 1..50
 - [x] P0 引用生命周期：维护报告与 aging 参考最近一次 `memory_cite`（`knowledgeId → lastCitedAt`），`uncited` 区分「从未引用 / 最近引用 N 天前」，totals 增加 `cited`；`/api/overview` 知识行带 `lastCitedAt`；归档仍需人批准的 deprecate 候选
 - [x] P0 写入风险标记：`src/risk.ts` 扫描注入短语、凭据形态、零宽/方向控制符、角色伪造；`memory_propose` 返回 `risk`、账本记 `riskLevel/riskSignals`、面板候选卡片显示「需确认」；**只标记，不阻断、不改写**
-- [x] 137 个 vitest 测试（18 个文件）
+- [x] Hub 目录说明书（V0.7 WIP）：`Hub.open` 在可写 Hub 根目录自动生成 `README.md`（`src/hub-readme.ts`，标记 `hub-readme <version>`）；内含目录地图（每个文件夹/文件谁写、能否手改、删了会怎样）、九类知识表与 **`assets` = 外部资源索引（不是代码资产/构建产物）** 的澄清、作用域金字塔、唯一写入路径、工具速查、派生数据与常见误用；同版本不覆盖用户编辑，无标记的手写 README 不会被改写，只读 Hub 不写
+- [x] 初始化不再新建遗留 `index/` 空目录（老 Hub 里已有的仍可手动删除）
+- [x] 根 `README.md` 增加「5 分钟初始化工作区」：配置 Hub / 数据 Hub 的区别、最小 `core_workspaces[].root` + `workspaces[]` 配置、验证三件事、初始化后目录速览；修正示例里核心工作区缺 `root` 的问题
+- [x] `memory-hub` skill 增加「Hub 目录与初始化（先读目录说明书）」：目录表、`assets` 含义、最小配置、初始化后用 `memory_status` 验证；回顾式萃取补充 `mode: "search"` 原文取证
+- [x] 141 个 vitest 测试（19 个文件）
 - [x] 升级/收编文档对齐 0.6.0：[upgrade-guide.md](../06-operations/upgrade-guide.md) 覆盖 link/CLI/市场迁移三条免卸载路径，并新增「老版本收编兼容矩阵」（format 闸门、账本容错、时效默认、序列回填、索引自动）与收编清单
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页

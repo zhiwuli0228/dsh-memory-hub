@@ -6,7 +6,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.1.5 已发布**：在 Host 插件 + Web 面板（含核心/子工作区配置）之上，加入预检相关性门控（`min_score` / `local_boost`）、指令式回写包尾、面板命中/引用计数、系统级 `memory-hub` skill，以及夜间确定性维护（只报告 + 生成 pending 提案，绝不自动提交）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟；npm `0.1.5` 与 GitHub Release `v0.1.5` 均已发布。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**当前 npm `0.6.0`（V0.7 迭代中）**：在文件原生 Hub 之上，已具备时效字段（`valid_from` / `expires_at` / `last_verified`）、近重复检测与 `merge` 合并、回顾式萃取（`memory_reflect`，含原文 `search` 模式）、引用驱动生命周期（aging 参考最近引用）、写入风险标记、派生 SQLite 索引（零依赖，按需建库），以及面板批量审批。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 
@@ -30,6 +30,51 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 | 分级蒸馏 | L1 `scope:"core"` 写自己的 Hub；L2 `scope:"parent"` 写父核心 Hub；L3+ 显式 `project:<祖先核心>` 逐层上推；`memory_get`/`cite`/`commit` 支持 `core` 参数 |
 | 夜间维护 | 每天 03:00 确定性巡检所有 core / 子工作区，写报告并按需生成 pending 提案；不自动提交 |
 | 系统级 Skill | `memory-hub` 注册到 Host 全局 skills 层，按需加载检索/回写流程；不占每轮上下文 |
+
+## 5 分钟初始化工作区
+
+### 1. 先分清两种目录
+
+- **配置 Hub**：默认 `~/.dsh/memory-hub`（或 `$DSH_HOME/memory-hub`），保存 `config.yaml`；只有“工作目录不匹配任何 workspace”的会话才会把数据兜底写在这里。
+- **数据 Hub**：每个 `core_workspaces[].root` 是一个独立 Hub，`knowledge/`、`pending/`、`records/` 都在该目录下。
+- 子工作区的知识写进**所属核心**的 Hub（`project:backend` 的条目在 `product/` 目录里），不在子工作区自己的目录。
+
+> 每个 Hub 根目录初始化时会自动生成 `README.md`，逐条解释每个文件夹的作用、能不能手改、删了会怎样，以及 `assets` 到底是什么。**第一次接触一个 Hub，先读它。**
+
+### 2. 写最小配置
+
+```yaml
+# ~/.dsh/memory-hub/config.yaml（也可在面板「配置」页操作）
+core_workspaces:
+  - id: product
+    root: 'E:/work/product'          # 必填：这个核心的 Hub 根目录
+workspaces:
+  - id: backend
+    core_id: product                 # 归属核心
+    root: 'E:/work/product/backend'  # 会话按最长前缀路由到这里
+    admin: true
+```
+
+保存后 watcher 热加载，无需重启；新目录首次会初始化 `knowledge/`、`pending/`、`records/` 等并生成 `README.md`。只写 `id` 不写 `root` 的核心工作区不会打开 Hub，会话会落到兜底 Hub。
+
+### 3. 验证三件事
+
+| 检查 | 期望 |
+| --- | --- |
+| `memory_status` | `root` 指向你配置的目录，工作区与条目数正确 |
+| `<root>/README.md` | 含「目录地图」「`assets` 含义」「写入流程」三节 |
+| 面板「配置」 | 核心/子工作区与 `config.yaml` 一致 |
+
+### 4. 初始化后立刻看到的目录
+
+| 目录 | 一句话 |
+| --- | --- |
+| `knowledge/<type>/` | 权威知识，只能经人工审批写入 |
+| `pending/` | 候选，等人批准；`pending/archive/` 是已处理 |
+| `records/` | 账本（只追加）、ID 序号、派生索引、回顾水位 |
+| `history/` | 每次提交的旧版本快照 |
+| `reports/` | 维护报告 |
+| `index/` | 旧版遗留的空目录，可删 |
 
 ## Web 面板
 
@@ -95,6 +140,7 @@ version: 1
 core_workspaces:
   - id: product
     name: '产品主仓库'
+    root: 'E:/work/product'   # 必填：核心 Hub 根目录；省略则该核心不打开 Hub
 workspaces:
   - id: backend
     core_id: product     # 归属到核心工作区 product（可选）
@@ -130,11 +176,21 @@ policy:
     max_proposals: 10
     stale_pending_days: 30
     stale_citation_days: 90
+  temporal:                # 时效降权；默认即可，不配也生效
+    aging_days: 90
+  approval:
+    mode: manual           # manual | auto（仅测试环境用 auto）
+
+storage:
+  index: auto              # auto | memory | sqlite；auto 在 ≥3 万条目时才建派生索引
+  sqlite_min_entries: 30000
+  index_candidate_limit: 2000
 ```
 
-- 只有工作目录落在某个 `workspace.root` 内的会话才获得 `project:<id>` 作用域；其他会话只看到 global/domain。
+- 只有工作目录落在某个 `workspace.root` 内的会话才获得 `project:<id>` 作用域；其他会话只看到 global/domain，并落到配置 Hub 的兜底数据里。
+- `core_workspaces[].root` 决定这个核心的数据写在哪；子工作区共用核心的 Hub，不单独建库。
 - `config.yaml` 修改会被 watcher 热加载，不需要重启。
-- 目录与文件格式见 [docs/KNOWLEDGE-FORMAT.md](docs/KNOWLEDGE-FORMAT.md)。
+- 目录与文件格式见 [docs/KNOWLEDGE-FORMAT.md](docs/KNOWLEDGE-FORMAT.md)；九类知识的定义见 [docs/05-domain/knowledge-types.md](docs/05-domain/knowledge-types.md)。
 
 ## 工具
 
@@ -149,6 +205,8 @@ policy:
 | `memory_commit` | 经审批提交候选 |
 | `memory_close_task` | 关闭任务并给出评估 |
 | `memory_consolidate` | 管理员手动晋升项目知识 |
+| `memory_duplicates` | 近重复检查（只读，给 keeper 建议） |
+| `memory_reflect` | 回顾已结束会话：`digest` 摘要 / `search` 原文取证 |
 | `memory_maintenance` | 巡检当前/全部 core，写报告并可选生成 pending 维护提案 |
 
 `memory_commit` 会触发 DSH 原生审批；审批不可用（headless、审批关闭）时提交被拒绝，候选保持 `pending`。模型参数里没有可伪造的批准令牌。

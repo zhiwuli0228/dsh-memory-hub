@@ -5,7 +5,8 @@
 ```text
 <root>/
   config.yaml                 # 工作区、策略、版本
-  README.md                   # 首次创建时生成的说明
+  README.md                   # 自动生成的目录说明书（可编辑；同版本不覆盖）
+                              # 根目录已有你自己的 README 时，说明书改写到 MEMORY-HUB.md
   knowledge/
     decision/                 # DEC-*.md
     constraint/               # CON-*.md
@@ -15,20 +16,24 @@
     open-questions/           # OQ-*.md
     runtime-base/             # RUN-*.md
     playbooks/                # PLAY-*.md
-    assets/                   # AST-*.md
+    assets/                   # AST-*.md（外部资源索引，非代码资产）
   pending/                    # PRO-*.md（候选）
   pending/archive/           # 已提交/已拒绝候选归档
   history/<type>/<ID>@v<N>.md # 每次接受变更前的旧版本
   records/
-    ledger.jsonl              # 任务、预检、引用、提交、汇总审计日志
+    ledger.jsonl              # 任务、预检、引用、提交、汇总审计日志（只追加）
     sequences.json            # ID 计数器
+    index.sqlite              # 派生 SQLite 索引（storage.index 决定；可删可重建）
     maintenance-state.json    # 夜间维护最后运行日期（仅配置 Hub；全局一份）
+    reflect-state.json        # 回顾水位（哪些会话已回顾）
     .writer.lock              # 该 Hub 根目录的写锁（每个根一把，互相独立）
   reports/                    # 夜间巡检报告（非权威，可删除/归档）
     <timestamp>.md
     latest.md
-  index/                      # 预留：未来索引落盘
+  index/                      # 旧版本遗留的空目录（新 Hub 不再创建，可删）
 ```
+
+`README.md` 由 `src/hub-readme.ts` 生成，内容是本布局的「谁写 / 能否手改 / 删了会怎样」版本，外加九类知识与写入流程；改布局或默认文件时同步更新生成模板与版本号（`HUB_README_VERSION`），旧 Hub 会在下次打开时按标记版本重写。
 
 ## `config.yaml`
 

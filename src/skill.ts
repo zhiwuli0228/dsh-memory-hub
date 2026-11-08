@@ -3,7 +3,7 @@ import type { Context, SkillService } from './host.js'
 export const MEMORY_SKILL = {
   name: 'memory-hub',
   description:
-    'Use when a task depends on prior project decisions, constraints, APIs, or processes, or when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub.',
+    'Use when a task depends on prior project decisions, constraints, APIs, or processes, when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub, or when initializing/reviewing a workspace hub and its folders.',
   whenToUse:
     '在规划或修改项目、排查重复问题、用户说“记住/记录/以后按这个来”、任务结束需要回写，或预检包出现可疑命中时。',
   source: 'runtime',
@@ -18,6 +18,27 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 - 用户要求“记住 / 记录 / 更新记忆 / 以后按这个来”。
 - 预检包出现命中，但你不确定它是否适用于当前任务。
 - 任务结束前需要回写评估。
+
+## Hub 目录与初始化（先读目录说明书）
+
+每个 Hub 根目录都有一份自动生成的 \`README.md\`，写明了每个文件夹的作用、谁写、能不能手改、删了会怎样。**接手一个不熟悉的 Hub，先读它**，不要猜。
+
+| 路径 | 一句话 | 能不能手改 |
+| --- | --- | --- |
+| \`knowledge/<type>/<ID>.md\` | 权威知识，只能经人工审批写入 | 可以，但会绕过审批记录 |
+| \`pending/<PRO-ID>.md\` | 候选，等人批准；\`archive/\` 是已处理 | 建议用面板批准/拒绝 |
+| \`records/ledger.jsonl\` | 追加式账本（提案/批准/引用） | 不要手改 |
+| \`records/sequences.json\` | ID 序号 | 不要手改 |
+| \`records/index.sqlite\` | 派生索引（≥3 万条才有） | 可删，自动重建 |
+| \`records/reflect-state.json\` | 回顾水位 | 可删（会重复回顾） |
+| \`history/\` | 每次提交的旧版本 | 只读查阅 |
+| \`reports/\` | 维护报告 | 只读查阅 |
+| \`index/\` | 旧版遗留空目录 | 可删 |
+
+- **\`assets\` 不是代码资产/构建产物**，而是外部资源索引：设计稿、截图、录屏、模板、提示词的位置与用法。大文件留在原处，这里只记“在哪、怎么用”。
+- 配置 Hub 默认在 \`~/.dsh/memory-hub\`，只放 \`config.yaml\` 与未匹配工作区的兜底数据；数据 Hub 由 \`core_workspaces[].root\` 决定，子工作区共用所属核心的 Hub。
+- 新增工作区的最小配置：\`core_workspaces: [{ id, root }]\` + \`workspaces: [{ id, core_id, root }]\`；核心缺 \`root\` 不会打开 Hub，会话会落到兜底 Hub。
+- 初始化或修复后，用 \`memory_status\` 看 \`root\`、工作区与诊断；不要靠猜路径。
 
 ## 每轮固定流程
 
@@ -107,8 +128,9 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 会话结束时没来得及记下的结论，用 \`memory_reflect\` 补：
 
 1. \`memory_reflect({ session_id?, limit?, dry_run? })\` 只读返回本工作区名下已结束会话的 digest（用户诉求、助手最终结论、失败的工具调用），并记录 \`records/reflect-state.json\` 水位；同一 digest 不会重复返回。
-2. 从 digest 里挑仍成立、且 \`memory_search\` 查重后没有覆盖的结论，用 \`memory_propose\` 写 \`scope: "project:<本工作区>"\`，\`source_refs\` 用 \`session:<会话ID>#<起始序号>-<结束序号>\`，\`tags\` 加 \`reflection\`。
-3. 只写本工作区，不写上级或 \`global\`；向上晋升交给定时蒸馏。候选仍由人工批准，不要 \`memory_commit\`。
+2. 要核对原始措辞、数字或承诺时，用 \`memory_reflect({ mode: "search", query: "..." })\`：走宿主全文检索，返回原始事件的 \`seq/type/time/snippet\`，只读、不写水位；写证据时用命中的最小/最大 \`seq\` 组成 \`session:<id>#<from>-<to>\`。
+3. 从 digest 里挑仍成立、且 \`memory_search\` 查重后没有覆盖的结论，用 \`memory_propose\` 写 \`scope: "project:<本工作区>"\`，\`source_refs\` 用 \`session:<会话ID>#<起始序号>-<结束序号>\`，\`tags\` 加 \`reflection\`。
+4. 只写本工作区，不写上级或 \`global\`；向上晋升交给定时蒸馏。候选仍由人工批准，不要 \`memory_commit\`。
 
 定时回顾按工作区配置 \`reflect:\` 对齐（与 \`distill:\` 独立），每个工作区只看自己的会话——核心工作区看不到子工作区的会话。
 

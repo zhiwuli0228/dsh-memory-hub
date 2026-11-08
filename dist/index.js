@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename3, join as join5, relative as relative3, resolve as resolve3 } from "node:path";
+import { basename as basename3, join as join6, relative as relative3, resolve as resolve3 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -11511,7 +11511,7 @@ async function removeFile(path) {
 
 // src/hub.ts
 import { homedir } from "node:os";
-import { join as join2, resolve } from "node:path";
+import { join as join3, resolve } from "node:path";
 
 // src/config.ts
 var import_yaml = __toESM(require_dist(), 1);
@@ -11844,8 +11844,187 @@ function defaultConfig() {
   return configSchema.parse({});
 }
 
+// src/hub-readme.ts
+import { readFile as readFile3 } from "node:fs/promises";
+import { join as join2 } from "node:path";
+var HUB_README_VERSION = 2;
+var PRIMARY_NAME = "README.md";
+var FALLBACK_NAME = "MEMORY-HUB.md";
+var MARKER_PATTERN = /<!--\s*dsh-memory-hub:hub-readme\s+(\d+)\s*-->/;
+async function ensureHubReadme(hub) {
+  if (hub.readOnly) return "skipped";
+  const plan = await planWrite(hub.root);
+  if (plan === null) return "skipped";
+  await ensureDir(hub.root);
+  await writeAtomic(join2(hub.root, plan.name), renderHubReadme(hub, plan.name === FALLBACK_NAME));
+  return plan.action;
+}
+async function readMaybe(path) {
+  try {
+    return await readFile3(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+async function planWrite(root) {
+  const primary = await readMaybe(join2(root, PRIMARY_NAME));
+  const primaryPlan = evaluate(PRIMARY_NAME, primary);
+  if (primaryPlan === "skip") return null;
+  if (primaryPlan !== "fallback") return primaryPlan;
+  const fallback = await readMaybe(join2(root, FALLBACK_NAME));
+  const fallbackPlan = evaluate(FALLBACK_NAME, fallback);
+  if (fallbackPlan === "fallback" || fallbackPlan === "skip") return null;
+  return fallbackPlan;
+}
+function evaluate(name2, existing) {
+  if (existing === null) return { name: name2, action: "created" };
+  const match = MARKER_PATTERN.exec(existing);
+  if (match === null) return "fallback";
+  const version = Number(match[1]);
+  if (!Number.isFinite(version) || version >= HUB_README_VERSION) return "skip";
+  return { name: name2, action: "updated" };
+}
+function renderHubReadme(hub, fallbackName = false) {
+  const root = hub.displayRoot();
+  const hubId = hub.config.hub.id;
+  const types = KNOWLEDGE_TYPES.map(
+    (type) => `| \`${type}\` | \`${TYPE_PREFIX[type]}\` | ${TYPE_PURPOSE[type]} |`
+  ).join("\n");
+  const nameNote = fallbackName ? "> \u6839\u76EE\u5F55\u7684 `README.md` \u662F\u4F60\u81EA\u5DF1\u7684\u6587\u6863\uFF0C\u6240\u4EE5\u8BF4\u660E\u4E66\u653E\u5728 `MEMORY-HUB.md`\u3002\n" : "";
+  return `# \u8FD9\u662F Memory Hub \u6570\u636E\u76EE\u5F55\uFF08\u81EA\u52A8\u751F\u6210\uFF09
+
+<!-- dsh-memory-hub:hub-readme ${HUB_README_VERSION} -->
+
+> Hub id\uFF1A\`${hubId}\` \xB7 \u6839\u76EE\u5F55\uFF1A\`${root}\`
+>
+${nameNote}> \u672C\u6587\u4EF6\u7531 dsh-memory-hub \u5728\u521D\u59CB\u5316/\u5347\u7EA7\u65F6\u751F\u6210\uFF0C**\u53EF\u4EE5\u7F16\u8F91**\uFF08\u4FDD\u7559\u4E0A\u9762\u7684\u6807\u8BB0\u5373\u53EF\uFF0C\u540C\u7248\u672C\u4E0D\u4F1A\u88AB\u8986\u76D6\uFF09\u3002
+> \u60F3\u5FEB\u901F\u4E86\u89E3\u201C\u6BCF\u4E2A\u6587\u4EF6\u5939\u5E72\u4EC0\u4E48\u3001\u4EC0\u4E48\u80FD\u6539\u201D\uFF0C\u5148\u8BFB\u5B8C\u8FD9\u4E00\u9875\u3002
+
+## \u4E00\u5206\u949F\u7406\u89E3
+
+- \u8FD9\u662F\u4E00\u4E2A**\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u5E93**\uFF1A\u4E00\u6761\u77E5\u8BC6 = \u4E00\u4E2A\u5E26 YAML frontmatter \u7684 Markdown \u6587\u4EF6\u3002
+- **Markdown / YAML / JSONL \u662F\u552F\u4E00\u6743\u5A01\u6570\u636E**\uFF1B\u7D22\u5F15\u3001\u62A5\u544A\u3001\u6C34\u4F4D\u90FD\u662F\u53EF\u5220\u7684\u6D3E\u751F\u7269\u3002
+- \u77E5\u8BC6\u8FDB\u5165\u8FD9\u91CC\u53EA\u6709\u4E00\u6761\u5408\u6CD5\u8DEF\u5F84\uFF1A**\u5019\u9009\uFF08pending/\uFF09\u2192 \u4EBA\u5DE5\u6279\u51C6 \u2192 \u6743\u5A01\u77E5\u8BC6\uFF08knowledge/\uFF09**\u3002
+- \u6A21\u578B\u4E0D\u80FD\u81EA\u6279\uFF0C\u9762\u677F\u53EA\u63D0\u4F9B\u6279\u51C6/\u62D2\u7EDD\uFF1B\u672C\u76EE\u5F55\u91CC\u6CA1\u6709\u4EFB\u4F55\u201C\u6A21\u578B\u81EA\u52A8\u6539\u5199\u6B63\u6587\u201D\u7684\u901A\u9053\u3002
+
+## \u76EE\u5F55\u5730\u56FE
+
+| \u8DEF\u5F84 | \u4F5C\u7528 | \u8C01\u5199 | \u80FD\u624B\u52A8\u6539\u5417 | \u5220\u4E86\u4F1A\u600E\u6837 |
+| --- | --- | --- | --- | --- |
+| \`config.yaml\` | Hub \u914D\u7F6E\uFF1A\u6838\u5FC3/\u5B50\u5DE5\u4F5C\u533A\u3001\u7B56\u7565\u3001\u65F6\u6548 | \u9762\u677F / \u4F60 | \u2705 \u53EF\u4EE5\uFF08\u6539\u5B8C\u91CD\u542F\u6216\u4FDD\u5B58\uFF09 | \u4E22\u5931\u5DE5\u4F5C\u533A\u4E0E\u7B56\u7565\u914D\u7F6E |
+| \`README.md\` / \`MEMORY-HUB.md\` | \u672C\u8BF4\u660E | \u63D2\u4EF6\u751F\u6210 | \u2705 \u53EF\u4EE5\uFF08\u4FDD\u7559\u6807\u8BB0\uFF09 | \u4E0B\u6B21\u542F\u52A8\u91CD\u65B0\u751F\u6210 |
+| \`knowledge/<type>/<ID>.md\` | **\u6743\u5A01\u77E5\u8BC6**\uFF0C\u6309\u7C7B\u578B\u5206\u76EE\u5F55 | \u4EC5 \`memory_commit\` \u5BA1\u6279\u901A\u8FC7\u540E | \u26A0\uFE0F \u53EF\u4EE5\u6539\uFF0C\u4F46\u4F1A\u7ED5\u8FC7\u5BA1\u6279\u8BB0\u5F55\uFF1B\u4F18\u5148\u7528\u5DE5\u5177 | \u77E5\u8BC6\u6C38\u4E45\u4E22\u5931\uFF08\u6709 git \u5907\u4EFD\u53EF\u6062\u590D\uFF09 |
+| \`pending/<PRO-ID>.md\` | **\u5019\u9009**\uFF0C\u5C1A\u672A\u6210\u4E3A\u6743\u5A01\u77E5\u8BC6 | \u6A21\u578B \`memory_propose\` / \u7EF4\u62A4\u626B\u63CF | \u26A0\uFE0F \u5EFA\u8BAE\u5728\u9762\u677F\u6279\u51C6\u6216\u62D2\u7EDD\uFF0C\u4E0D\u8981\u624B\u6539\u72B6\u6001 | \u5019\u9009\u4E22\u5931\uFF0C\u4E0D\u5F71\u54CD\u5DF2\u63A5\u53D7\u77E5\u8BC6 |
+| \`pending/archive/\` | \u5DF2\u5904\u7406\u5019\u9009\u7684\u5F52\u6863\uFF08\u6279\u51C6/\u62D2\u7EDD\u540E\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5BA1\u8BA1\u7EBF\u7D22\u4E22\u5931 |
+| \`records/ledger.jsonl\` | \u8FFD\u52A0\u5F0F\u8D26\u672C\uFF1A\u63D0\u6848\u3001\u6279\u51C6\u3001\u5F15\u7528\u3001\u4EFB\u52A1 | \u63D2\u4EF6\uFF08\u53EA\u8FFD\u52A0\uFF09 | \u274C \u4E0D\u8981\u624B\u6539 | \u5BA1\u8BA1/\u5F15\u7528\u8BA1\u6570\u4E22\u5931 |
+| \`records/sequences.json\` | \u4E0B\u4E00\u4E2A ID \u5E8F\u53F7 | \u63D2\u4EF6 | \u274C \u4E0D\u8981\u624B\u6539 | \u53EF\u80FD\u649E\u53F7\uFF08\u53EF\u81EA\u52A8\u56DE\u586B\uFF0C\u4F46\u4E0D\u5EFA\u8BAE\uFF09 |
+| \`records/index.sqlite\` | \u6D3E\u751F\u5168\u6587\u7D22\u5F15\uFF08\u5927 Hub \u624D\u6709\uFF09 | \u63D2\u4EF6\u81EA\u52A8\u91CD\u5EFA | \u2705 \u53EF\u5220 | \u4E0B\u6B21\u542F\u52A8\u81EA\u52A8\u91CD\u5EFA |
+| \`records/reflect-state.json\` | \u56DE\u987E\u6C34\u4F4D\uFF08\u54EA\u4E9B\u4F1A\u8BDD\u5DF2\u56DE\u987E\uFF09 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u540C\u4E00\u4F1A\u8BDD\u53EF\u80FD\u88AB\u91CD\u590D\u56DE\u987E |
+| \`records/maintenance-state.json\` | \u7EF4\u62A4\u4E0A\u6B21\u8FD0\u884C\u65F6\u95F4 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u53EA\u5F71\u54CD\u201C\u4ECA\u5929\u662F\u5426\u5DF2\u8DD1\u201D\u5224\u65AD |
+| \`history/\` | \u6BCF\u6B21\u63D0\u4EA4\u7684\u65E7\u7248\u672C\u5FEB\u7167 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5386\u53F2\u7248\u672C\u4E22\u5931\uFF08\u5F53\u524D\u7248\u672C\u4E0D\u53D7\u5F71\u54CD\uFF09 |
+| \`reports/\` | \u7EF4\u62A4\u62A5\u544A\uFF08\`latest.md\` + \u65F6\u95F4\u6233\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u4E22\u5931\u5386\u53F2\u4F53\u68C0\u8BB0\u5F55 |
+| \`index/\` | \u65E7\u7248\u672C\u53EF\u80FD\u9057\u7559\u7684\u7A7A\u76EE\u5F55\uFF08\u65B0 Hub \u4E0D\u518D\u521B\u5EFA\uFF09 | \u2014 | \u2705 \u53EF\u5220 | \u65E0\u5F71\u54CD |
+
+**\u5224\u65AD\u6807\u51C6**\uFF1A\`knowledge/\`\u3001\`pending/\`\u3001\`records/ledger.jsonl\`\u3001\`records/sequences.json\`\u3001\`config.yaml\` \u662F\u6743\u5A01\u6570\u636E\uFF0C\u5220/\u6539\u524D\u5148\u5907\u4EFD\uFF1B\`records/index.sqlite\`\u3001\`records/reflect-state.json\`\u3001\`records/maintenance-state.json\`\u3001\`reports/\`\u3001\`index/\` \u662F\u6D3E\u751F\u7269\u6216\u8F85\u52A9\u6570\u636E\uFF0C\u53EF\u5220\u3002
+
+## \u4E5D\u7C7B\u77E5\u8BC6\uFF08\u6CE8\u610F \`assets\` \u7684\u542B\u4E49\uFF09
+
+| \u7C7B\u578B | \u524D\u7F00 | \u7528\u9014 |
+| --- | --- | --- |
+${types}
+
+### \`assets\` \u5230\u5E95\u662F\u4EC0\u4E48
+
+\`assets\` **\u4E0D\u662F**\u4EE3\u7801\u8D44\u4EA7\u3001\u6784\u5EFA\u4EA7\u7269\u6216\u4F9D\u8D56\u5305\uFF0C\u800C\u662F**\u5916\u90E8\u8D44\u6E90\u7684\u7D22\u5F15\u6761\u76EE**\uFF1A
+
+- \u8BBE\u8BA1\u7A3F\u3001\u539F\u578B\u3001\u622A\u56FE\u3001\u5F55\u5C4F\u3001\u6F14\u793A\u6587\u7A3F\u7684\u4F4D\u7F6E\uFF1B
+- \u6A21\u677F\u3001\u6E05\u5355\u3001\u63D0\u793A\u8BCD\u3001\u811A\u672C\u7247\u6BB5\u7B49\u201C\u62FF\u6765\u5373\u7528\u201D\u7684\u7D20\u6750\u8BF4\u660E\uFF1B
+- \u5927\u6587\u4EF6\u672C\u4F53\u7559\u5728\u539F\u5904\uFF08\u7F51\u76D8\u3001\u4ED3\u5E93\u3001\u5171\u4EAB\u76D8\uFF09\uFF0C\u8FD9\u91CC\u53EA\u8BB0**\u5728\u54EA\u91CC\u3001\u600E\u4E48\u7528\u3001\u9002\u7528\u8FB9\u754C**\u3002
+
+\u5199 \`assets\` \u65F6\u6B63\u6587\u53EF\u4EE5\u5F88\u77ED\uFF0C\u4F46 \`source_refs\` \u5FC5\u987B\u6307\u5411\u771F\u5B9E\u4F4D\u7F6E\uFF08\`url:\` / \`file:\` / \`note:\`\uFF09\uFF0C\u5426\u5219\u4EE5\u540E\u6CA1\u4EBA\u627E\u5F97\u5230\u3002
+
+## \u4F5C\u7528\u57DF\u4E0E\u91D1\u5B57\u5854
+
+| \u4F5C\u7528\u57DF | \u653E\u4EC0\u4E48 | \u4F8B\u5B50 |
+| --- | --- | --- |
+| \`project:<\u5F53\u524D\u5DE5\u4F5C\u533A>\` | \u672C\u4ED3\u7279\u5B9A\u51B3\u7B56\u3001\u7EA6\u675F\u3001\u6D41\u7A0B\u3001\u5751 | \u672C\u4ED3\u7528 pnpm |
+| \`scope: "core"\` | \u53EF\u590D\u7528\u5230\u540C\u6838\u5FC3\u4ED3\u5176\u4ED6\u5B50\u5DE5\u4F5C\u533A\u7684\u7ECF\u9A8C | \u63D2\u4EF6\u53D1\u5E03 checklist |
+| \`domain:<id>\` | \u8DE8\u9879\u76EE\u7684\u9886\u57DF\u77E5\u8BC6 | \u67D0\u534F\u8BAE/\u6846\u67B6\u7684\u901A\u7528\u7EA6\u675F |
+| \`global\` | \u7A33\u5B9A\u3001\u8DE8\u9879\u76EE\u7684\u901A\u7528\u7EA6\u5B9A\uFF08\u614E\u7528\uFF09 | \u63D0\u4EA4\u4FE1\u606F\u89C4\u8303 |
+
+- \u5B50\u5DE5\u4F5C\u533A\u53EF\u89C1\uFF1A\u81EA\u5DF1\u7684 \`project:<id>\` + \u6838\u5FC3 \`project:<core-id>\` + \`global\`\uFF08\u53EA\u53D6\u5F53\u524D Hub \u81EA\u5DF1\u7684 global\uFF09\u3002
+- \u540C\u7EA7\u5B50\u5DE5\u4F5C\u533A\u4E92\u76F8\u4E0D\u53EF\u89C1\uFF1B\u5411\u4E0A\u664B\u5347\u9760\u84B8\u998F/\u6C47\u603B\uFF0C\u4E0D\u662F\u81EA\u52A8\u6CC4\u6F0F\u3002
+- \u6BCF\u4E2A \`core_workspaces[].root\` \u662F\u4E00\u4E2A\u72EC\u7ACB Hub\uFF1B\u672C\u76EE\u5F55\u5C31\u662F\u5176\u4E2D\u4E00\u4E2A\u3002
+
+## \u5199\u5165\u6D41\u7A0B\uFF08\u552F\u4E00\u5408\u6CD5\u8DEF\u5F84\uFF09
+
+\`\`\`text
+\u6A21\u578B memory_propose  \u2192  pending/PRO-xxxx.md\uFF08\u5019\u9009\uFF0Ccandidate\uFF09
+        \u2193 \u4EBA\u5728 DSH \u5BA1\u6279\u6216\u9762\u677F\u70B9\u201C\u6279\u51C6\u201D
+memory_commit        \u2192  knowledge/<type>/<ID>.md\uFF08accepted\uFF09
+        \u2193 \u540C\u65F6
+history/ \u5FEB\u7167 + records/ledger.jsonl \u8FFD\u52A0\u4E8B\u4EF6 + \u5E8F\u53F7 +1
+\`\`\`
+
+- \u62D2\u7EDD\uFF1A\u5019\u9009\u5F52\u6863\u5230 \`pending/archive/\`\uFF0C\u4E0D\u5220\u9664\u539F\u6709\u77E5\u8BC6\u3002
+- \u66F4\u65B0\uFF1A\`operation: update\` \u4F1A +1 \u7248\u672C\u5E76\u4FDD\u7559\u65E7\u7248\u672C\u5230 \`history/\`\u3002
+- \u5408\u5E76\uFF1A\`operation: merge\` \u628A\u591A\u6761\u5E76\u8FDB\u4E00\u6761\uFF0C\u88AB\u5E76\u6761\u76EE\u53D8 \`superseded\` \u5E76\u5199 \`superseded_by\`\u3002
+- \u7981\u6B62\uFF1A\u6A21\u578B\u81EA\u6279\u3001\u4F2A\u9020\u5BA1\u6279\u3001\u624B\u6539\u8D26\u672C\u5192\u5145\u63D0\u4EA4\u3002
+
+## \u5E38\u7528\u5DE5\u5177
+
+| \u76EE\u7684 | \u5DE5\u5177 |
+| --- | --- |
+| \u770B\u72B6\u6001 / \u8BCA\u65AD | \`memory_status\` |
+| \u68C0\u7D22 | \`memory_search\`\uFF08\u5148 \`detail: "ids"\` \u626B\uFF0C\u518D \`memory_get\`\uFF09 |
+| \u8BFB\u6B63\u6587 | \`memory_get\`\uFF08\u9ED8\u8BA4\u6458\u8981\uFF0C\u6309\u8282\u8BFB\uFF09 |
+| \u6807\u8BB0\u5B9E\u9645\u4F7F\u7528 | \`memory_cite\` |
+| \u521B\u5EFA\u5019\u9009 | \`memory_propose\` |
+| \u63D0\u4EA4\u5019\u9009 | \`memory_commit\`\uFF08\u89E6\u53D1\u4EBA\u5DE5\u5BA1\u6279\uFF09 |
+| \u8FD1\u91CD\u590D\u68C0\u67E5 | \`memory_duplicates\` |
+| \u56DE\u987E\u5DF2\u7ED3\u675F\u4F1A\u8BDD | \`memory_reflect\` |
+| \u591C\u95F4\u5DE1\u68C0 | \`memory_maintenance\`\uFF08\u53EA\u62A5\u544A / \u53EA\u751F\u6210\u5019\u9009\uFF09 |
+| \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
+
+\u5B8C\u6574\u5DE5\u4F5C\u6D41\u89C1\u9879\u76EE\u4ED3\u5E93\u7684 \`docs/06-operations/\` \u4E0E\u7CFB\u7EDF \`memory-hub\` skill\u3002
+
+## \u7EF4\u62A4\u4E0E\u5907\u4EFD
+
+- \u7EF4\u62A4\u6BCF\u5929 03:00\uFF08\u53EF\u914D\u7F6E\uFF09\u786E\u5B9A\u6027\u5DE1\u68C0\uFF1A\u5199\u62A5\u544A\u3001\u5FC5\u8981\u65F6\u751F\u6210 \`pending/\` \u5019\u9009\uFF0C**\u4E0D\u81EA\u52A8 commit\u3001\u4E0D\u5220\u9664\u3001\u4E0D\u6539\u5199\u6B63\u6587**\u3002
+- \u5907\u4EFD\uFF1A\u6574\u4E2A\u76EE\u5F55 \`git init\` \u6216\u590D\u5236\u5373\u53EF\uFF1B\`git\` \u5FFD\u7565 \`records/index.sqlite\` \u7B49\u6D3E\u751F\u7269\u66F4\u7701\u7A7A\u95F4\u3002
+- \u4F53\u91CF\u53C2\u8003\uFF1A\u7EA6 2.5KB/\u6761\uFF08Markdown\uFF09\uFF1B3 \u4E07\u6761\u4EE5\u4E0A\u624D\u4F1A\u51FA\u73B0 \`records/index.sqlite\`\u3002
+
+## \u5B89\u5168\u8FB9\u754C
+
+- \u4E0D\u8981\u5F80\u8FD9\u91CC\u5199\u5BC6\u94A5\u3001token\u3001\u5BC6\u7801\u3001\u79C1\u94A5\uFF1B\`memory_propose\` \u4F1A\u626B\u63CF\u5E76\u6807\u8BB0\u53EF\u7591\u5185\u5BB9\uFF0C\u4F46\u4ECD\u9700\u4EBA\u5224\u65AD\u3002
+- \u53EA\u8BFB Hub\uFF08\`readOnly: true\`\u3001\u914D\u7F6E\u635F\u574F\u6216\u5199\u9501\u88AB\u5360\u7528\uFF09\u4E0D\u4F1A\u63A5\u53D7\u4EFB\u4F55\u5199\u5165\u3002
+- \u9762\u677F\u53EA\u5141\u8BB8\u56DE\u73AF\u5730\u5740\u8BF7\u6C42\uFF0C\u4E14\u53EA\u63D0\u4F9B\u201C\u6279\u51C6/\u62D2\u7EDD\u201D\u4E24\u4E2A\u5199\u64CD\u4F5C\u3002
+
+## \u5E38\u89C1\u8BEF\u7528
+
+| \u8BEF\u7528 | \u540E\u679C | \u6B63\u786E\u505A\u6CD5 |
+| --- | --- | --- |
+| \u628A \`assets\` \u5F53\u4EE3\u7801\u8D44\u4EA7/\u6784\u5EFA\u4EA7\u7269 | \u8BB0\u4E86\u6CA1\u7528\u7684\u4E1C\u897F\uFF0C\u771F\u7D20\u6750\u53CD\u800C\u627E\u4E0D\u5230 | \u53EA\u8BB0\u5916\u90E8\u8D44\u6E90\u4F4D\u7F6E\u4E0E\u7528\u6CD5 |
+| \u628A \`pending/\` \u5F53\u6743\u5A01\u77E5\u8BC6\u5F15\u7528 | \u672A\u6279\u51C6\u7684\u5185\u5BB9\u88AB\u5F53\u6210\u4E8B\u5B9E | \u770B \`status\`\uFF0C\u53EA\u6709 \`accepted\` \u53C2\u4E0E\u9ED8\u8BA4\u68C0\u7D22 |
+| \u624B\u6539 \`knowledge/\` \u7ED5\u8FC7\u5BA1\u6279 | \u6CA1\u6709\u8D26\u672C\u4E0E\u5386\u53F2\u7248\u672C\uFF0C\u5BA1\u8BA1\u65AD\u94FE | \u8D70 \`memory_propose\` \u2192 \u5BA1\u6279 |
+| \u628A\u65E5\u5FD7/\u957F\u6587\u6574\u7BC7\u585E\u8FDB\u77E5\u8BC6 | \u68C0\u7D22\u53D8\u5DEE\u3001\u4E0A\u4E0B\u6587\u53D8\u8D35 | \u5199\u7ED3\u8BBA + \u5173\u952E\u7247\u6BB5 + \u8DEF\u5F84 |
+| \u624B\u6539 \`records/ledger.jsonl\` | \u5F15\u7528\u8BA1\u6570\u3001\u5BA1\u8BA1\u5931\u771F | \u53EA\u8BFB\uFF1B\u9700\u8981\u4FEE\u6B63\u7528\u65B0\u4E8B\u4EF6 |
+`;
+}
+var TYPE_PURPOSE = {
+  decision: "\u5DF2\u505A\u51FA\u7684\u9009\u62E9\u4E0E\u7406\u7531",
+  constraint: "\u4E0D\u53EF\u8FDD\u53CD\u7684\u8FB9\u754C",
+  knowledge: "\u5DF2\u786E\u8BA4\u7684\u4E8B\u5B9E/\u673A\u5236",
+  "api-catalog": "\u63A5\u53E3\u3001\u547D\u4EE4\u3001\u534F\u8BAE\u6E05\u5355",
+  process: "\u53EF\u590D\u73B0\u7684\u6D41\u7A0B/\u6B65\u9AA4",
+  "open-questions": "\u672A\u51B3\u95EE\u9898\u4E0E\u5F85\u9A8C\u8BC1\u5047\u8BBE",
+  "runtime-base": "\u73AF\u5883\u3001\u7248\u672C\u3001\u90E8\u7F72\u524D\u63D0",
+  playbooks: "\u6392\u969C/\u64CD\u4F5C\u624B\u518C",
+  assets: "\u5916\u90E8\u8D44\u6E90\uFF08\u8BBE\u8BA1\u7A3F/\u622A\u56FE/\u6A21\u677F/\u5F55\u5C4F\uFF09\u7684\u7D22\u5F15\uFF0C\u4E0D\u662F\u4EE3\u7801\u8D44\u4EA7"
+};
+
 // src/lock.ts
-import { open as open2, readFile as readFile3, rm as rm2, writeFile } from "node:fs/promises";
+import { open as open2, readFile as readFile4, rm as rm2, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname as dirname2 } from "node:path";
 function isProcessAlive(pid) {
@@ -11860,7 +12039,7 @@ function isProcessAlive(pid) {
 }
 async function readLock(path) {
   try {
-    const parsed = JSON.parse(await readFile3(path, "utf8"));
+    const parsed = JSON.parse(await readFile4(path, "utf8"));
     if (typeof parsed.pid !== "number" || typeof parsed.heartbeatAt !== "string") return null;
     return {
       pid: parsed.pid,
@@ -11941,15 +12120,15 @@ var WriterLock = class _WriterLock {
 // src/hub.ts
 function expandHome(value) {
   if (value === "~") return homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) return join2(homedir(), value.slice(2));
+  if (value.startsWith("~/") || value.startsWith("~\\")) return join3(homedir(), value.slice(2));
   return value;
 }
 function resolveHubRoot(configured) {
   const trimmed = configured?.trim();
   if (trimmed !== void 0 && trimmed !== "") return resolve(expandHome(trimmed));
   const dshHome = process.env.DSH_HOME?.trim();
-  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join2(homedir(), ".dsh");
-  return join2(base, "memory-hub");
+  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join3(homedir(), ".dsh");
+  return join3(base, "memory-hub");
 }
 function describeBlocker(path, owner) {
   if (owner === null) return `another writer holds ${path}`;
@@ -11996,7 +12175,7 @@ var Hub = class _Hub {
       configSource = externalConfigPath ?? void 0;
       await ensureLayout(root);
     } else {
-      const configPath = join2(root, "config.yaml");
+      const configPath = join3(root, "config.yaml");
       config = defaultConfig();
       configSource = configPath;
       await ensureLayout(root);
@@ -12027,6 +12206,12 @@ var Hub = class _Hub {
       hub.markReadOnly("config", configError);
     } else if (!forcedReadOnly && lockAllowed) {
       await hub.acquireLock();
+    }
+    if (!hub.readOnly) {
+      try {
+        await ensureHubReadme(hub);
+      } catch {
+      }
     }
     return hub;
   }
@@ -12093,41 +12278,41 @@ var Hub = class _Hub {
   }
   configPath() {
     if (this.configSource !== null) return this.configSource;
-    return join2(this.root, "config.yaml");
+    return join3(this.root, "config.yaml");
   }
   lockPath() {
-    return join2(this.root, "records", ".writer.lock");
+    return join3(this.root, "records", ".writer.lock");
   }
   ledgerPath() {
-    return join2(this.root, "records", "ledger.jsonl");
+    return join3(this.root, "records", "ledger.jsonl");
   }
   sequencesPath() {
-    return join2(this.root, "records", "sequences.json");
+    return join3(this.root, "records", "sequences.json");
   }
   /** 派生检索索引（可删除、可重建；不是权威数据）。 */
   indexPath() {
-    return join2(this.root, "records", "index.sqlite");
+    return join3(this.root, "records", "index.sqlite");
   }
   pendingDir() {
-    return join2(this.root, "pending");
+    return join3(this.root, "pending");
   }
   pendingArchiveDir() {
-    return join2(this.root, "pending", "archive");
+    return join3(this.root, "pending", "archive");
   }
   pendingPath(id) {
-    return join2(this.pendingDir(), `${id}.md`);
+    return join3(this.pendingDir(), `${id}.md`);
   }
   pendingArchivePath(id) {
-    return join2(this.pendingArchiveDir(), `${id}.md`);
+    return join3(this.pendingArchiveDir(), `${id}.md`);
   }
   knowledgeDir(type) {
-    return join2(this.root, "knowledge", type);
+    return join3(this.root, "knowledge", type);
   }
   knowledgePath(type, id) {
-    return join2(this.knowledgeDir(type), `${id}.md`);
+    return join3(this.knowledgeDir(type), `${id}.md`);
   }
   historyPath(type, id, version) {
-    return join2(this.root, "history", type, `${id}@v${version}.md`);
+    return join3(this.root, "history", type, `${id}@v${version}.md`);
   }
   displayRoot() {
     const home = homedir();
@@ -12146,12 +12331,11 @@ async function ensureLayout(root) {
   try {
     await ensureDir(root);
     for (const type of KNOWLEDGE_TYPES) {
-      await ensureDir(join2(root, "knowledge", type));
+      await ensureDir(join3(root, "knowledge", type));
     }
-    await ensureDir(join2(root, "pending", "archive"));
-    await ensureDir(join2(root, "history"));
-    await ensureDir(join2(root, "records"));
-    await ensureDir(join2(root, "index"));
+    await ensureDir(join3(root, "pending", "archive"));
+    await ensureDir(join3(root, "history"));
+    await ensureDir(join3(root, "records"));
   } catch (error) {
     throw new MemoryError("STORAGE_ERROR", `cannot initialize memory hub at ${root}: ${error.message}`);
   }
@@ -12159,8 +12343,8 @@ async function ensureLayout(root) {
 
 // src/store.ts
 import { readFileSync } from "node:fs";
-import { readdir, readFile as readFile4, stat as stat2 } from "node:fs/promises";
-import { basename as basename2, join as join3, relative, sep } from "node:path";
+import { readdir, readFile as readFile5, stat as stat2 } from "node:fs/promises";
+import { basename as basename2, join as join4, relative, sep } from "node:path";
 
 // src/frontmatter.ts
 var import_yaml2 = __toESM(require_dist(), 1);
@@ -13259,9 +13443,9 @@ var KnowledgeStore = class {
     const parsed = [];
     for (const { type, dir, files } of knowledgeFiles) {
       for (const file of files) {
-        const path = join3(dir, file);
+        const path = join4(dir, file);
         try {
-          const record = parseKnowledgeFile(await readFile4(path, "utf8"), path);
+          const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
           if (record.type !== type) {
             throw new MemoryError("INVALID_INPUT", `${path}: type ${record.type} is stored in ${type}/`);
           }
@@ -13296,14 +13480,14 @@ var KnowledgeStore = class {
     const pendingFiles = (await readdirSafe(this.hub.pendingDir())).filter((file) => file.endsWith(".md") && PROPOSAL_ID_PATTERN.test(file.slice(0, -3))).sort((left, right) => right.localeCompare(left));
     for (const [index, file] of pendingFiles.entries()) {
       const id = file.slice(0, -3);
-      const path = join3(this.hub.pendingDir(), file);
+      const path = join4(this.hub.pendingDir(), file);
       if (index >= PENDING_EAGER_LIMIT) {
         this.pendingBacklog.set(id, path);
         this.bumpSequence("PRO", sequenceOf(id));
         continue;
       }
       try {
-        const proposal = parseProposalFile(await readFile4(path, "utf8"), path);
+        const proposal = parseProposalFile(await readFile5(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
         this.bumpSequence("PRO", sequenceOf(proposal.id));
       } catch (error) {
@@ -13915,7 +14099,7 @@ var KnowledgeStore = class {
   async refreshPath(path) {
     const info = await stat2(path).catch(() => null);
     if (info === null) {
-      const touchedKnowledge = isUnder(join3(this.hub.root, "knowledge"), path);
+      const touchedKnowledge = isUnder(join4(this.hub.root, "knowledge"), path);
       this.removePath(path);
       if (touchedKnowledge) await this.refreshIndexFingerprint();
       return;
@@ -13923,7 +14107,7 @@ var KnowledgeStore = class {
     if (!info.isFile()) return;
     if (isUnder(this.hub.pendingDir(), path) && !isUnder(this.hub.pendingArchiveDir(), path)) {
       try {
-        const proposal = parseProposalFile(await readFile4(path, "utf8"), path);
+        const proposal = parseProposalFile(await readFile5(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
         this.pendingBacklog.delete(proposal.id);
       } catch (error) {
@@ -13931,9 +14115,9 @@ var KnowledgeStore = class {
       }
       return;
     }
-    if (!isUnder(join3(this.hub.root, "knowledge"), path)) return;
+    if (!isUnder(join4(this.hub.root, "knowledge"), path)) return;
     try {
-      const record = parseKnowledgeFile(await readFile4(path, "utf8"), path);
+      const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
       this.docs.set(record.id, record);
       this.index.add(record);
       this.bumpSequence(TYPE_PREFIX[record.type], sequenceOf(record.id));
@@ -13962,7 +14146,7 @@ var KnowledgeStore = class {
   async allocate(key) {
     const next = (this.sequences[key] ?? 0) + 1;
     this.sequences[key] = next;
-    await ensureDir(join3(this.hub.root, "records"));
+    await ensureDir(join4(this.hub.root, "records"));
     await writeAtomic(this.hub.sequencesPath(), `${JSON.stringify(this.sequences, null, 2)}
 `);
     return next;
@@ -14210,7 +14394,7 @@ var package_default = {
 };
 
 // src/service.ts
-import { isAbsolute, join as join4, relative as relative2, sep as sep2 } from "node:path";
+import { isAbsolute, join as join5, relative as relative2, sep as sep2 } from "node:path";
 var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/maintenance.ts
@@ -14746,7 +14930,7 @@ function assessProposalRisk(input) {
 
 // src/reflect.ts
 import { createHash as createHash2 } from "node:crypto";
-import { readFile as readFile5, writeFile as writeFile3 } from "node:fs/promises";
+import { readFile as readFile6, writeFile as writeFile3 } from "node:fs/promises";
 
 // src/distill.ts
 import { resolve as resolve2 } from "node:path";
@@ -15217,7 +15401,7 @@ var ReflectStateFile = class {
   loaded = false;
   async load() {
     try {
-      const raw = await readFile5(this.file, "utf8");
+      const raw = await readFile6(this.file, "utf8");
       const parsed = JSON.parse(raw);
       if (parsed !== null && typeof parsed === "object" && Array.isArray(parsed.sessions)) {
         this.state = {
@@ -16584,8 +16768,8 @@ var MemoryService = class {
     }
     const generatedAt = nowIso();
     const stamp = generatedAt.replace(/[:.]/g, "-");
-    const reportPath = join4(this.hub.root, "reports", `${stamp}.md`);
-    const latestPath = join4(this.hub.root, "reports", "latest.md");
+    const reportPath = join5(this.hub.root, "reports", `${stamp}.md`);
+    const latestPath = join5(this.hub.root, "reports", "latest.md");
     const report = renderMaintenanceReport({
       root: this.hub.displayRoot(),
       coreId: args.coreId,
@@ -17668,7 +17852,7 @@ function createTools(host) {
 // src/skill.ts
 var MEMORY_SKILL = {
   name: "memory-hub",
-  description: "Use when a task depends on prior project decisions, constraints, APIs, or processes, or when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub.",
+  description: "Use when a task depends on prior project decisions, constraints, APIs, or processes, when durable knowledge should be searched, cited, proposed, committed, or closed in DSH Memory Hub, or when initializing/reviewing a workspace hub and its folders.",
   whenToUse: "\u5728\u89C4\u5212\u6216\u4FEE\u6539\u9879\u76EE\u3001\u6392\u67E5\u91CD\u590D\u95EE\u9898\u3001\u7528\u6237\u8BF4\u201C\u8BB0\u4F4F/\u8BB0\u5F55/\u4EE5\u540E\u6309\u8FD9\u4E2A\u6765\u201D\u3001\u4EFB\u52A1\u7ED3\u675F\u9700\u8981\u56DE\u5199\uFF0C\u6216\u9884\u68C0\u5305\u51FA\u73B0\u53EF\u7591\u547D\u4E2D\u65F6\u3002",
   source: "runtime",
   invocation: { modelInvocable: true, userInvocable: true },
@@ -17682,6 +17866,27 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 - \u7528\u6237\u8981\u6C42\u201C\u8BB0\u4F4F / \u8BB0\u5F55 / \u66F4\u65B0\u8BB0\u5FC6 / \u4EE5\u540E\u6309\u8FD9\u4E2A\u6765\u201D\u3002
 - \u9884\u68C0\u5305\u51FA\u73B0\u547D\u4E2D\uFF0C\u4F46\u4F60\u4E0D\u786E\u5B9A\u5B83\u662F\u5426\u9002\u7528\u4E8E\u5F53\u524D\u4EFB\u52A1\u3002
 - \u4EFB\u52A1\u7ED3\u675F\u524D\u9700\u8981\u56DE\u5199\u8BC4\u4F30\u3002
+
+## Hub \u76EE\u5F55\u4E0E\u521D\u59CB\u5316\uFF08\u5148\u8BFB\u76EE\u5F55\u8BF4\u660E\u4E66\uFF09
+
+\u6BCF\u4E2A Hub \u6839\u76EE\u5F55\u90FD\u6709\u4E00\u4EFD\u81EA\u52A8\u751F\u6210\u7684 \`README.md\`\uFF0C\u5199\u660E\u4E86\u6BCF\u4E2A\u6587\u4EF6\u5939\u7684\u4F5C\u7528\u3001\u8C01\u5199\u3001\u80FD\u4E0D\u80FD\u624B\u6539\u3001\u5220\u4E86\u4F1A\u600E\u6837\u3002**\u63A5\u624B\u4E00\u4E2A\u4E0D\u719F\u6089\u7684 Hub\uFF0C\u5148\u8BFB\u5B83**\uFF0C\u4E0D\u8981\u731C\u3002
+
+| \u8DEF\u5F84 | \u4E00\u53E5\u8BDD | \u80FD\u4E0D\u80FD\u624B\u6539 |
+| --- | --- | --- |
+| \`knowledge/<type>/<ID>.md\` | \u6743\u5A01\u77E5\u8BC6\uFF0C\u53EA\u80FD\u7ECF\u4EBA\u5DE5\u5BA1\u6279\u5199\u5165 | \u53EF\u4EE5\uFF0C\u4F46\u4F1A\u7ED5\u8FC7\u5BA1\u6279\u8BB0\u5F55 |
+| \`pending/<PRO-ID>.md\` | \u5019\u9009\uFF0C\u7B49\u4EBA\u6279\u51C6\uFF1B\`archive/\` \u662F\u5DF2\u5904\u7406 | \u5EFA\u8BAE\u7528\u9762\u677F\u6279\u51C6/\u62D2\u7EDD |
+| \`records/ledger.jsonl\` | \u8FFD\u52A0\u5F0F\u8D26\u672C\uFF08\u63D0\u6848/\u6279\u51C6/\u5F15\u7528\uFF09 | \u4E0D\u8981\u624B\u6539 |
+| \`records/sequences.json\` | ID \u5E8F\u53F7 | \u4E0D\u8981\u624B\u6539 |
+| \`records/index.sqlite\` | \u6D3E\u751F\u7D22\u5F15\uFF08\u22653 \u4E07\u6761\u624D\u6709\uFF09 | \u53EF\u5220\uFF0C\u81EA\u52A8\u91CD\u5EFA |
+| \`records/reflect-state.json\` | \u56DE\u987E\u6C34\u4F4D | \u53EF\u5220\uFF08\u4F1A\u91CD\u590D\u56DE\u987E\uFF09 |
+| \`history/\` | \u6BCF\u6B21\u63D0\u4EA4\u7684\u65E7\u7248\u672C | \u53EA\u8BFB\u67E5\u9605 |
+| \`reports/\` | \u7EF4\u62A4\u62A5\u544A | \u53EA\u8BFB\u67E5\u9605 |
+| \`index/\` | \u65E7\u7248\u9057\u7559\u7A7A\u76EE\u5F55 | \u53EF\u5220 |
+
+- **\`assets\` \u4E0D\u662F\u4EE3\u7801\u8D44\u4EA7/\u6784\u5EFA\u4EA7\u7269**\uFF0C\u800C\u662F\u5916\u90E8\u8D44\u6E90\u7D22\u5F15\uFF1A\u8BBE\u8BA1\u7A3F\u3001\u622A\u56FE\u3001\u5F55\u5C4F\u3001\u6A21\u677F\u3001\u63D0\u793A\u8BCD\u7684\u4F4D\u7F6E\u4E0E\u7528\u6CD5\u3002\u5927\u6587\u4EF6\u7559\u5728\u539F\u5904\uFF0C\u8FD9\u91CC\u53EA\u8BB0\u201C\u5728\u54EA\u3001\u600E\u4E48\u7528\u201D\u3002
+- \u914D\u7F6E Hub \u9ED8\u8BA4\u5728 \`~/.dsh/memory-hub\`\uFF0C\u53EA\u653E \`config.yaml\` \u4E0E\u672A\u5339\u914D\u5DE5\u4F5C\u533A\u7684\u515C\u5E95\u6570\u636E\uFF1B\u6570\u636E Hub \u7531 \`core_workspaces[].root\` \u51B3\u5B9A\uFF0C\u5B50\u5DE5\u4F5C\u533A\u5171\u7528\u6240\u5C5E\u6838\u5FC3\u7684 Hub\u3002
+- \u65B0\u589E\u5DE5\u4F5C\u533A\u7684\u6700\u5C0F\u914D\u7F6E\uFF1A\`core_workspaces: [{ id, root }]\` + \`workspaces: [{ id, core_id, root }]\`\uFF1B\u6838\u5FC3\u7F3A \`root\` \u4E0D\u4F1A\u6253\u5F00 Hub\uFF0C\u4F1A\u8BDD\u4F1A\u843D\u5230\u515C\u5E95 Hub\u3002
+- \u521D\u59CB\u5316\u6216\u4FEE\u590D\u540E\uFF0C\u7528 \`memory_status\` \u770B \`root\`\u3001\u5DE5\u4F5C\u533A\u4E0E\u8BCA\u65AD\uFF1B\u4E0D\u8981\u9760\u731C\u8DEF\u5F84\u3002
 
 ## \u6BCF\u8F6E\u56FA\u5B9A\u6D41\u7A0B
 
@@ -17771,8 +17976,9 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 \u4F1A\u8BDD\u7ED3\u675F\u65F6\u6CA1\u6765\u5F97\u53CA\u8BB0\u4E0B\u7684\u7ED3\u8BBA\uFF0C\u7528 \`memory_reflect\` \u8865\uFF1A
 
 1. \`memory_reflect({ session_id?, limit?, dry_run? })\` \u53EA\u8BFB\u8FD4\u56DE\u672C\u5DE5\u4F5C\u533A\u540D\u4E0B\u5DF2\u7ED3\u675F\u4F1A\u8BDD\u7684 digest\uFF08\u7528\u6237\u8BC9\u6C42\u3001\u52A9\u624B\u6700\u7EC8\u7ED3\u8BBA\u3001\u5931\u8D25\u7684\u5DE5\u5177\u8C03\u7528\uFF09\uFF0C\u5E76\u8BB0\u5F55 \`records/reflect-state.json\` \u6C34\u4F4D\uFF1B\u540C\u4E00 digest \u4E0D\u4F1A\u91CD\u590D\u8FD4\u56DE\u3002
-2. \u4ECE digest \u91CC\u6311\u4ECD\u6210\u7ACB\u3001\u4E14 \`memory_search\` \u67E5\u91CD\u540E\u6CA1\u6709\u8986\u76D6\u7684\u7ED3\u8BBA\uFF0C\u7528 \`memory_propose\` \u5199 \`scope: "project:<\u672C\u5DE5\u4F5C\u533A>"\`\uFF0C\`source_refs\` \u7528 \`session:<\u4F1A\u8BDDID>#<\u8D77\u59CB\u5E8F\u53F7>-<\u7ED3\u675F\u5E8F\u53F7>\`\uFF0C\`tags\` \u52A0 \`reflection\`\u3002
-3. \u53EA\u5199\u672C\u5DE5\u4F5C\u533A\uFF0C\u4E0D\u5199\u4E0A\u7EA7\u6216 \`global\`\uFF1B\u5411\u4E0A\u664B\u5347\u4EA4\u7ED9\u5B9A\u65F6\u84B8\u998F\u3002\u5019\u9009\u4ECD\u7531\u4EBA\u5DE5\u6279\u51C6\uFF0C\u4E0D\u8981 \`memory_commit\`\u3002
+2. \u8981\u6838\u5BF9\u539F\u59CB\u63AA\u8F9E\u3001\u6570\u5B57\u6216\u627F\u8BFA\u65F6\uFF0C\u7528 \`memory_reflect({ mode: "search", query: "..." })\`\uFF1A\u8D70\u5BBF\u4E3B\u5168\u6587\u68C0\u7D22\uFF0C\u8FD4\u56DE\u539F\u59CB\u4E8B\u4EF6\u7684 \`seq/type/time/snippet\`\uFF0C\u53EA\u8BFB\u3001\u4E0D\u5199\u6C34\u4F4D\uFF1B\u5199\u8BC1\u636E\u65F6\u7528\u547D\u4E2D\u7684\u6700\u5C0F/\u6700\u5927 \`seq\` \u7EC4\u6210 \`session:<id>#<from>-<to>\`\u3002
+3. \u4ECE digest \u91CC\u6311\u4ECD\u6210\u7ACB\u3001\u4E14 \`memory_search\` \u67E5\u91CD\u540E\u6CA1\u6709\u8986\u76D6\u7684\u7ED3\u8BBA\uFF0C\u7528 \`memory_propose\` \u5199 \`scope: "project:<\u672C\u5DE5\u4F5C\u533A>"\`\uFF0C\`source_refs\` \u7528 \`session:<\u4F1A\u8BDDID>#<\u8D77\u59CB\u5E8F\u53F7>-<\u7ED3\u675F\u5E8F\u53F7>\`\uFF0C\`tags\` \u52A0 \`reflection\`\u3002
+4. \u53EA\u5199\u672C\u5DE5\u4F5C\u533A\uFF0C\u4E0D\u5199\u4E0A\u7EA7\u6216 \`global\`\uFF1B\u5411\u4E0A\u664B\u5347\u4EA4\u7ED9\u5B9A\u65F6\u84B8\u998F\u3002\u5019\u9009\u4ECD\u7531\u4EBA\u5DE5\u6279\u51C6\uFF0C\u4E0D\u8981 \`memory_commit\`\u3002
 
 \u5B9A\u65F6\u56DE\u987E\u6309\u5DE5\u4F5C\u533A\u914D\u7F6E \`reflect:\` \u5BF9\u9F50\uFF08\u4E0E \`distill:\` \u72EC\u7ACB\uFF09\uFF0C\u6BCF\u4E2A\u5DE5\u4F5C\u533A\u53EA\u770B\u81EA\u5DF1\u7684\u4F1A\u8BDD\u2014\u2014\u6838\u5FC3\u5DE5\u4F5C\u533A\u770B\u4E0D\u5230\u5B50\u5DE5\u4F5C\u533A\u7684\u4F1A\u8BDD\u3002
 
@@ -18201,7 +18407,7 @@ var MemoryRuntime = class {
     }
   }
   maintenanceStatePath() {
-    return join5(this.configHub?.root ?? "", "records", "maintenance-state.json");
+    return join6(this.configHub?.root ?? "", "records", "maintenance-state.json");
   }
   async readMaintenanceState() {
     try {
@@ -18263,7 +18469,7 @@ var MemoryRuntime = class {
     const store = new KnowledgeStore(hub, ledger);
     await store.load();
     const query = this.sessionQueryService();
-    const reflectState = new ReflectStateFile(join5(hub.root, "records", "reflect-state.json"));
+    const reflectState = new ReflectStateFile(join6(hub.root, "records", "reflect-state.json"));
     if (!hub.readOnly) await reflectState.load();
     const service = new MemoryService({
       ctx: this.ctx,
@@ -18890,7 +19096,7 @@ var MemoryRuntime = class {
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return;
-          const path = join5(root, filename);
+          const path = join6(root, filename);
           this.schedule(path);
         });
         handle.on("error", (error) => {
