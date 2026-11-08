@@ -2,6 +2,19 @@
 
 日期：2026-11-01｜插件版本：`0.1.5`（已发布 npm / GitHub Release）｜状态：Desktop 宿主冒烟通过；`min_score` / `local_boost` / 面板计数 / 系统级 `memory-hub` skill / 夜间维护工具与定时器已热加载验证，视觉待人工确认。
 
+## 版本约束（`engines.dsh`）
+
+插件声明 `engines.dsh: ">=0.2.1-rc.5"`。DSH 插件管理器用 `semver.satisfies(runtimeVersion, range, { includePrerelease: true })` 校验（见 Desktop `app.asar` 内 plugin 兼容性实现），因此预发布版本不会被 node-semver 的 “prerelease tuple” 规则误伤：
+
+| 宿主版本 | 默认 semver（无 includePrerelease） | DSH 实际校验 | 结论 |
+| --- | --- | --- | --- |
+| `0.2.1-rc.5` | 通过 | 通过 | 已实测（本文件所有 V 项） |
+| `0.2.2-rc.1` | 不通过（tuple 规则） | 通过 | 可安装/激活；运行时未实测 |
+| `0.2.2` | 通过 | 通过 | 理论通过，未实测 |
+| `0.3.0-rc.1` | 不通过 | 通过 | 理论通过，未实测 |
+
+跨版本冒烟关注点：`clientModules` 内部缓存 shim（已做字段守卫，失败自动回退到“重启一次”）、回环 `webServer` 路由、`skills.register`、`tools/pre-execute` 的 `ask` 审批、`agent/pre-step` 预检。
+
 ## 环境
 
 | 项 | 值 |
