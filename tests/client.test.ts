@@ -136,6 +136,7 @@ describe('client bundle', () => {
           scope: 'global',
           taskId: 'TSK-20261101-abc123',
           createdAt: '2026-11-01T00:00:00Z',
+          batch: 'alpha',
         },
         {
           id: 'PRO-000002',
@@ -146,6 +147,7 @@ describe('client bundle', () => {
           scope: 'global',
           taskId: 'TSK-20261101-abc123',
           createdAt: '2026-11-01T00:00:00Z',
+          batch: 'beta',
           merged: [{ id: 'DEC-000002', title: '旧条目', summary: '旧摘要。' }],
           diff: [
             { kind: 'del', text: '旧正文。' },
@@ -153,6 +155,11 @@ describe('client bundle', () => {
           ],
           diffTruncated: false,
         },
+      ],
+      pendingTotal: 205,
+      pendingBatches: [
+        { batch: 'alpha', count: 1 },
+        { batch: 'beta', count: 1 },
       ],
       tasks: [
         {
@@ -218,6 +225,11 @@ describe('client bundle', () => {
     expect(pendingHtml).toContain('拒绝选中')
     expect(pendingHtml).toContain('type="checkbox"')
     expect(pendingHtml).toContain('panel:human')
+    // 批量萃取：按 batch:<id> 聚合筛选，并说明只展示最近 N 条。
+    expect(pendingHtml).toContain('按批次筛选')
+    expect(pendingHtml).toContain('alpha (1)')
+    expect(pendingHtml).toContain('beta (1)')
+    expect(pendingHtml).toContain('只显示最近 2 条，共 205 条待审批')
     // merge 卡片只读展示被合并条目与行级 diff。
     expect(pendingHtml).toContain('PRO-000002')
     expect(pendingHtml).toContain('合并 1 条到 target')

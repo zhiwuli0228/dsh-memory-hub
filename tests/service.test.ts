@@ -968,3 +968,60 @@ function createDualCtx(directory: string): Context {
   }
   return ctx
 }
+
+describe('pending panel payload', () => {
+  it('groups pending proposals by batch and caps the list while keeping the total', async () => {
+    const harness = await createHarness()
+    try {
+      const now = '2026-11-08T00:00:00.000Z'
+      for (let index = 1; index <= 205; index += 1) {
+        const id = `PRO-${String(index).padStart(6, '0')}`
+        harness.store.proposals.set(id, {
+          id,
+          status: 'pending',
+          operation: 'create',
+          type: 'knowledge',
+          scope: { level: 'global' },
+          title: `候选 ${index}`,
+          summary: '由批量萃取产生。',
+          tags: index % 2 === 0 ? ['batch:alpha', 'topic:ops'] : ['batch:beta'],
+          sourceRefs: ['file:notes/a.md'],
+          related: [],
+          supersedes: [],
+          appliesTo: { branches: [], versions: [] },
+          promotedFrom: null,
+          target: null,
+          expectedVersion: null,
+          reason: null,
+          validFrom: null,
+          expiresAt: null,
+          lastVerified: null,
+          mergedIds: [],
+          taskId: 'TSK-1',
+          createdAt: now,
+          updatedAt: now,
+          committedTo: null,
+          body: '正文',
+          path: `/hub/pending/${id}.md`,
+          extra: {},
+        } as never)
+      }
+
+      const overview = harness.service.overview() as {
+        pending: Array<{ id: string; batch: string | null }>
+        pendingTotal: number
+        pendingBatches: Array<{ batch: string; count: number }>
+      }
+
+      expect(overview.pendingTotal).toBe(205)
+      expect(overview.pending).toHaveLength(200)
+      expect(overview.pending.every((row) => row.batch !== null)).toBe(true)
+      expect(overview.pendingBatches).toEqual([
+        { batch: 'beta', count: 103 },
+        { batch: 'alpha', count: 102 },
+      ])
+    } finally {
+      await harness.cleanup()
+    }
+  })
+})

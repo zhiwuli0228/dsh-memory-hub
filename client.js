@@ -110,6 +110,10 @@
     'pending.merge': '合并 {count} 条到 target：{ids}',
     'pending.mergeDiff': '正文 diff（旧 → 新）',
     'pending.diffTruncated': '仅显示前 200 行',
+    'pending.batchFilter': '按批次筛选',
+    'pending.filterAll': '全部批次',
+    'pending.filterEmpty': '该批次没有可显示的候选：面板只展示最近 200 条，请先处理较新的候选。',
+    'pending.capHint': '只显示最近 {shown} 条，共 {total} 条待审批；更早的候选会在处理完较新的之后出现。',
     'activity.empty': '还没有任务记录',
     'activity.task': '任务',
     'activity.session': '会话',
@@ -297,6 +301,10 @@
     'pending.merge': 'Merge {count} into target: {ids}',
     'pending.mergeDiff': 'Body diff (old → new)',
     'pending.diffTruncated': 'Showing the first 200 lines only',
+    'pending.batchFilter': 'Filter by batch',
+    'pending.filterAll': 'All batches',
+    'pending.filterEmpty': 'No visible proposals in this batch: the panel shows the newest 200 only; review newer candidates first.',
+    'pending.capHint': 'Showing the newest {shown} of {total} pending proposals; older ones appear as newer ones are reviewed.',
     'activity.empty': 'No task records yet',
     'activity.task': 'Task',
     'activity.session': 'Session',
@@ -845,12 +853,17 @@
 
     function PendingTab(props) {
       const pending = Array.isArray(props.data.pending) ? props.data.pending : [];
+      const pendingTotal = Number(props.data.pendingTotal) || pending.length;
+      const batches = Array.isArray(props.data.pendingBatches) ? props.data.pendingBatches : [];
       const policy = props.data.policy || {};
       const reviewEnabled = !(policy.panel && policy.panel.review === false);
       const [busy, setBusy] = useState(null);
       const [selected, setSelected] = useState([]);
       const [message, setMessage] = useState(null);
-      const pendingIds = pending.map((proposal) => proposal.id);
+      const [batchFilter, setBatchFilter] = useState('all');
+      const activeFilter = batchFilter !== 'all' && batches.some((item) => item.batch === batchFilter) ? batchFilter : 'all';
+      const visible = activeFilter === 'all' ? pending : pending.filter((proposal) => proposal.batch === activeFilter);
+      const pendingIds = visible.map((proposal) => proposal.id);
       // 刷新后列表可能已变化：只保留仍然存在的候选，避免把已处理的 ID 再提交一次。
       const selectedIds = selected.filter((id) => pendingIds.includes(id));
       const allSelected = pendingIds.length > 0 && selectedIds.length === pendingIds.length;
@@ -923,6 +936,18 @@
           ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text)
           : h('div', { className: 'dmh-banner' }, reviewEnabled ? t('pending.hint') : t('pending.reviewDisabled')),
         h('div', { className: 'dmh-batch-bar' },
+          batches.length > 0
+            ? h('label', { className: 'dmh-batch-all' },
+                h('span', { className: 'dmh-section-hint' }, t('pending.batchFilter')),
+                h('select', {
+                  className: 'dmh-select',
+                  value: activeFilter,
+                  onChange: (event) => setBatchFilter(event.target.value),
+                  'aria-label': t('pending.batchFilter'),
+                },
+                h('option', { value: 'all' }, t('pending.filterAll')),
+                batches.map((item) => h('option', { key: item.batch, value: item.batch }, `${item.batch} (${item.count})`))))
+            : null,
           h('label', { className: 'dmh-batch-all' },
             h('input', {
               type: 'checkbox',
@@ -945,7 +970,13 @@
             disabled: !reviewEnabled || busy !== null || selectedIds.length === 0,
             onClick: () => reviewBatch('approve'),
           }, t('pending.batchApprove'))),
-        h('div', { className: 'dmh-list' }, pending.map((proposal) =>
+        pendingTotal > pending.length
+          ? h('div', { className: 'dmh-section-hint' },
+              t('pending.capHint').replace('{shown}', String(pending.length)).replace('{total}', String(pendingTotal)))
+          : null,
+        visible.length === 0
+          ? h('div', { className: 'dmh-banner' }, t('pending.filterEmpty'))
+          : h('div', { className: 'dmh-list' }, visible.map((proposal) =>
           h('div', { key: proposal.id, className: 'dmh-card' },
             h('div', { className: 'dmh-row-top' },
               h('input', {

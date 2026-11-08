@@ -85,6 +85,8 @@ export interface ReadOptions {
 /** 摘要与单小节读取的默认字符上限。 */
 const DIGEST_CHARS = 700
 const SECTION_CHARS = 2000
+/** 面板「待审批」一次最多返回多少条；批量萃取时 pending/ 可能上千条。 */
+export const PANEL_PENDING_LIMIT = 200
 
 export interface SearchArgs {
   query: string
@@ -1687,10 +1689,25 @@ export class MemoryService {
     const knowledge = [...ownKnowledge, ...parentKnowledge]
       .sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, 200)
-    const pending = [...this.store.proposals.values()]
+    // 面板一次最多展示最近 N 条候选：批量萃取时 pending/ 可能上千条，
+    // 全量序列化（尤其 merge diff）会拖慢面板；总数与批次计数仍然全量给出。
+    const allPending = [...this.store.proposals.values()]
       .filter((proposal) => proposal.status === 'pending')
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .map((proposal) => {
+    const pendingTotal = allPending.length
+    const batchOf = (tags: readonly string[]): string | null => {
+      const tag = tags.find((value) => value.startsWith('batch:'))
+      return tag === undefined ? null : tag.slice('batch:'.length)
+    }
+    const batchCounts = new Map<string, number>()
+    for (const proposal of allPending) {
+      const batch = batchOf(proposal.tags)
+      if (batch !== null) batchCounts.set(batch, (batchCounts.get(batch) ?? 0) + 1)
+    }
+    const pendingBatches = [...batchCounts.entries()]
+      .map(([batch, count]) => ({ batch, count }))
+      .sort((left, right) => right.count - left.count || left.batch.localeCompare(right.batch))
+    const pending = allPending.slice(0, PANEL_PENDING_LIMIT).map((proposal) => {
         const merge = proposal.operation === 'merge' ? this.mergePreview(proposal) : null
         return {
           id: proposal.id,
@@ -1701,6 +1718,7 @@ export class MemoryService {
           scope: formatScope(proposal.scope),
           taskId: proposal.taskId,
           createdAt: proposal.createdAt,
+          batch: batchOf(proposal.tags),
           validFrom: proposal.validFrom,
           expiresAt: proposal.expiresAt,
           lastVerified: proposal.lastVerified,
@@ -1784,6 +1802,8 @@ export class MemoryService {
       },
       knowledge,
       pending,
+      pendingTotal,
+      pendingBatches,
       tasks,
       generatedAt: nowIso(),
     }

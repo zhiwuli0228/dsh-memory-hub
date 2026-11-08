@@ -8,7 +8,7 @@
 | 属性 | 为什么重要 | 证据 |
 | --- | --- | --- |
 | **文件是唯一真相，索引是派生的** | 换检索引擎（内存 → SQLite）、加缓存、改分词，都不动已有文件 | `src/search.ts` 只读 `KnowledgeRecord`；`scripts/bench-search.ts` 用同一份记录喂两种引擎 |
-| **scope 写在 frontmatter，不由目录决定** | 从「一个库」拆成「按业务域/客户分库」时，只改元数据，不搬文件 | `store.commit` 路径恒为 `knowledge/<type>/<id>.md`；`scope` 由 `parseScope` 解析 |
+| **scope 写在 frontmatter，不由目录决定** | 同一 Hub 内重划业务域/客户时只改元数据，不动文件；拆成独立 Hub 时整目录复制即可，文件内部路径不变 | `store.commit` 路径恒为 `knowledge/<type>/<id>.md`；`scope` 由 `parseScope` 解析 |
 | **未知 frontmatter 字段被保留并回写** | 新版本加字段，旧版本读写一轮不会把字段吃掉 | `pickExtra` + `...record.extra`；`tests/frontmatter.test.ts` → `preserves unknown frontmatter keys` |
 | **`format` 版本闸门** | 新版本写的新语义，旧版本**拒绝**而不是猜着读 | `CURRENT_FORMAT` 与 `format > CURRENT_FORMAT` 拒绝；`tests/frontmatter.test.ts`、`tests/store.test.ts` |
 | **候选与知识同格式、账本只追加** | 审批、审计、回滚在规模变化后仍然可读 | `pending/PRO-*.md`、`records/ledger.jsonl` |
@@ -41,7 +41,7 @@
 ## 4. 规模演进不需要迁移的三件事
 
 1. **索引**：≤5k 内存、5k–20k 加持久化快照、>20k 换派生 SQLite（postings 表 + 现有 JS 打分）。文件不动，删掉索引即可重建。
-2. **分库**：配置层加 core workspace、设 `core_id` 上级链；已有文件靠 `scope` 归属，不需要搬。
+2. **分库**：配置层加 core workspace、设 `core_id` 上级链。同一 Hub 内重划作用域只改 `scope`；拆成独立 Hub 时复制 `knowledge/` 目录即可，文件内部路径与格式都不变。
 3. **候选吞吐**：批次用 tag 表达；面板按批次过滤；`pending/` 的启动解析可以延后，不涉及文件格式。
 
 ## 5. 需要谨慎的演进（要提案 + 迁移脚本）

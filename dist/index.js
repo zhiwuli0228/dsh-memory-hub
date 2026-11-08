@@ -14676,6 +14676,7 @@ var PLUGIN_VERSION = package_default.version;
 var SCHEDULED_STATES = /* @__PURE__ */ new Set(["scheduled"]);
 var DIGEST_CHARS = 700;
 var SECTION_CHARS = 2e3;
+var PANEL_PENDING_LIMIT = 200;
 var MemoryService = class {
   ctx;
   hub;
@@ -15936,7 +15937,19 @@ var MemoryService = class {
     }
     const tierOf = (row) => row.core === void 0 || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1;
     const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
-    const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => {
+    const allPending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const pendingTotal = allPending.length;
+    const batchOf = (tags) => {
+      const tag = tags.find((value) => value.startsWith("batch:"));
+      return tag === void 0 ? null : tag.slice("batch:".length);
+    };
+    const batchCounts = /* @__PURE__ */ new Map();
+    for (const proposal of allPending) {
+      const batch = batchOf(proposal.tags);
+      if (batch !== null) batchCounts.set(batch, (batchCounts.get(batch) ?? 0) + 1);
+    }
+    const pendingBatches = [...batchCounts.entries()].map(([batch, count]) => ({ batch, count })).sort((left, right) => right.count - left.count || left.batch.localeCompare(right.batch));
+    const pending = allPending.slice(0, PANEL_PENDING_LIMIT).map((proposal) => {
       const merge = proposal.operation === "merge" ? this.mergePreview(proposal) : null;
       return {
         id: proposal.id,
@@ -15947,6 +15960,7 @@ var MemoryService = class {
         scope: formatScope(proposal.scope),
         taskId: proposal.taskId,
         createdAt: proposal.createdAt,
+        batch: batchOf(proposal.tags),
         validFrom: proposal.validFrom,
         expiresAt: proposal.expiresAt,
         lastVerified: proposal.lastVerified,
@@ -16025,6 +16039,8 @@ var MemoryService = class {
       },
       knowledge,
       pending,
+      pendingTotal,
+      pendingBatches,
       tasks,
       generatedAt: nowIso()
     };

@@ -34,6 +34,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 候选创建（`memory_propose`）与提交审批（`memory_commit`）
 - [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
 - [x] 面板批量审核（V0.4.0）：勾选/全选后批量批准或拒绝；端点 `POST /api/pending` 接受 `ids[]`（最多 50 条），返回逐条 `results` 与 `approved/failed`，部分失败不阻塞其他条目
+- [x] 面板批量萃取视图（V0.7 WIP）：待审批按 `tags:batch:<id>` 聚合筛选（只读，不新增写端点）；列表只返回最近 200 条（`PANEL_PENDING_LIMIT`），`pendingTotal` / `pendingBatches` 仍为全量计数，顶部提示“只显示最近 N 条，共 M 条”
 - [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
 - [x] 工作区定时蒸馏（V0.5.0）：`core_workspaces[]` / `workspaces[]` 可选 `distill { enabled, time, target, session_id, agent_preset, max_proposals }`；面板「配置」页逐工作区配置
 - [x] 定时蒸馏由 Host `schedule` 服务执行：`target: new` 每次新建会话（`cwd` = 工作区 root），`target: session` 投递到指定会话；任务标题 `memory-hub:distill:<hub-id>:<kind>:<id>`
@@ -96,7 +97,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 回顾水位：`records/reflect-state.json`（`sessionId` / `workspaceId` / `reflectedAt` / `digestHash`，上限 200 条），账本追加 `reflect.read`；无宿主 `sessionQuery` 时返回 `available: false` 并跳过定时任务
 - [x] 按工作区定时回顾：`reflect:`（`enabled` 默认 false / `time` 04:30 / `target` / `max_candidates` / `lookback_days`）与 `policy.reflect.*`（`max_chars` / `max_sessions` / `min_messages`）；标题 `memory-hub:reflect:<hub>:core|workspace:<id>`，与蒸馏共用 `reconcileScheduleEntries`，启动/热更新/保存后对齐并沿用瞬时错误重试
 - [x] 面板「能力」页补充 `memory_duplicates` 与 `memory_reflect` 说明（中英双语）；操作文档 [reflection.md](../06-operations/reflection.md)
-- [x] 116 个 vitest 测试（16 个文件）
+- [x] 122 个 vitest 测试（16 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
