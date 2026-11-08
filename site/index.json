@@ -16,8 +16,8 @@
         "zh": "记忆中枢"
       },
       "description": {
-        "en": "Preflight, compact context injection, citations, human-approved knowledge, nightly report-only maintenance, per-workspace scheduled distillation, and a Web panel with in-panel review.",
-        "zh": "预检、紧凑上下文注入、引用、人工批准的知识、夜间只读维护、按工作区定时蒸馏，以及支持面板内人工审核的 Web 面板。"
+        "en": "Preflight, compact context injection, citations, human-approved knowledge, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with in-panel review. Every hub root gets a generated README that explains each folder.",
+        "zh": "预检、紧凑上下文注入、引用、人工批准的知识、时效字段、去重合并、回顾式萃取、写入风险标记、派生 SQLite 索引、按工作区定时蒸馏，以及支持面板内人工审核的 Web 面板。每个 Hub 根目录自动生成 README，解释每个文件夹的作用。"
       },
       "icon": "icons/dsh-memory-hub.svg",
       "author": "zhiwuli0228",
@@ -26,6 +26,16 @@
         "url": "https://github.com/zhiwuli0228/dsh-memory-hub"
       },
       "versions": [
+        {
+          "version": "0.7.0",
+          "publishTimestamp": 1794150080,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.5"
+          }
+        },
         {
           "version": "0.6.0",
           "publishTimestamp": 1794117317,

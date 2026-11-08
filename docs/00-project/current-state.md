@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0`（`latest`）与 GitHub Release `v0.7.0` 已发布。
+V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0`（`latest`）与 GitHub Release `v0.7.0` 已发布（run `42492469612`，publishTimestamp `1794150080`，SLSA provenance 已验证）。
 
 V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。投递到已有会话时，面板从 Host `sessionController` 读取本机会话列表做候选（可下拉选择，也可手填），不再要求用户自己去找会话 ID。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。
 
