@@ -50,10 +50,14 @@
 
 ## V0.7（规划中，依据 [memory-landscape-2026](../05-domain/memory-landscape-2026.md)）
 
-- 回顾式萃取：从会话 transcript 提取「已验证的决策/踩过的坑」，仍只产出候选
-- 去重与合并建议（面板展示旧→新 diff，人工确认后 supersede）
-- 时效字段：`valid_from` / `last_verified` / `expires_at`，过期降权不删除
-- 内部 golden set 与「有记忆/无记忆」对照指标，作为发版回归项
+三项 P0 已有提案，尚未实现：
+
+- 回顾式萃取：从会话记录提取「已验证的决策/踩过的坑」，仍只产出候选 — [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)
+- 去重与合并：近重复检测 + `merge` 提案 + 面板旧→新 diff，人工确认后 supersede — [proposal-dedupe-merge](../03-openspec/proposal-dedupe-merge.md)
+- 时效字段：`valid_from` / `last_verified` / `expires_at`，过期降权不删除 — [proposal-temporal-fields](../03-openspec/proposal-temporal-fields.md)
+- 内部 golden set 与「有记忆/无记忆」对照指标，作为发版回归项（尚未写提案）
+
+建议顺序：**时效字段 → 去重合并 → 回顾式萃取**。前两项都改 frontmatter 与提交路径，放在一起做只需一次格式评审；回顾式萃取独立，可并行。
 
 ## V0.2（候选）
 
