@@ -227,6 +227,7 @@ dsh-memory-hub/
 - [scale-plan.md](../01-architecture/scale-plan.md) — 多年业务积累的规模化预案：检索 / 入库 / 蒸馏三条成本线，按业务域分库、批量萃取流水线、分级审批与派生索引的分档路径。
 - [compatibility.md](../01-architecture/compatibility.md) — 兼容性契约：未知字段保留、`format` 版本闸门、作用域由小到大、索引可替换、批量靠 tag，以及合并撞 ID / 新类型 / 早期 global 三个迁移坑。
 - [batch-extraction.md](../07-templates/batch-extraction.md) — 批量萃取模板：`batch.yaml`、chunk 提示词骨架、进度表与收尾检查。
+- [proposal-derived-index.md](../03-openspec/proposal-derived-index.md) — 派生 SQLite 索引提案（>20k 条）：postings 表 + 现有 JS 打分、启动校验、无 `node:sqlite` 时回退内存。
 - [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
@@ -237,6 +238,7 @@ dsh-memory-hub/
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
 4. 在真实 Hub 上复核检索健康度：榜首分数分布、`min_score` 是否漂移、近重复对数；若真实条目过万，评估持久化索引快照（换 SQLite 的条件见 [search-performance.md §5](../04-development/search-performance.md)）。
+5. 实现 [proposal-derived-index.md](../03-openspec/proposal-derived-index.md)：`storage.index: auto|memory|sqlite`、可删除的 `records/index.sqlite`（postings 表 + 现有 JS 打分）、启动校验与回退。
 5. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
 6. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
 7. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
