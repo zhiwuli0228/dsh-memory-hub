@@ -169,6 +169,15 @@
     'config.distillSaved': '定时蒸馏设置已保存',
     'config.distillUnavailable': 'Host schedule 服务不可用，定时任务未注册',
     'config.distillRegistered': '已注册',
+    'config.distillColWorkspace': '工作区',
+    'config.distillColState': '状态',
+    'config.distillLive': '已注册',
+    'config.distillPending': '待注册',
+    'config.distillFailed': '注册失败',
+    'config.distillOff': '未启用',
+    'config.distillSummary': '{on}/{total} 个工作区已启用',
+    'config.distillDirty': '有未保存修改',
+    'config.distillErrors': '{n} 个注册失败',
     'config.coreShort': '核心',
     'config.subShort': '子工作区',
     'config.emptyId': '标识不能为空',
@@ -327,6 +336,15 @@
     'config.distillSaved': 'Distillation schedule saved',
     'config.distillUnavailable': 'Host schedule service unavailable; no task was registered',
     'config.distillRegistered': 'Registered',
+    'config.distillColWorkspace': 'Workspace',
+    'config.distillColState': 'Status',
+    'config.distillLive': 'Registered',
+    'config.distillPending': 'Pending',
+    'config.distillFailed': 'Failed',
+    'config.distillOff': 'Off',
+    'config.distillSummary': '{on}/{total} workspaces enabled',
+    'config.distillDirty': 'unsaved changes',
+    'config.distillErrors': '{n} failed',
     'config.coreShort': 'core',
     'config.subShort': 'sub-workspace',
     'config.emptyId': 'Id is required',
@@ -430,7 +448,26 @@
 .dmh-check{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
 .dmh-check input{cursor:pointer}
 .dmh-hub-select{max-width:260px}
-@media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-config-body{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}.dmh-hub-select{max-width:none}}
+.dmh-btn-primary{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dmh-distill{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;overflow:hidden;background:var(--dsw-alias-bg-layer-1)}
+.dmh-distill-head,.dmh-distill-row{display:grid;grid-template-columns:minmax(170px,1.1fr) 56px 96px 150px minmax(150px,1.4fr) 70px 92px;gap:8px;align-items:center;padding:7px 12px}
+.dmh-distill-head{font-size:11px;color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);border-bottom:1px solid var(--dsw-alias-border-l1);white-space:nowrap}
+.dmh-distill-head span:nth-child(2),.dmh-distill-head span:nth-child(6),.dmh-distill-head span:nth-child(7){text-align:center}
+.dmh-distill-row+.dmh-distill-row{border-top:1px solid var(--dsw-alias-border-l1)}
+.dmh-distill-row:hover{background:var(--dsw-alias-bg-layer-2)}
+.dmh-distill-row>.dmh-distill-cell:last-child{align-items:center}
+.dmh-distill-name{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+.dmh-distill-cell{display:flex;flex-direction:column;gap:2px;min-width:0;margin:0}
+.dmh-distill-label{display:none;font-size:10.5px;color:var(--dsw-alias-label-secondary)}
+.dmh-distill-toggle{align-items:center;cursor:pointer}
+.dmh-distill-input{width:100%;flex:none;min-width:0;padding:5px 7px;border-radius:7px}
+.dmh-distill-toggle input{accent-color:var(--dsw-alias-brand-primary);width:14px;height:14px;cursor:pointer}
+.dmh-distill-dash{color:var(--dsw-alias-label-secondary);font-size:12px;padding-left:2px}
+.dmh-distill-error{font-size:11px;color:var(--dsw-alias-state-error-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.dmh-distill-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2)}
+.dmh-distill-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+.dmh-distill-errors{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--dsw-alias-state-error-primary)}
+@media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-config-body{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}.dmh-hub-select{max-width:none}.dmh-distill-head{display:none}.dmh-distill-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px}.dmh-distill-name{grid-column:1/-1}.dmh-distill-label{display:block}.dmh-distill-foot{flex-wrap:wrap}}
 `;
 
   function formatTime(value) {
@@ -1213,91 +1250,132 @@
           ? h(Empty, { title: t('config.unassigned'), hint: t('config.unassignedHint') })
           : h('div', { className: 'dmh-list' }, unassigned.map(renderWorkspace)));
 
+      // 任务状态按工作区索引，行内只显示“已注册/待注册/失败”，完整错误放在表格下方。
+      const distillEntries = new Map(
+        ((distillReport && Array.isArray(distillReport.entries) ? distillReport.entries : []).map((entry) => [
+          `${entry.workspaceKind === 'workspace' ? 'workspace' : 'core'}:${entry.workspaceId}`,
+          entry,
+        ])),
+      );
+
+      const distillStateTag = (row, value) => {
+        const entry = distillEntries.get(row.key);
+        if (value.enabled !== true) return h(Tag, null, t('config.distillOff'));
+        if (entry && entry.error) return h(Tag, { tone: 'err' }, t('config.distillFailed'));
+        if (entry) return h(Tag, { tone: 'ok' }, t('config.distillLive'));
+        return h(Tag, { tone: 'warn' }, t('config.distillPending'));
+      };
+
       const renderDistillRow = (row) => {
         const value = distillValue(row.key, row.distill);
         const disabled = readOnly || state.phase === 'saving';
-        return h('div', { key: row.key, className: 'dmh-card' },
-          h('div', { className: 'dmh-row-top' },
-            h('span', { className: 'dmh-row-title' }, row.id),
-            h(Tag, null, row.kind === 'core' ? t('config.coreShort') : t('config.subShort')),
-            row.root ? h('span', { className: 'dmh-row-id dmh-mono' }, row.root) : null),
-          h('div', { className: 'dmh-form-row' },
-            h('label', { className: 'dmh-check' },
-              h('input', {
-                type: 'checkbox',
-                checked: value.enabled === true,
-                disabled,
-                onChange: (event) => editDistill(row.key, row.distill, { enabled: event.target.checked }),
-              }),
-              t('config.distillOn')),
-            h('label', { className: 'dmh-check' },
-              t('config.distillTime'),
-              h('input', {
-                className: 'dmh-input dmh-input-sm',
-                type: 'time',
-                value: value.time || '03:30',
-                disabled,
-                onChange: (event) => editDistill(row.key, row.distill, { time: event.target.value }),
-              })),
-            h('label', { className: 'dmh-check' },
-              t('config.distillTarget'),
-              h('select', {
-                className: 'dmh-select',
-                value: value.target || 'new',
-                disabled,
-                onChange: (event) => editDistill(row.key, row.distill, { target: event.target.value }),
-              },
-                h('option', { value: 'new' }, t('config.distillNew')),
-                h('option', { value: 'session' }, t('config.distillSession')))),
+        const entry = distillEntries.get(row.key);
+        return h('div', { key: row.key, className: 'dmh-distill-row' },
+          h('div', { className: 'dmh-distill-name' },
+            h('span', { className: 'dmh-row-title', title: row.root || '' }, row.id),
+            h(Tag, null, row.kind === 'core' ? t('config.coreShort') : t('config.subShort'))),
+          h('label', { className: 'dmh-distill-cell dmh-distill-toggle' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillOn')),
+            h('input', {
+              type: 'checkbox',
+              checked: value.enabled === true,
+              disabled,
+              'aria-label': `${row.id} ${t('config.distillOn')}`,
+              onChange: (event) => editDistill(row.key, row.distill, { enabled: event.target.checked }),
+            })),
+          h('label', { className: 'dmh-distill-cell' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillTime')),
+            h('input', {
+              className: 'dmh-input dmh-distill-input dmh-mono',
+              type: 'time',
+              value: value.time || '03:30',
+              disabled,
+              onChange: (event) => editDistill(row.key, row.distill, { time: event.target.value }),
+            })),
+          h('label', { className: 'dmh-distill-cell' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillTarget')),
+            h('select', {
+              className: 'dmh-select dmh-distill-input',
+              value: value.target || 'new',
+              disabled,
+              onChange: (event) => editDistill(row.key, row.distill, { target: event.target.value }),
+            },
+              h('option', { value: 'new' }, t('config.distillNew')),
+              h('option', { value: 'session' }, t('config.distillSession')))),
+          h('label', { className: 'dmh-distill-cell' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillSessionId')),
             value.target === 'session'
-              ? h('label', { className: 'dmh-check' },
-                  t('config.distillSessionId'),
-                  h('input', {
-                    className: 'dmh-input dmh-input-sm',
-                    placeholder: 'session-…',
-                    value: value.session_id || '',
-                    disabled,
-                    onChange: (event) => editDistill(row.key, row.distill, { session_id: event.target.value }),
-                  }))
-              : null,
-            h('label', { className: 'dmh-check' },
-              t('config.distillMax'),
-              h('input', {
-                className: 'dmh-input dmh-input-sm',
-                type: 'number',
-                min: 1,
-                max: 20,
-                value: value.max_proposals || 5,
-                disabled,
-                onChange: (event) => editDistill(row.key, row.distill, { max_proposals: Number(event.target.value) || 1 }),
-              }))),
-        );
+              ? h('input', {
+                  className: 'dmh-input dmh-distill-input dmh-mono',
+                  placeholder: 'session-…',
+                  value: value.session_id || '',
+                  disabled,
+                  onChange: (event) => editDistill(row.key, row.distill, { session_id: event.target.value }),
+                })
+              : h('span', { className: 'dmh-distill-dash', title: t('config.distillNew') }, '—')),
+          h('label', { className: 'dmh-distill-cell' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillMax')),
+            h('input', {
+              className: 'dmh-input dmh-distill-input dmh-mono',
+              type: 'number',
+              min: 1,
+              max: 20,
+              value: value.max_proposals || 5,
+              disabled,
+              onChange: (event) => editDistill(row.key, row.distill, { max_proposals: Number(event.target.value) || 1 }),
+            })),
+          h('div', { className: 'dmh-distill-cell' },
+            h('span', { className: 'dmh-distill-label' }, t('config.distillColState')),
+            entry && entry.error
+              ? h('span', { title: entry.error }, distillStateTag(row, value))
+              : distillStateTag(row, value)));
       };
+
+      const distillEnabledCount = distillRows.filter((row) => distillValue(row.key, row.distill).enabled === true).length;
+      const distillDirty = Object.keys(distillEdits).length > 0;
+      const distillFailures = [...distillEntries.values()].filter((entry) => entry.error);
+      const distillSummary = [
+        t('config.distillSummary').replace('{on}', String(distillEnabledCount)).replace('{total}', String(distillRows.length)),
+        distillDirty ? t('config.distillDirty') : '',
+        distillFailures.length > 0 ? t('config.distillErrors').replace('{n}', String(distillFailures.length)) : '',
+      ].filter(Boolean).join(' · ');
 
       const distillSection = h('section', { className: 'dmh-section' },
         h(SectionHead, { title: t('config.distillTitle'), hint: t('config.distillHint') }),
         distillReport && distillReport.error
           ? h('div', { className: 'dmh-banner err' }, `${t('config.distillUnavailable')}: ${distillReport.error}`)
           : null,
-        distillReport && Array.isArray(distillReport.entries) && distillReport.entries.length > 0
-          ? h('div', { className: 'dmh-row-id' }, distillReport.entries.map((entry) =>
-              `${entry.workspaceId}: ${entry.action}${entry.error ? ` (${entry.error})` : ''}`).join(' · '))
-          : null,
         distillRows.length === 0
           ? h(Empty, { title: t('config.distillTitle'), hint: t('config.distillHint') })
-          : h('div', { className: 'dmh-list' }, distillRows.map(renderDistillRow)),
-        h('div', { className: 'dmh-form-actions' },
-          h('button', {
-            type: 'button',
-            className: 'dmh-btn',
-            disabled: readOnly || state.phase === 'saving',
-            onClick: handleSaveDistill,
-          }, t('config.distillSave'))));
+          : h('div', { className: 'dmh-distill' },
+              h('div', { className: 'dmh-distill-head' },
+                h('span', null, t('config.distillColWorkspace')),
+                h('span', null, t('config.distillOn')),
+                h('span', null, t('config.distillTime')),
+                h('span', null, t('config.distillTarget')),
+                h('span', null, t('config.distillSessionId')),
+                h('span', null, t('config.distillMax')),
+                h('span', null, t('config.distillColState'))),
+              distillRows.map(renderDistillRow),
+              h('div', { className: 'dmh-distill-foot' },
+                h('span', { className: 'dmh-distill-hint' }, distillSummary),
+                h('button', {
+                  type: 'button',
+                  className: 'dmh-btn dmh-btn-primary',
+                  disabled: readOnly || state.phase === 'saving',
+                  onClick: handleSaveDistill,
+                }, t('config.distillSave')))),
+        distillFailures.length === 0
+          ? null
+          : h('div', { className: 'dmh-distill-errors' }, distillFailures.map((entry) =>
+              h('div', { key: `${entry.workspaceKind}:${entry.workspaceId}` },
+                `${entry.workspaceId}: ${entry.error}`))));
 
       return h('div', { className: 'dmh-config' },
         message ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text) : null,
         readOnly ? h('div', { className: 'dmh-banner err' }, t('config.readonly')) : null,
-        h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection, distillSection));
+        h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection),
+        distillSection);
     }
 
     function Panel(props) {

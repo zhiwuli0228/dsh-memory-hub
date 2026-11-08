@@ -177,6 +177,11 @@ describe('client bundle', () => {
     expect(configHtml).toContain('04:15')
     expect(configHtml).toContain('type="time"')
     expect(configHtml).toContain('保存定时蒸馏')
+    // 蒸馏设置是一张对齐的表：表头、每行状态与汇总都在同一块里。
+    expect(configHtml).toContain('dmh-distill-head')
+    expect(configHtml).toContain('dmh-distill-row')
+    expect(configHtml).toContain('待注册')
+    expect(configHtml).toContain('1/2 个工作区已启用')
 
     const pendingHtml = renderToStaticMarkup(
       React.createElement(main?.component as React.ComponentType<{ initialData: unknown; initialTab: string }>, {
