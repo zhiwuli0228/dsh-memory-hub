@@ -881,6 +881,70 @@ core_workspaces:
     await rm(configRoot, { recursive: true, force: true })
     await rm(coreRoot, { recursive: true, force: true })
   })
+  it('retries distillation registration when the host session factory is not ready yet', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-distill-retry-'))
+    const coreRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-distill-retry-core-'))
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: core-a
+    root: '${coreRoot.replace(/\\/g, '/')}'
+    distill:
+      enabled: true
+      time: '04:15'
+      target: new
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    let attempts = 0
+    const schedule = {
+      items: [] as Array<Record<string, any>>,
+      async list() {
+        return { items: schedule.items, total: schedule.items.length }
+      },
+      async create(request: Record<string, any>) {
+        attempts += 1
+        // 首次注册发生在 Host 的 session-controller 就绪之前。
+        if (attempts === 1) {
+          throw new Error('This Host cannot create Sessions; choose an existing Session target.')
+        }
+        const task = {
+          id: `task-${attempts}`,
+          title: request.title,
+          status: 'active',
+          kind: 'daily',
+          time: request.timing.daily.time,
+          target: request.target,
+        }
+        schedule.items.push(task)
+        return { id: task.id }
+      },
+      async edit() {
+        return { ok: true }
+      },
+    }
+
+    const host = createFakeHost(configRoot)
+    const originalGet = host.ctx.get.bind(host.ctx)
+    host.ctx.get = (name: string) => (name === 'schedule' ? schedule : originalGet(name))
+    apply(host.ctx, { root: configRoot })
+    await invoke('memory_status', host, {}, makeAgent(host))
+    expect(attempts).toBe(1)
+    expect(schedule.items).toHaveLength(0)
+
+    // 退避重试在 2s 后发生；等待足够长以覆盖定时器。
+    await new Promise((resolve) => setTimeout(resolve, 2_800))
+    expect(attempts).toBe(2)
+    expect(schedule.items).toHaveLength(1)
+    expect(schedule.items[0]?.title).toBe('memory-hub:distill:primary:core:core-a')
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(configRoot, { recursive: true, force: true })
+    await rm(coreRoot, { recursive: true, force: true })
+  })
 })
 
 function createDirectoryHost(configRoot: string, directories: Map<string, string>): FakeHost {

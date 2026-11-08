@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.5.1
+// dsh-memory-hub 0.5.2
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13269,7 +13269,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.5.1",
+  version: "0.5.2",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, per-workspace scheduled distillation, and a Web panel with human review.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -14806,7 +14806,8 @@ var MemoryService = class {
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
         id: core.id,
         name: core.name,
-        root: core.root
+        root: core.root,
+        distill: core.distill
       })),
       workspaces: this.hub.config.workspaces.map((workspace) => ({
         id: workspace.id,
@@ -14814,7 +14815,8 @@ var MemoryService = class {
         root: workspace.root,
         domains: workspace.domains,
         admin: workspace.admin,
-        enabled: workspace.enabled
+        enabled: workspace.enabled,
+        distill: workspace.distill
       }))
     };
   }
@@ -15878,6 +15880,10 @@ function registerMemorySkill(ctx) {
 }
 
 // src/runtime.ts
+var DISTILL_RETRY_LIMIT = 5;
+var DISTILL_RETRY_BASE_MS = 2e3;
+var DISTILL_RETRY_MAX_MS = 15e3;
+var DISTILL_TRANSIENT_ERROR = /cannot create Sessions|service unavailable|not available|not mounted|no such service/i;
 var pluginConfigSchema = external_exports.object({
   root: external_exports.string().optional(),
   readOnly: external_exports.boolean().optional()
@@ -15903,6 +15909,8 @@ var MemoryRuntime = class {
   maintenanceRunning = false;
   maintenanceLastDate = null;
   distillReport = null;
+  distillRetryTimer = null;
+  distillRetryCount = 0;
   ready;
   resolveReady = null;
   constructor(ctx, config) {
@@ -16111,6 +16119,7 @@ var MemoryRuntime = class {
         removed: 0,
         error: "schedule service unavailable; distill schedules were not registered"
       };
+      this.scheduleDistillRetry(true);
       return;
     }
     try {
@@ -16127,6 +16136,10 @@ var MemoryRuntime = class {
           `dsh-memory-hub: distill schedules reconciled (${changed} change(s), ${report.removed} removed)`
         );
       }
+      const pending = report.entries.filter(
+        (entry) => entry.action === "error" && DISTILL_TRANSIENT_ERROR.test(entry.error ?? "")
+      ).length;
+      this.scheduleDistillRetry(pending > 0);
     } catch (error) {
       this.distillReport = {
         at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -16135,7 +16148,27 @@ var MemoryRuntime = class {
         error: error.message
       };
       this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${error.message}`);
+      this.scheduleDistillRetry(true);
     }
+  }
+  /** 有限次退避重试，只针对“服务尚未就绪”这类可自愈错误。 */
+  scheduleDistillRetry(retry) {
+    if (!retry) {
+      this.distillRetryCount = 0;
+      if (this.distillRetryTimer !== null) {
+        clearTimeout(this.distillRetryTimer);
+        this.distillRetryTimer = null;
+      }
+      return;
+    }
+    if (this.disposed || this.distillRetryTimer !== null || this.distillRetryCount >= DISTILL_RETRY_LIMIT) return;
+    this.distillRetryCount += 1;
+    const delay = Math.min(DISTILL_RETRY_BASE_MS * this.distillRetryCount, DISTILL_RETRY_MAX_MS);
+    this.distillRetryTimer = setTimeout(() => {
+      this.distillRetryTimer = null;
+      void this.reconcileDistill();
+    }, delay);
+    this.distillRetryTimer.unref?.();
   }
   async runScheduledMaintenance() {
     if (this.disposed || this.maintenanceRunning || this.configHub === null) return;
@@ -16849,6 +16882,10 @@ var MemoryRuntime = class {
   }
   async dispose() {
     this.disposed = true;
+    if (this.distillRetryTimer !== null) {
+      clearTimeout(this.distillRetryTimer);
+      this.distillRetryTimer = null;
+    }
     for (const handle of this.watchHandles.values()) {
       try {
         handle.close();

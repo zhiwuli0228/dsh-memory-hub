@@ -27,6 +27,12 @@ import type {
   WebServerService,
 } from './host.js'
 
+const DISTILL_RETRY_LIMIT = 5
+const DISTILL_RETRY_BASE_MS = 2000
+const DISTILL_RETRY_MAX_MS = 15000
+/** Host 的 schedule/session-controller 尚未就绪时产生的可自愈错误。 */
+const DISTILL_TRANSIENT_ERROR = /cannot create Sessions|service unavailable|not available|not mounted|no such service/i
+
 const pluginConfigSchema = z.object({
   root: z.string().optional(),
   readOnly: z.boolean().optional(),
@@ -69,6 +75,8 @@ export class MemoryRuntime implements ToolHost {
   private maintenanceRunning = false
   private maintenanceLastDate: string | null = null
   private distillReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
+  private distillRetryTimer: NodeJS.Timeout | null = null
+  private distillRetryCount = 0
   private readonly ready: Promise<void>
   private resolveReady: (() => void) | null = null
 
@@ -308,6 +316,7 @@ export class MemoryRuntime implements ToolHost {
         removed: 0,
         error: 'schedule service unavailable; distill schedules were not registered',
       }
+      this.scheduleDistillRetry(true)
       return
     }
     try {
@@ -324,6 +333,12 @@ export class MemoryRuntime implements ToolHost {
           `dsh-memory-hub: distill schedules reconciled (${changed} change(s), ${report.removed} removed)`,
         )
       }
+      // Host 的 session-controller 可能比 schedule 晚就绪；此时新建会话被拒绝，
+      // 稍后重试即可，不需要用户改配置或重启。
+      const pending = report.entries.filter(
+        (entry) => entry.action === 'error' && DISTILL_TRANSIENT_ERROR.test(entry.error ?? ''),
+      ).length
+      this.scheduleDistillRetry(pending > 0)
     } catch (error) {
       this.distillReport = {
         at: new Date().toISOString(),
@@ -332,7 +347,28 @@ export class MemoryRuntime implements ToolHost {
         error: (error as Error).message,
       }
       this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${(error as Error).message}`)
+      this.scheduleDistillRetry(true)
     }
+  }
+
+  /** 有限次退避重试，只针对“服务尚未就绪”这类可自愈错误。 */
+  private scheduleDistillRetry(retry: boolean): void {
+    if (!retry) {
+      this.distillRetryCount = 0
+      if (this.distillRetryTimer !== null) {
+        clearTimeout(this.distillRetryTimer)
+        this.distillRetryTimer = null
+      }
+      return
+    }
+    if (this.disposed || this.distillRetryTimer !== null || this.distillRetryCount >= DISTILL_RETRY_LIMIT) return
+    this.distillRetryCount += 1
+    const delay = Math.min(DISTILL_RETRY_BASE_MS * this.distillRetryCount, DISTILL_RETRY_MAX_MS)
+    this.distillRetryTimer = setTimeout(() => {
+      this.distillRetryTimer = null
+      void this.reconcileDistill()
+    }, delay)
+    this.distillRetryTimer.unref?.()
   }
 
   private async runScheduledMaintenance(): Promise<void> {
@@ -1137,6 +1173,10 @@ export class MemoryRuntime implements ToolHost {
 
   async dispose(): Promise<void> {
     this.disposed = true
+    if (this.distillRetryTimer !== null) {
+      clearTimeout(this.distillRetryTimer)
+      this.distillRetryTimer = null
+    }
     for (const handle of this.watchHandles.values()) {
       try {
         handle.close()

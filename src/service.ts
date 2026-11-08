@@ -1485,6 +1485,7 @@ export class MemoryService {
         id: core.id,
         name: core.name,
         root: core.root,
+        distill: core.distill,
       })),
       workspaces: this.hub.config.workspaces.map((workspace) => ({
         id: workspace.id,
@@ -1493,6 +1494,7 @@ export class MemoryService {
         domains: workspace.domains,
         admin: workspace.admin,
         enabled: workspace.enabled,
+        distill: workspace.distill,
       })),
     }
   }

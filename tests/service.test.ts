@@ -267,6 +267,45 @@ describe('memory service', () => {
     }
   })
 
+  it('round-trips distill settings through config() and updateConfig()', async () => {
+    const harness = await createHarness()
+    try {
+      const after = (await harness.service.updateConfig({
+        core_workspaces: [
+          {
+            id: 'core1',
+            name: 'Core One',
+            root: '/tmp/core1',
+            distill: { enabled: true, time: '04:15', target: 'new', max_proposals: 4 },
+          },
+        ],
+        workspaces: [],
+      })) as {
+        core_workspaces: Array<{ id: string; distill?: { enabled: boolean; time: string; max_proposals: number } }>
+      }
+      expect(after.core_workspaces[0]?.distill?.enabled).toBe(true)
+      expect(after.core_workspaces[0]?.distill?.time).toBe('04:15')
+      expect(after.core_workspaces[0]?.distill?.max_proposals).toBe(4)
+
+      // config() 是面板表单的数据源，必须带上 distill，否则保存后会显示成未配置。
+      const read = harness.service.config() as {
+        core_workspaces: Array<{ distill?: { enabled: boolean; time: string } }>
+      }
+      expect(read.core_workspaces[0]?.distill?.enabled).toBe(true)
+      expect(read.core_workspaces[0]?.distill?.time).toBe('04:15')
+
+      await expect(
+        harness.service.updateConfig({
+          core_workspaces: [
+            { id: 'core1', root: '/tmp/core1', distill: { enabled: true, target: 'session' } },
+          ],
+        }),
+      ).rejects.toThrow(/session_id/)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('preserves untouched config sections when updating only one', async () => {
     const harness = await createHarness()
     try {
