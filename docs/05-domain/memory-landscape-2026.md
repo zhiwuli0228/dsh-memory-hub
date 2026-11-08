@@ -232,16 +232,22 @@ OpenClaw 是与我们最接近的形态：纯 Markdown 文件 + 一个可重建�
 - `memory forget --session` 先在 dry-run 里给出可删除清单，再执行；文档明确列出「删不掉什么」（原始 transcript、自由编辑、外部副本）。
 - 写入侧准入（admission policy）与删除是两件事。
 
+### 6.7 Hermes Agent：有界常驻 + 全文档案 + 单活 provider
+
+Nous Research 的 Hermes Agent 是「预算派」的代表：`MEMORY.md`（2.2k 字符）+ `USER.md`（1.4k 字符）**硬上限、会话开始冻结注入**；所有会话进 SQLite FTS5，靠 `session_search` 按需取原文（零 LLM 成本）；外部 memory provider（Honcho / Limbic / OpenViking / Mem0）**单活**接入。超限时写入不是丢，而是返回「当前条目 + 精确缺口」逼模型同回合批量整理。
+
+它是本项目最像的对照组：同样是「小注入 + 大档案」，同样有后台复盘与审批开关，但把「常驻」和「档案」拆成了两种存储，并给 provider 定了固定钩子。完整拆解与可落地建议见 [hermes-memory-2026.md](hermes-memory-2026.md)。
+
 ## 7. 横向对照
 
 | 维度 | ChatGPT | Claude | Qwen 记忆库 | OpenClaw | dsh-memory-hub（现状） |
 | --- | --- | --- | --- | --- | --- |
 | 权威存储 | 未公开（系统提示注入） | 消费者版：话题条目 + 聊天检索索引；Agent 版：文件 + 记忆目录 + wiki | 托管 DB（语义+结构化） | Markdown + SQLite 索引 | Markdown/YAML/JSONL |
 | 谁决定写什么 | 模型 + 后台 dreaming | 自动存话题 + 模型判断显著性 + dreaming | 用户配置的抽取规则 + 模型 | 模型 + dreaming，人类可改 | 模型 propose，人审批 |
-| 萃取时机 | 离线为主 | 在线笔记 + 离线 dreaming | 调用时抽取（Add） | 在线 + 压缩前 flush + 离线 | 任务收尾 + 夜间确定性扫描 + 定时蒸馏 |
-| 组织形态 | 摘要 + 条目清单 | topics / notes / wiki / 注入层 | 事实条目 + 结构化画像 | 分层文件 + daily + intents | 九类知识 + 金字塔作用域 |
-| 检索 | 未公开，按需 | 聊天搜索（显式 RAG）+ wiki 导航 | 语义 + 重排 + 改写 + 意图判别 | BM25+向量+MMR+时效 | CJK 分词 + BM25-lite + 门控 |
-| 时效 | V3 自动改写时态 | dreaming 纠错 | 7/30/180/永不 过期 | 重要性 + 新鲜度 + supersede | 无（弱） |
+| 萃取时机 | 离线为主 | 在线笔记 + 离线 dreaming | 调用时抽取（Add） | 在线 + 压缩前 flush + 离线 | 任务收尾 + 夜间确定性扫描 + 定时蒸馏 + 定时回顾 |
+| 组织形态 | 摘要 + 条目清单 | topics / notes / wiki / 注入层 | 事实条目 + 结构化画像 | 分层文件 + daily + intents | 九类知识 + 金字塔作用域 + merge 合并 |
+| 检索 | 未公开，按需 | 聊天搜索（显式 RAG）+ wiki 导航 | 语义 + 重排 + 改写 + 意图判别 | BM25+向量+MMR+时效 | CJK 分词 + BM25-lite + 门控 + 金字塔回退 |
+| 时效 | V3 自动改写时态 | dreaming 纠错 | 7/30/180/永不 过期 | 重要性 + 新鲜度 + supersede | 时效字段 + 派生降权 + supersede（V0.7） |
 | 治理/审计 | 摘要页、来源卡、30 天日志 | 话题可编辑；组织级开关有日志、个人编辑无审计 | 观测 + 审计快照 | provenance + forget | 账本 + history/ + 面板审核 |
 
 Gemini 未进表：Google 支持页在本机不可达，只确认存在「保存的信息」与「参考过去的对话」两个开关，以及媒体关于 Personal Intelligence（Gmail/Search/YouTube/Photos）的报道 **[媒体]**，机制未验证。
@@ -368,6 +374,7 @@ Gemini 未进表：Google 支持页在本机不可达，只确认存在「保存
 - [OpenClaw — Memory architecture](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/memory-architecture.md) / [Dreaming](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/dreaming.md) / [Memory search](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/memory-search.md) / [Active memory](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/active-memory.md) / [User model](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/user-model.md) / [Provenance](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/memory-provenance.md) / [Compaction](https://raw.githubusercontent.com/openclaw/openclaw/main/docs/concepts/compaction.md)
 - Qwen： [核心概念](https://platform.qianwenai.com/docs/agent-infra/memory/getting-started/concepts) / [配置记忆规则](https://platform.qianwenai.com/docs/agent-infra/memory/guide/configure-rules) / [常见问题](https://platform.qianwenai.com/docs/agent-infra/memory/reference/faq) / [记忆审计](https://help.aliyun.com/zh/model-studio/memory/audit)
 - [PolarDB-X Mem0：千问 APP 背后的记忆引擎](https://www.modb.pro/db/2043932872369860608)
+- Hermes Agent 官方文档：[Persistent Memory](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory) / [Memory Providers](https://hermes-agent.nousresearch.com/docs/user-guide/features/memory-providers) / [Honcho](https://hermes-agent.nousresearch.com/docs/user-guide/features/honcho) / [Memory Provider Plugins](https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin) / [Curator](https://hermes-agent.nousresearch.com/docs/user-guide/features/curator)（拆解见 [hermes-memory-2026.md](hermes-memory-2026.md)）
 
 厂商/媒体：
 

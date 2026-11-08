@@ -53,6 +53,8 @@
 2. `docs/05-domain/scope-rules.md`
 3. `docs/05-domain/plugin-dev-workflow.md`
 4. `docs/05-domain/source-ref-rules.md`
+5. `docs/05-domain/memory-landscape-2026.md`（业界对照）
+6. `docs/05-domain/hermes-memory-2026.md`（Hermes 拆解）
 4. `docs/02-harness/context-policy.md`
 
 ### 部署 / 运维改动
