@@ -29,6 +29,28 @@ function parseTime(value: string | null | undefined): number | null {
 }
 
 /**
+ * 预先解析好的时间戳（epoch ms）。检索会为每个候选计算时效与新鲜度，
+ * 逐次 `Date.parse` 在大库上是主要热点，因此在建索引时解析一次。
+ */
+export interface TemporalTimes {
+  validFrom: number | null
+  expiresAt: number | null
+  lastVerified: number | null
+  updatedAt: number | null
+}
+
+export function temporalTimesOf(
+  record: Pick<KnowledgeRecord, 'validFrom' | 'expiresAt' | 'lastVerified' | 'updatedAt'>,
+): TemporalTimes {
+  return {
+    validFrom: parseTime(record.validFrom),
+    expiresAt: parseTime(record.expiresAt),
+    lastVerified: parseTime(record.lastVerified),
+    updatedAt: parseTime(record.updatedAt),
+  }
+}
+
+/**
  * 计算派生时效状态。优先级：stale > scheduled > aging > fresh。
  * 未来生效的条目同时已过期属于配置矛盾，按 stale 处理（更保守：提醒复核）。
  */
@@ -37,13 +59,19 @@ export function temporalState(
   nowMs: number,
   policy: TemporalPolicy = DEFAULT_TEMPORAL_POLICY,
 ): TemporalState {
-  const expiresAt = parseTime(record.expiresAt)
-  if (expiresAt !== null && nowMs >= expiresAt) return 'stale'
+  return temporalStateFromTimes(temporalTimesOf(record), nowMs, policy)
+}
 
-  const validFrom = parseTime(record.validFrom)
-  if (validFrom !== null && nowMs < validFrom) return 'scheduled'
+/** 与 `temporalState` 等价，但复用建索引时解析好的时间戳。 */
+export function temporalStateFromTimes(
+  times: TemporalTimes,
+  nowMs: number,
+  policy: TemporalPolicy = DEFAULT_TEMPORAL_POLICY,
+): TemporalState {
+  if (times.expiresAt !== null && nowMs >= times.expiresAt) return 'stale'
+  if (times.validFrom !== null && nowMs < times.validFrom) return 'scheduled'
 
-  const lastVerified = parseTime(record.lastVerified) ?? parseTime(record.updatedAt)
+  const lastVerified = times.lastVerified ?? times.updatedAt
   if (lastVerified !== null && nowMs - lastVerified >= policy.aging_days * DAY_MS) return 'aging'
 
   return 'fresh'

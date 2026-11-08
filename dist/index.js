@@ -11433,11 +11433,6 @@ function dateStamp(date = /* @__PURE__ */ new Date()) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}${month}${day}`;
 }
-function daysSince(iso) {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return 0;
-  return Math.max(0, (Date.now() - then) / 864e5);
-}
 function sleep(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
@@ -12480,12 +12475,21 @@ function parseTime(value) {
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? null : parsed;
 }
+function temporalTimesOf(record) {
+  return {
+    validFrom: parseTime(record.validFrom),
+    expiresAt: parseTime(record.expiresAt),
+    lastVerified: parseTime(record.lastVerified),
+    updatedAt: parseTime(record.updatedAt)
+  };
+}
 function temporalState(record, nowMs, policy = DEFAULT_TEMPORAL_POLICY) {
-  const expiresAt = parseTime(record.expiresAt);
-  if (expiresAt !== null && nowMs >= expiresAt) return "stale";
-  const validFrom = parseTime(record.validFrom);
-  if (validFrom !== null && nowMs < validFrom) return "scheduled";
-  const lastVerified = parseTime(record.lastVerified) ?? parseTime(record.updatedAt);
+  return temporalStateFromTimes(temporalTimesOf(record), nowMs, policy);
+}
+function temporalStateFromTimes(times, nowMs, policy = DEFAULT_TEMPORAL_POLICY) {
+  if (times.expiresAt !== null && nowMs >= times.expiresAt) return "stale";
+  if (times.validFrom !== null && nowMs < times.validFrom) return "scheduled";
+  const lastVerified = times.lastVerified ?? times.updatedAt;
   if (lastVerified !== null && nowMs - lastVerified >= policy.aging_days * DAY_MS) return "aging";
   return "fresh";
 }
@@ -12615,7 +12619,13 @@ var KnowledgeIndex = class {
       ...tokenize(record.body)
     ]);
     const length = [...tokens.values()].reduce((sum, value) => sum + value, 0);
-    this.entries.set(record.id, { record, length, tokens });
+    this.entries.set(record.id, {
+      record,
+      length,
+      tokens,
+      times: temporalTimesOf(record),
+      titleNormalized: normalizeText(record.title)
+    });
     this.totalLength += length;
     for (const [token, count] of tokens) {
       let posting = this.postings.get(token);
@@ -12676,23 +12686,34 @@ var KnowledgeIndex = class {
     const normalizedQuery = normalizeText(query).trim();
     const policy = filters.temporal ?? DEFAULT_TEMPORAL_POLICY;
     const nowMs = filters.nowMs ?? Date.now();
-    const hits = [];
+    const limit = Math.max(1, filters.limit ?? 8);
+    const best = [];
     for (const [id, baseScore] of scores) {
       const entry = this.entries.get(id);
       if (entry === void 0) continue;
       const record = entry.record;
-      const state = temporalState(record, nowMs, policy);
+      const state = temporalStateFromTimes(entry.times, nowMs, policy);
       if (filters.excludeTemporal?.has(state) === true) continue;
-      let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-daysSince(record.updatedAt) / 180) * 0.3;
+      const updatedAt = entry.times.updatedAt;
+      const ageDays2 = updatedAt === null ? 0 : Math.max(0, (nowMs - updatedAt) / 864e5);
+      let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-ageDays2 / 180) * 0.3;
       score *= temporalDecay(state, policy);
-      if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
+      if (normalizedQuery.length >= 2 && entry.titleNormalized.includes(normalizedQuery)) {
         score *= 1.25;
       }
       if (filters.preferProject !== void 0 && record.scope.level === "project" && record.scope.workspaceId === filters.preferProject) {
         score *= filters.localBoost ?? 1;
       }
       if (filters.minScore !== void 0 && score < filters.minScore) continue;
-      hits.push({
+      offerTop(best, { id, score, temporal: state }, limit);
+    }
+    best.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return right.id.localeCompare(left.id);
+    });
+    return best.map((candidate) => {
+      const record = this.entries.get(candidate.id).record;
+      return {
         id: record.id,
         version: record.version,
         type: record.type,
@@ -12702,18 +12723,28 @@ var KnowledgeIndex = class {
         summary: record.summary,
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
-        score,
-        temporal: state,
+        score: candidate.score,
+        temporal: candidate.temporal,
         core: filters.coreTag ?? null
-      });
-    }
-    hits.sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return right.id.localeCompare(left.id);
+      };
     });
-    return hits.slice(0, Math.max(1, filters.limit ?? 8));
   }
 };
+function ranksBefore(left, right) {
+  if (left.score !== right.score) return left.score > right.score;
+  return left.id > right.id;
+}
+function offerTop(best, candidate, limit) {
+  if (best.length < limit) {
+    best.push(candidate);
+    return;
+  }
+  let worst = 0;
+  for (let index = 1; index < best.length; index += 1) {
+    if (ranksBefore(best[worst], best[index])) worst = index;
+  }
+  if (ranksBefore(candidate, best[worst])) best[worst] = candidate;
+}
 function makeSnippet(record, queryTokens) {
   if (record.summary.trim().length > 0) return record.summary.trim();
   const lines = record.body.split("\n");

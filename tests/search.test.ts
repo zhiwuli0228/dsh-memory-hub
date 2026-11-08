@@ -73,6 +73,39 @@ describe('knowledge index', () => {
     expect(hits[0]?.summary).toContain('版本号')
   })
 
+  it('returns the same top-limit slice as a full ranking would', () => {
+    const index = new KnowledgeIndex()
+    for (let number = 1; number <= 12; number += 1) {
+      index.add(record({
+        id: `KNO-${String(number).padStart(6, '0')}`,
+        type: 'knowledge',
+        title: '缓存广播',
+        summary: '广播消息携带单调版本号。',
+      }))
+    }
+
+    const top = index.search('缓存广播', {
+      visibility: { global: true, domains: new Set(), projects: new Set() },
+      limit: 5,
+      nowMs: Date.parse('2026-11-08T12:00:00Z'),
+    })
+    expect(top).toHaveLength(5)
+    expect(top.map((hit) => hit.id)).toEqual([
+      'KNO-000012',
+      'KNO-000011',
+      'KNO-000010',
+      'KNO-000009',
+      'KNO-000008',
+    ])
+    // 前 5 名与不设 limit 时的前 5 名逐项相同（排序语义未被截断改变）。
+    const all = index.search('缓存广播', {
+      visibility: { global: true, domains: new Set(), projects: new Set() },
+      limit: 100,
+      nowMs: Date.parse('2026-11-08T12:00:00Z'),
+    })
+    expect(top).toEqual(all.slice(0, 5))
+  })
+
   it('honors status, type, and scope filters', () => {
     const index = new KnowledgeIndex()
     index.add(record({ id: 'DEC-000001', title: '缓存广播', summary: '全局', scope: { level: 'global' } }))

@@ -135,7 +135,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - PTC `run_code` 嵌套调用未验证。
 - 外部 CLI / 多进程共享 Hub：Web 0.2.2-rc.1 实测第二个进程按写锁降级为只读（`readOnlyReason: lock`），符合设计；跨机锁回收与多进程写路径仍由单元测试覆盖。
 - 长会话上下文累积效果未做规模测量。
-- 5k 条索引性能未压测。
+- 检索规模：已用合成语料压到 1k/5k/20k（见 [search-performance.md](../04-development/search-performance.md)）；5k 单查询 p50 ≈ 4ms，20k ≈ 29ms、索引堆内存 ≈ 190MB。真实语料与 20k 以上的启动耗时（全量解析 Markdown）尚未测，20k 以上未做持久化索引。
 - Web 面板完整视觉效果尚未人工确认。
 - 核心仓若位于 `~/.dsh/memory-hub` 之外，需要 DSH 跨目录操作授权。
 - 预检已覆盖所有子工作区，但模型实际调用 `memory_get` / `memory_cite` / `memory_close_task` 的比例仍低；账本中大量任务以 `deferred`（`turn ended without an assessment`）关闭。`memory-hub` skill 只是可加载的操作规范，不强制模型加载或执行。
@@ -218,6 +218,7 @@ dsh-memory-hub/
 - [COMPATIBILITY.md](../COMPATIBILITY.md) — 宿主冒烟与未验证项。
 - [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) — 2026-11 调研：ChatGPT/Claude/Qwen/OpenClaw 的记忆与萃取机制、开源记忆层、评测基准，以及由此重排的瓶颈与 P0/P1 路线。
 - [hermes-memory-2026.md](../05-domain/hermes-memory-2026.md) — 2026-11 调研：Nous Research Hermes Agent 的三层记忆（有界常驻 / FTS5 档案 / 单活 provider）、写入上限与整理、后台复盘、借鉴优先级与「不该照抄」清单。
+- [search-performance.md](../04-development/search-performance.md) — 2026-11 实测：1k/5k/20k 规模的检索延迟与内存、热路径优化（时间戳预解析、标题缓存、前 K 选择）、`min_score` 漂移与「要不要换 SQLite」的判定条件。
 - [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
@@ -227,7 +228,7 @@ dsh-memory-hub/
 1. 发布 V0.7（三项 P0 已实现）：升版本、跑 `npm run check`、桌面端冒烟（时效标签、merge diff、回顾任务）。
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
-4. 压测 5k+ 条知识索引与检索性能。
+4. 在真实 Hub 上复核检索健康度：榜首分数分布、`min_score` 是否漂移、近重复对数；若真实条目过万，评估持久化索引快照（换 SQLite 的条件见 [search-performance.md §5](../04-development/search-performance.md)）。
 5. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
 6. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
 7. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。

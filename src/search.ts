@@ -1,6 +1,12 @@
 import { isScopeVisible } from './scope.js'
-import { DEFAULT_TEMPORAL_POLICY, temporalDecay, temporalState, type TemporalPolicy } from './temporal.js'
-import { daysSince } from './time.js'
+import {
+  DEFAULT_TEMPORAL_POLICY,
+  temporalDecay,
+  temporalStateFromTimes,
+  temporalTimesOf,
+  type TemporalPolicy,
+  type TemporalTimes,
+} from './temporal.js'
 import type { KnowledgeHit, KnowledgeRecord, KnowledgeStatus, KnowledgeType, TemporalState, Visibility } from './types.js'
 
 const HAN = /\p{Script=Han}/u
@@ -48,6 +54,9 @@ interface IndexEntry {
   record: KnowledgeRecord
   length: number
   tokens: Map<string, number>
+  /** 建索引时解析一次，避免每个候选再 `Date.parse`。 */
+  times: TemporalTimes
+  titleNormalized: string
 }
 
 export interface SearchFilters {
@@ -108,7 +117,13 @@ export class KnowledgeIndex {
       ...tokenize(record.body),
     ])
     const length = [...tokens.values()].reduce((sum, value) => sum + value, 0)
-    this.entries.set(record.id, { record, length, tokens })
+    this.entries.set(record.id, {
+      record,
+      length,
+      tokens,
+      times: temporalTimesOf(record),
+      titleNormalized: normalizeText(record.title),
+    })
     this.totalLength += length
     for (const [token, count] of tokens) {
       let posting = this.postings.get(token)
@@ -177,16 +192,20 @@ export class KnowledgeIndex {
     const normalizedQuery = normalizeText(query).trim()
     const policy = filters.temporal ?? DEFAULT_TEMPORAL_POLICY
     const nowMs = filters.nowMs ?? Date.now()
-    const hits: KnowledgeHit[] = []
+    const limit = Math.max(1, filters.limit ?? 8)
+    // 只保留前 limit 名：候选可能上万，先做轻量选择，再为选中项生成 snippet 与命中对象。
+    const best: ScoredCandidate[] = []
     for (const [id, baseScore] of scores) {
       const entry = this.entries.get(id)
       if (entry === undefined) continue
       const record = entry.record
-      const state = temporalState(record, nowMs, policy)
+      const state = temporalStateFromTimes(entry.times, nowMs, policy)
       if (filters.excludeTemporal?.has(state) === true) continue
-      let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-daysSince(record.updatedAt) / 180) * 0.3
+      const updatedAt = entry.times.updatedAt
+      const ageDays = updatedAt === null ? 0 : Math.max(0, (nowMs - updatedAt) / 86_400_000)
+      let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-ageDays / 180) * 0.3
       score *= temporalDecay(state, policy)
-      if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
+      if (normalizedQuery.length >= 2 && entry.titleNormalized.includes(normalizedQuery)) {
         score *= 1.25
       }
       if (
@@ -197,7 +216,17 @@ export class KnowledgeIndex {
         score *= filters.localBoost ?? 1
       }
       if (filters.minScore !== undefined && score < filters.minScore) continue
-      hits.push({
+      offerTop(best, { id, score, temporal: state }, limit)
+    }
+
+    best.sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score
+      return right.id.localeCompare(left.id)
+    })
+
+    return best.map((candidate) => {
+      const record = this.entries.get(candidate.id)!.record
+      return {
         id: record.id,
         version: record.version,
         type: record.type,
@@ -207,19 +236,40 @@ export class KnowledgeIndex {
         summary: record.summary,
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
-        score,
-        temporal: state,
+        score: candidate.score,
+        temporal: candidate.temporal,
         core: filters.coreTag ?? null,
-      })
-    }
-
-    hits.sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score
-      return right.id.localeCompare(left.id)
+      }
     })
-
-    return hits.slice(0, Math.max(1, filters.limit ?? 8))
   }
+}
+
+interface ScoredCandidate {
+  id: string
+  score: number
+  temporal: TemporalState
+}
+
+/** 排序语义与全量排序一致：分数高者在前，平分时 id 大者在前。 */
+function ranksBefore(left: ScoredCandidate, right: ScoredCandidate): boolean {
+  if (left.score !== right.score) return left.score > right.score
+  return left.id > right.id
+}
+
+/**
+ * 维护「前 limit 名」的小数组：未满直接追加；满了就线性找出最差的一名替换。
+ * limit 很小（预检 8、面板 20），比全量排序上百倍候选便宜得多。
+ */
+function offerTop(best: ScoredCandidate[], candidate: ScoredCandidate, limit: number): void {
+  if (best.length < limit) {
+    best.push(candidate)
+    return
+  }
+  let worst = 0
+  for (let index = 1; index < best.length; index += 1) {
+    if (ranksBefore(best[worst]!, best[index]!)) worst = index
+  }
+  if (ranksBefore(candidate, best[worst]!)) best[worst] = candidate
 }
 
 function makeSnippet(record: KnowledgeRecord, queryTokens: readonly string[]): string {

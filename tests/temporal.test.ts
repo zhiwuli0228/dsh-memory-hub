@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_TEMPORAL_POLICY, temporalAnnotation, temporalDecay, temporalState } from '../src/temporal.js'
+import {
+  DEFAULT_TEMPORAL_POLICY,
+  temporalAnnotation,
+  temporalDecay,
+  temporalState,
+  temporalStateFromTimes,
+  temporalTimesOf,
+} from '../src/temporal.js'
 import type { TemporalState } from '../src/types.js'
 
 const NOW = Date.parse('2026-11-08T12:00:00Z')
@@ -52,6 +59,21 @@ describe('temporal state', () => {
     const policy = { ...DEFAULT_TEMPORAL_POLICY, aging_days: 7 }
     expect(temporalState(record({ lastVerified: '2026-10-20T00:00:00Z' }), NOW, policy)).toBe('aging')
     expect(temporalState(record({ lastVerified: '2026-11-05T00:00:00Z' }), NOW, policy)).toBe('fresh')
+  })
+
+  it('parses timestamps once and yields the same state as the record-based helper', () => {
+    const cases = [
+      record(),
+      record({ expiresAt: '2026-11-01T00:00:00Z' }),
+      record({ validFrom: '2026-12-01T00:00:00Z' }),
+      record({ lastVerified: '2026-01-01T00:00:00Z' }),
+      record({ expiresAt: 'not-a-date', validFrom: 'also-bad' }),
+    ]
+    for (const item of cases) {
+      expect(temporalStateFromTimes(temporalTimesOf(item), NOW)).toBe(temporalState(item, NOW))
+    }
+    // 无法解析的时间按「未标注」处理，而不是抛错。
+    expect(temporalStateFromTimes(temporalTimesOf(record({ expiresAt: 'not-a-date' })), NOW)).toBe('fresh')
   })
 })
 

@@ -55,7 +55,14 @@
 4. `docs/05-domain/source-ref-rules.md`
 5. `docs/05-domain/memory-landscape-2026.md`（业界对照）
 6. `docs/05-domain/hermes-memory-2026.md`（Hermes 拆解）
-4. `docs/02-harness/context-policy.md`
+7. `docs/02-harness/context-policy.md`
+
+### 检索 / 性能改动
+
+额外阅读：
+
+1. `docs/04-development/search-performance.md`（规模实测与优化记录）
+2. `scripts/bench-search.ts`（可复现基准，`npx vite-node scripts/bench-search.ts`）
 
 ### 部署 / 运维改动
 
