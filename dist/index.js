@@ -11642,6 +11642,12 @@ var maintenanceSchema = external_exports.object({
   stale_pending_days: external_exports.number().int().min(1).max(3650).default(30),
   stale_citation_days: external_exports.number().int().min(1).max(3650).default(90)
 }).default({});
+var temporalSchema = external_exports.object({
+  aging_days: external_exports.number().int().min(1).max(3650).default(90),
+  aging_decay: external_exports.number().min(0.1).max(1).default(0.85),
+  stale_decay: external_exports.number().min(0.1).max(1).default(0.6),
+  scheduled_decay: external_exports.number().min(0.1).max(1).default(0.3)
+}).default({});
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
@@ -11668,7 +11674,8 @@ var configSchema = external_exports.object({
       ])
     }).default({}),
     limits: limitsSchema,
-    maintenance: maintenanceSchema
+    maintenance: maintenanceSchema,
+    temporal: temporalSchema
   }).default({}),
   consolidation: external_exports.object({
     mode: external_exports.literal("manual").default("manual"),
@@ -11753,6 +11760,11 @@ policy:
     max_proposals: 10
     stale_pending_days: 30
     stale_citation_days: 90
+  temporal:
+    aging_days: 90          # days without confirmation before an entry is "aging"
+    aging_decay: 0.85       # score multiplier for aging entries
+    stale_decay: 0.6        # score multiplier once expires_at has passed
+    scheduled_decay: 0.3    # score multiplier for valid_from entries not yet in effect
 
 consolidation:
   mode: manual
@@ -12153,7 +12165,7 @@ var appliesToSchema = external_exports.object({
   branches: external_exports.array(external_exports.string()).default([]),
   versions: external_exports.array(external_exports.string()).default([])
 }).default({ branches: [], versions: [] });
-var knowledgeFrontmatterSchema = external_exports.object({
+var knowledgeFrontmatterBase = external_exports.object({
   id: external_exports.string().regex(KNOWLEDGE_ID_PATTERN),
   type: external_exports.enum(KNOWLEDGE_TYPES),
   scope: external_exports.string().min(1),
@@ -12167,12 +12179,37 @@ var knowledgeFrontmatterSchema = external_exports.object({
   supersedes: external_exports.array(external_exports.string()).default([]),
   promoted_from: external_exports.string().nullable().default(null),
   applies_to: appliesToSchema,
+  valid_from: timestampSchema.nullable().default(null),
+  expires_at: timestampSchema.nullable().default(null),
+  last_verified: timestampSchema.nullable().default(null),
   created_at: timestampSchema,
   updated_at: timestampSchema,
   deprecated_reason: external_exports.string().max(500).optional(),
   format: external_exports.number().int().default(1)
 }).passthrough();
-var proposalFrontmatterSchema = external_exports.object({
+var FUTURE_TOLERANCE_MS = 5 * 6e4;
+var knowledgeFrontmatterSchema = knowledgeFrontmatterBase.superRefine((value, ctx) => {
+  const validFrom = value.valid_from === null ? null : Date.parse(value.valid_from);
+  const expiresAt = value.expires_at === null ? null : Date.parse(value.expires_at);
+  if (validFrom !== null && expiresAt !== null && validFrom > expiresAt) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path: ["expires_at"],
+      message: "expires_at must not be earlier than valid_from"
+    });
+  }
+  if (value.last_verified !== null) {
+    const lastVerified = Date.parse(value.last_verified);
+    if (lastVerified > Date.now() + FUTURE_TOLERANCE_MS) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["last_verified"],
+        message: "last_verified must not be in the future"
+      });
+    }
+  }
+});
+var proposalFrontmatterBase = external_exports.object({
   id: external_exports.string().regex(PROPOSAL_ID_PATTERN),
   status: external_exports.enum(["pending", "committed", "rejected", "superseded"]),
   operation: external_exports.enum(["create", "update", "deprecate"]),
@@ -12189,13 +12226,17 @@ var proposalFrontmatterSchema = external_exports.object({
   target: external_exports.string().nullable().default(null),
   expected_version: external_exports.number().int().positive().nullable().default(null),
   reason: external_exports.string().max(500).nullable().default(null),
+  valid_from: timestampSchema.nullable().default(null),
+  expires_at: timestampSchema.nullable().default(null),
+  last_verified: timestampSchema.nullable().default(null),
   task_id: external_exports.string().min(1),
   created_at: timestampSchema,
   updated_at: timestampSchema,
   committed_to: external_exports.string().nullable().default(null)
 }).passthrough();
-var KNOWLEDGE_KEYS = new Set(Object.keys(knowledgeFrontmatterSchema.shape));
-var PROPOSAL_KEYS = new Set(Object.keys(proposalFrontmatterSchema.shape));
+var proposalFrontmatterSchema = proposalFrontmatterBase;
+var KNOWLEDGE_KEYS = new Set(Object.keys(knowledgeFrontmatterBase.shape));
+var PROPOSAL_KEYS = new Set(Object.keys(proposalFrontmatterBase.shape));
 function splitFrontmatter(raw, path) {
   if (!raw.startsWith("---\n") && !raw.startsWith("---\r\n")) {
     throw new MemoryError("INVALID_INPUT", `${path}: file must start with a YAML frontmatter block`);
@@ -12232,7 +12273,7 @@ function assertIdMatchesType(id, type, path) {
 }
 function quoteTimestampLines(yaml) {
   return yaml.split("\n").map((line) => {
-    const match = /^(created_at|updated_at):\s*(.*)$/.exec(line);
+    const match = /^(created_at|updated_at|valid_from|expires_at|last_verified):\s*(.*)$/.exec(line);
     if (!match) return line;
     const key = match[1] ?? "created_at";
     const value = (match[2] ?? "").replace(/^['"]|['"]$/g, "");
@@ -12267,6 +12308,9 @@ function parseKnowledgeFile(raw, path) {
     appliesTo: fm.applies_to,
     createdAt: fm.created_at,
     updatedAt: fm.updated_at,
+    validFrom: fm.valid_from,
+    expiresAt: fm.expires_at,
+    lastVerified: fm.last_verified,
     ...fm.deprecated_reason === void 0 ? {} : { deprecatedReason: fm.deprecated_reason },
     format: fm.format,
     body,
@@ -12289,6 +12333,9 @@ function serializeKnowledgeFile(record) {
     supersedes: record.supersedes,
     promoted_from: record.promotedFrom,
     applies_to: record.appliesTo,
+    ...record.validFrom === null ? {} : { valid_from: record.validFrom },
+    ...record.expiresAt === null ? {} : { expires_at: record.expiresAt },
+    ...record.lastVerified === null ? {} : { last_verified: record.lastVerified },
     created_at: record.createdAt,
     updated_at: record.updatedAt,
     ...record.deprecatedReason === void 0 ? {} : { deprecated_reason: record.deprecatedReason },
@@ -12328,6 +12375,9 @@ function parseProposalFile(raw, path) {
     target: fm.target,
     expectedVersion: fm.expected_version,
     reason: fm.reason,
+    validFrom: fm.valid_from,
+    expiresAt: fm.expires_at,
+    lastVerified: fm.last_verified,
     taskId: fm.task_id,
     createdAt: fm.created_at,
     updatedAt: fm.updated_at,
@@ -12355,6 +12405,9 @@ function serializeProposalFile(record) {
     target: record.target,
     expected_version: record.expectedVersion,
     reason: record.reason,
+    ...record.validFrom === null ? {} : { valid_from: record.validFrom },
+    ...record.expiresAt === null ? {} : { expires_at: record.expiresAt },
+    ...record.lastVerified === null ? {} : { last_verified: record.lastVerified },
     task_id: record.taskId,
     created_at: record.createdAt,
     updated_at: record.updatedAt,
@@ -12369,6 +12422,50 @@ ${yaml}
 ${body ? `
 ${body}
 ` : ""}`;
+}
+
+// src/temporal.ts
+var DEFAULT_TEMPORAL_POLICY = {
+  aging_days: 90,
+  aging_decay: 0.85,
+  stale_decay: 0.6,
+  scheduled_decay: 0.3
+};
+var DAY_MS = 864e5;
+function parseTime(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+function temporalState(record, nowMs, policy = DEFAULT_TEMPORAL_POLICY) {
+  const expiresAt = parseTime(record.expiresAt);
+  if (expiresAt !== null && nowMs >= expiresAt) return "stale";
+  const validFrom = parseTime(record.validFrom);
+  if (validFrom !== null && nowMs < validFrom) return "scheduled";
+  const lastVerified = parseTime(record.lastVerified) ?? parseTime(record.updatedAt);
+  if (lastVerified !== null && nowMs - lastVerified >= policy.aging_days * DAY_MS) return "aging";
+  return "fresh";
+}
+function temporalDecay(state, policy = DEFAULT_TEMPORAL_POLICY) {
+  switch (state) {
+    case "stale":
+      return policy.stale_decay;
+    case "aging":
+      return policy.aging_decay;
+    case "scheduled":
+      return policy.scheduled_decay;
+    case "fresh":
+      return 1;
+  }
+}
+function temporalAnnotation(record, state, policy = DEFAULT_TEMPORAL_POLICY) {
+  if (state === "stale") return `\u9700\u590D\u6838\uFF1A\u5DF2\u4E8E ${record.expiresAt ?? "\u672A\u77E5"} \u5230\u671F`;
+  if (state === "scheduled") return `\u5C1A\u672A\u751F\u6548\uFF1A\u81EA ${record.validFrom ?? "\u672A\u77E5"} \u8D77`;
+  if (state === "aging") {
+    const basis = record.lastVerified ?? record.updatedAt;
+    return `\u957F\u671F\u672A\u786E\u8BA4\uFF1A\u4E0A\u6B21\u786E\u8BA4 ${basis}\uFF08\u9608\u503C ${policy.aging_days} \u5929\uFF09`;
+  }
+  return null;
 }
 
 // src/search.ts
@@ -12534,12 +12631,17 @@ var KnowledgeIndex = class {
       }
     }
     const normalizedQuery = normalizeText(query).trim();
+    const policy = filters.temporal ?? DEFAULT_TEMPORAL_POLICY;
+    const nowMs = filters.nowMs ?? Date.now();
     const hits = [];
     for (const [id, baseScore] of scores) {
       const entry = this.entries.get(id);
       if (entry === void 0) continue;
       const record = entry.record;
+      const state = temporalState(record, nowMs, policy);
+      if (filters.excludeTemporal?.has(state) === true) continue;
       let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-daysSince(record.updatedAt) / 180) * 0.3;
+      score *= temporalDecay(state, policy);
       if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
         score *= 1.25;
       }
@@ -12558,6 +12660,7 @@ var KnowledgeIndex = class {
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
         score,
+        temporal: state,
         core: filters.coreTag ?? null
       });
     }
@@ -12581,6 +12684,24 @@ function makeSnippet(record, queryTokens) {
 }
 
 // src/store.ts
+var FUTURE_TOLERANCE_MS2 = 5 * 6e4;
+function temporalValueOf(value, field) {
+  if (value === void 0) return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (!isIsoTimestamp(trimmed)) {
+    throw new MemoryError("INVALID_INPUT", `${field} must be an ISO 8601 timestamp with timezone`);
+  }
+  return trimmed;
+}
+function assertTemporalWindow(validFrom, expiresAt, lastVerified) {
+  if (validFrom !== null && expiresAt !== null && Date.parse(validFrom) > Date.parse(expiresAt)) {
+    throw new MemoryError("INVALID_INPUT", "expires_at must not be earlier than valid_from");
+  }
+  if (lastVerified !== null && Date.parse(lastVerified) > Date.now() + FUTURE_TOLERANCE_MS2) {
+    throw new MemoryError("INVALID_INPUT", "last_verified must not be in the future");
+  }
+}
 var EMPTY_APPLIES = { branches: [], versions: [] };
 function isUnder(parent, child) {
   const rel = relative(parent, child);
@@ -12734,6 +12855,10 @@ var KnowledgeStore = class {
       }
     }
     const scope = parseScope(input.scope);
+    const validFrom = temporalValueOf(input.validFrom, "valid_from");
+    const expiresAt = temporalValueOf(input.expiresAt, "expires_at");
+    const lastVerified = temporalValueOf(input.lastVerified, "last_verified");
+    assertTemporalWindow(validFrom, expiresAt, lastVerified);
     if (input.operation !== "create") {
       if (input.target === void 0 || input.target === "") {
         throw new MemoryError("INVALID_INPUT", `${input.operation} requires target`);
@@ -12789,6 +12914,9 @@ var KnowledgeStore = class {
       target: input.target ?? null,
       expectedVersion: input.expectedVersion ?? null,
       reason: input.reason ?? null,
+      validFrom,
+      expiresAt,
+      lastVerified,
       taskId: options.taskId,
       createdAt: now,
       updatedAt: now,
@@ -12896,6 +13024,9 @@ var KnowledgeStore = class {
       appliesTo: proposal.appliesTo,
       createdAt: now,
       updatedAt: now,
+      validFrom: proposal.validFrom,
+      expiresAt: proposal.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
       format: 1,
       body: proposal.body,
       path: this.hub.knowledgePath(proposal.type, id),
@@ -12916,6 +13047,10 @@ var KnowledgeStore = class {
       appliesTo: proposal.appliesTo,
       version: target.version + 1,
       updatedAt: now,
+      // 文件模型里「未提供」与「清空」不可区分：更新提案缺省保留 target 的时间字段。
+      validFrom: proposal.validFrom ?? target.validFrom,
+      expiresAt: proposal.expiresAt ?? target.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
       body: proposal.body,
       path: this.hub.knowledgePath(target.type, target.id)
     };
@@ -13050,6 +13185,9 @@ var KnowledgeStore = class {
       target: null,
       expectedVersion: null,
       reason: null,
+      validFrom: null,
+      expiresAt: null,
+      lastVerified: null,
       taskId: "TSK-consolidation",
       createdAt: now,
       updatedAt: now,
@@ -13369,6 +13507,27 @@ function analyzeMaintenance(store, options) {
   const workspaceIds = new Set(options.workspaces.map((workspace) => workspace.id));
   const issues = [];
   const candidates = [];
+  const temporal = options.temporal ?? DEFAULT_TEMPORAL_POLICY;
+  const temporalCounts = { fresh: 0, aging: 0, stale: 0, scheduled: 0 };
+  for (const record of accepted) {
+    const state = temporalState(record, nowMs, temporal);
+    temporalCounts[state] += 1;
+    if (state === "stale") {
+      issues.push({
+        code: "expired",
+        severity: "warn",
+        message: `${record.id} \u5DF2\u4E8E ${record.expiresAt ?? "\u672A\u77E5\u65F6\u95F4"} \u5230\u671F\uFF0C\u9700\u8981\u590D\u6838\u540E\u66F4\u65B0 expires_at\uFF1A${record.title}`,
+        ids: [record.id]
+      });
+    } else if (state === "aging") {
+      issues.push({
+        code: "aging",
+        severity: "info",
+        message: `${record.id} \u5DF2 ${Math.floor(ageDays(record.lastVerified ?? record.updatedAt, nowMs) ?? 0)} \u5929\u672A\u786E\u8BA4\uFF1A${record.title}`,
+        ids: [record.id]
+      });
+    }
+  }
   const duplicateGroups = /* @__PURE__ */ new Map();
   for (const record of accepted) {
     const key = [
@@ -13543,7 +13702,8 @@ function analyzeMaintenance(store, options) {
       knowledge: store.docs.size,
       pending: pending.length,
       accepted: accepted.length,
-      proposalsExisting: store.proposals.size
+      proposalsExisting: store.proposals.size,
+      ...temporalCounts
     }
   };
 }
@@ -13563,6 +13723,7 @@ function renderMaintenanceReport(input) {
     `- pending: ${input.analysis.totals.pending}`,
     `- issues: ${input.analysis.issues.length}`,
     `- candidates: ${input.analysis.candidates.length}`,
+    `- temporal: fresh ${input.analysis.totals.fresh} \xB7 aging ${input.analysis.totals.aging} \xB7 stale ${input.analysis.totals.stale} \xB7 scheduled ${input.analysis.totals.scheduled}`,
     `- proposals created: ${input.created.length}`,
     `- skipped (already pending): ${input.skipped}`,
     `- max proposals: ${input.maxProposals}`,
@@ -13604,6 +13765,7 @@ function renderMaintenanceReport(input) {
     "- This report is not authoritative knowledge.",
     "- Proposals are pending; nothing was committed, deleted, or rewritten.",
     "- Exact duplicates become deprecate proposals; project knowledge is promoted only with an explicit reuse tag.",
+    "- Expired entries are reported only: they are never deleted or rewritten automatically.",
     "- Review pending proposals in the Web panel or with memory_get, then commit intentionally.",
     ""
   );
@@ -13662,6 +13824,7 @@ function truncate2(value, max) {
 
 // src/service.ts
 var PLUGIN_VERSION = package_default.version;
+var SCHEDULED_STATES = /* @__PURE__ */ new Set(["scheduled"]);
 var DIGEST_CHARS = 700;
 var SECTION_CHARS = 2e3;
 var MemoryService = class {
@@ -14050,7 +14213,13 @@ var MemoryService = class {
         const hits3 = this.ancestorLevelSearch(args.query, ancestorScope, { statuses, types, limit, scopeFilter });
         return { hits: hits3, total: hits3.length };
       }
-      const raw = this.store.search(args.query, { visibility, statuses, types, limit: 20 });
+      const raw = this.store.search(args.query, {
+        visibility,
+        statuses,
+        types,
+        limit: 20,
+        temporal: this.hub.config.policy.temporal
+      });
       const hits2 = raw.filter((hit) => formatScope(hit.scope) === scopeFilter).slice(0, limit).map((hit) => ({ ...hit, path: KnowledgeStore.relativePath(this.hub.root, hit.path) }));
       return { hits: hits2, total: hits2.length };
     }
@@ -14078,7 +14247,9 @@ var MemoryService = class {
       limit: Math.max(1, options.limit),
       ...options.minScore === void 0 ? {} : { minScore: options.minScore },
       ...options.preferProject === void 0 ? {} : { preferProject: options.preferProject },
-      ...options.localBoost === void 0 ? {} : { localBoost: options.localBoost }
+      ...options.localBoost === void 0 ? {} : { localBoost: options.localBoost },
+      temporal: this.hub.config.policy.temporal,
+      ...options.excludeScheduled === true ? { excludeTemporal: SCHEDULED_STATES } : {}
     });
     if (own.length > 0) return own.slice(0, options.limit);
     for (const parent of this.parents) {
@@ -14087,7 +14258,8 @@ var MemoryService = class {
         types: options.types,
         limit: options.limit,
         minScore: options.minScore,
-        scopeFilter: null
+        scopeFilter: null,
+        excludeScheduled: options.excludeScheduled
       });
       if (levelHits.length > 0) return levelHits;
     }
@@ -14106,7 +14278,9 @@ var MemoryService = class {
       ...options.types === void 0 ? {} : { types: options.types },
       limit: Math.max(1, options.limit),
       ...options.minScore === void 0 ? {} : { minScore: options.minScore },
-      coreTag: coreId
+      coreTag: coreId,
+      temporal: parent.hub.config.policy.temporal,
+      ...options.excludeScheduled === true ? { excludeTemporal: SCHEDULED_STATES } : {}
     });
     return raw.filter(
       (hit) => hit.scope.level === "project" && hit.scope.workspaceId === coreId && (options.scopeFilter === null || options.scopeFilter === void 0 || formatScope(hit.scope) === options.scopeFilter)
@@ -14122,9 +14296,10 @@ var MemoryService = class {
         throw new MemoryError("NOT_FOUND", `knowledge ${id} does not exist in core ${core}`);
       }
       const record2 = await store.store.get(id, version);
-      resolved = record2 === null ? null : { record: record2, core: store.coreId, root: store.hub.root };
+      resolved = record2 === null ? null : { record: record2, core: store.coreId, root: store.hub.root, policy: store.hub.config.policy.temporal };
     } else {
-      resolved = await this.resolveRecordForRead(id, version);
+      const own = await this.resolveRecordForRead(id, version);
+      resolved = own === null ? null : { ...own, policy: this.hub.config.policy.temporal };
     }
     if (resolved === null) {
       throw new MemoryError("NOT_FOUND", `knowledge ${id}${version === void 0 ? "" : `@${version}`} does not exist`);
@@ -14138,6 +14313,8 @@ var MemoryService = class {
     }
     const { body: fullBody, path, extra: _extra, ...metadata } = record;
     void _extra;
+    const temporal = temporalState(record, Date.now(), resolved.policy);
+    const temporalNote = temporalAnnotation(record, temporal, resolved.policy);
     const headings = bodyHeadings(fullBody);
     const cap = Math.max(200, Math.min(2e4, options.max_chars ?? (options.section === void 0 ? DIGEST_CHARS : SECTION_CHARS)));
     const trimmed = fullBody.trim();
@@ -14168,7 +14345,11 @@ var MemoryService = class {
       }
     }
     return {
-      metadata,
+      metadata: {
+        ...metadata,
+        temporal,
+        ...temporalNote === null ? {} : { temporalNote }
+      },
       body,
       headings,
       section,
@@ -14311,7 +14492,10 @@ var MemoryService = class {
         ...args.applies_to === void 0 ? {} : { appliesTo: args.applies_to },
         ...args.target === void 0 ? {} : { target: args.target },
         ...args.expected_version === void 0 ? {} : { expectedVersion: args.expected_version },
-        ...args.reason === void 0 ? {} : { reason: args.reason }
+        ...args.reason === void 0 ? {} : { reason: args.reason },
+        ...args.valid_from === void 0 ? {} : { validFrom: args.valid_from },
+        ...args.expires_at === void 0 ? {} : { expiresAt: args.expires_at },
+        ...args.last_verified === void 0 ? {} : { lastVerified: args.last_verified }
       },
       { taskId: state.taskId }
     );
@@ -14579,7 +14763,8 @@ var MemoryService = class {
       stalePendingDays,
       staleCitationDays,
       ...args.now === void 0 ? {} : { now: args.now },
-      maxBodyBytes: this.hub.config.policy.limits.max_body_bytes
+      maxBodyBytes: this.hub.config.policy.limits.max_body_bytes,
+      temporal: this.hub.config.policy.temporal
     });
     const taskId = newMaintenanceTaskId();
     const created = [];
@@ -14680,7 +14865,7 @@ var MemoryService = class {
     return false;
   }
   overview() {
-    const describe = (record, core) => ({
+    const describe = (record, core, policy = this.hub.config.policy.temporal) => ({
       id: record.id,
       type: record.type,
       status: record.status,
@@ -14689,6 +14874,10 @@ var MemoryService = class {
       summary: record.summary,
       scope: formatScope(record.scope),
       updatedAt: record.updatedAt,
+      temporal: temporalState(record, Date.now(), policy),
+      validFrom: record.validFrom,
+      expiresAt: record.expiresAt,
+      lastVerified: record.lastVerified,
       ...core === void 0 ? {} : { core }
     });
     const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record));
@@ -14698,7 +14887,7 @@ var MemoryService = class {
       if (coreId === null) continue;
       for (const record of parent.store.docs.values()) {
         if (record.scope.level !== "project" || record.scope.workspaceId !== coreId) continue;
-        parentKnowledge.push(describe(record, coreId));
+        parentKnowledge.push(describe(record, coreId, parent.hub.config.policy.temporal));
       }
     }
     const tierOf = (row) => row.core === void 0 || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1;
@@ -14711,7 +14900,20 @@ var MemoryService = class {
       summary: proposal.summary,
       scope: formatScope(proposal.scope),
       taskId: proposal.taskId,
-      createdAt: proposal.createdAt
+      createdAt: proposal.createdAt,
+      validFrom: proposal.validFrom,
+      expiresAt: proposal.expiresAt,
+      lastVerified: proposal.lastVerified,
+      temporal: temporalState(
+        {
+          validFrom: proposal.validFrom,
+          expiresAt: proposal.expiresAt,
+          lastVerified: proposal.lastVerified,
+          updatedAt: proposal.updatedAt
+        },
+        Date.now(),
+        this.hub.config.policy.temporal
+      )
     }));
     const tasks = [...this.tasks.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 30).map((task) => ({
       taskId: task.taskId,
@@ -14770,7 +14972,8 @@ var MemoryService = class {
         preflight: this.hub.config.policy.preflight,
         gate: this.hub.config.policy.gate,
         evidence: this.hub.config.policy.evidence,
-        maintenance: this.hub.config.policy.maintenance
+        maintenance: this.hub.config.policy.maintenance,
+        temporal: this.hub.config.policy.temporal
       },
       knowledge,
       pending,
@@ -14781,16 +14984,27 @@ var MemoryService = class {
   knowledgeDetail(id, core) {
     let record = this.store.docs.get(id);
     let root = this.hub.root;
+    let policy = this.hub.config.policy.temporal;
     if (record === void 0 && core !== void 0 && core !== "") {
       const target = this.storeForCore(core);
       record = target?.store.docs.get(id);
-      if (target !== null && record !== void 0) root = target.hub.root;
+      if (target !== null && record !== void 0) {
+        root = target.hub.root;
+        policy = target.hub.config.policy.temporal;
+      }
     }
     if (record === void 0) return null;
     const { body, path, extra: _extra, scope, ...rest } = record;
     void _extra;
+    const temporal = temporalState(record, Date.now(), policy);
+    const temporalNote = temporalAnnotation(record, temporal, policy);
     return {
-      metadata: { ...rest, scope: formatScope(scope) },
+      metadata: {
+        ...rest,
+        scope: formatScope(scope),
+        temporal,
+        ...temporalNote === null ? {} : { temporalNote }
+      },
       body,
       path: KnowledgeStore.relativePath(root, path)
     };
@@ -15005,7 +15219,8 @@ var MemoryService = class {
       minScore: this.hub.config.policy.preflight.min_score,
       visibility,
       preferProject: workspace.id ?? void 0,
-      localBoost: this.hub.config.policy.preflight.local_boost
+      localBoost: this.hub.config.policy.preflight.local_boost,
+      excludeScheduled: true
     });
   }
   buildPack(hits, workspace, budget) {
@@ -15025,7 +15240,8 @@ var MemoryService = class {
     let included = 0;
     for (const hit of hits) {
       const source = hit.core !== void 0 && hit.core !== null && hit.core !== this.coreId ? ` \xB7 core:${hit.core}` : "";
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)}${source})`;
+      const freshness = hit.temporal === "stale" ? " \xB7 \u5DF2\u8FC7\u671F\uFF0C\u9700\u590D\u6838" : hit.temporal === "aging" ? " \xB7 \u957F\u671F\u672A\u786E\u8BA4" : "";
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`;
       const candidate = [...lines, line, ...footer].join("\n");
       if (this.estimateTokens(candidate) > budget && included > 0) break;
       lines.push(line);
@@ -15628,7 +15844,19 @@ function createTools(host) {
           },
           target: { type: "string", description: "Target id for update/deprecate." },
           expected_version: { type: "number", description: "Current target version for update/deprecate." },
-          reason: { type: "string", description: "Required for deprecate; recorded in the audit log." }
+          reason: { type: "string", description: "Required for deprecate; recorded in the audit log." },
+          valid_from: {
+            type: "string",
+            description: "Optional ISO 8601 timestamp with timezone: when the fact starts to hold. Defaults to the commit time. Entries whose valid_from is still in the future are treated as scheduled and stay out of preflight until then."
+          },
+          expires_at: {
+            type: "string",
+            description: "Optional ISO 8601 timestamp with timezone: when the fact stops being trustworthy (for example a release date or a temporary workaround). Expired entries are kept but demoted in search and marked for review; they are never deleted automatically."
+          },
+          last_verified: {
+            type: "string",
+            description: 'Optional ISO 8601 timestamp with timezone: when the fact was last confirmed correct. Defaults to the commit time on create/update; older than policy.temporal.aging_days (90) demotes the entry to "aging".'
+          }
         },
         ["operation", "type", "scope", "title", "summary"]
       ),
@@ -15649,7 +15877,10 @@ function createTools(host) {
           ...input.applies_to === void 0 ? {} : { applies_to: input.applies_to },
           ...input.target === void 0 ? {} : { target: String(input.target) },
           ...input.expected_version === void 0 ? {} : { expected_version: Number(input.expected_version) },
-          ...input.reason === void 0 ? {} : { reason: String(input.reason) }
+          ...input.reason === void 0 ? {} : { reason: String(input.reason) },
+          ...input.valid_from === void 0 ? {} : { valid_from: String(input.valid_from) },
+          ...input.expires_at === void 0 ? {} : { expires_at: String(input.expires_at) },
+          ...input.last_verified === void 0 ? {} : { last_verified: String(input.last_verified) }
         });
       }
     }),

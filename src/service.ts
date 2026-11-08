@@ -21,6 +21,7 @@ import {
   type MaintenanceWorkspaceStat,
 } from './maintenance.js'
 import { nowIso } from './time.js'
+import { temporalAnnotation, temporalState, type TemporalPolicy } from './temporal.js'
 import type {
   AppliesTo,
   CitationRecord,
@@ -32,6 +33,7 @@ import type {
   ProposalOperation,
   ProposalRecord,
   TaskRecord,
+  TemporalState,
   Visibility,
   WorkspaceMatch,
   WritebackAssessment,
@@ -39,6 +41,9 @@ import type {
 import type { AgentLike, Context, PreToolDecision, ToolRunContext, WorkingDirectoryService } from './host.js'
 
 export const PLUGIN_VERSION = packageJson.version
+
+/** 预检排除集合：尚未生效的条目不应被当成现行事实注入。 */
+const SCHEDULED_STATES: ReadonlySet<TemporalState> = new Set<TemporalState>(['scheduled'])
 
 interface SessionState {
   turn: number
@@ -93,6 +98,12 @@ export interface ProposeArgs {
   target?: string
   expected_version?: number
   reason?: string
+  /** 事实开始成立的时刻（ISO 8601，带时区）；缺省视为与 created_at 相同。 */
+  valid_from?: string
+  /** 事实不再可信的时刻；缺省不设到期。 */
+  expires_at?: string
+  /** 上次确认仍然正确的时刻；创建/更新时缺省由提交时刻补齐。 */
+  last_verified?: string
 }
 
 export interface MaintenanceArgs {
@@ -569,7 +580,13 @@ export class MemoryService {
         const hits = this.ancestorLevelSearch(args.query, ancestorScope, { statuses, types, limit, scopeFilter })
         return { hits, total: hits.length }
       }
-      const raw = this.store.search(args.query, { visibility, statuses, types, limit: 20 })
+      const raw = this.store.search(args.query, {
+        visibility,
+        statuses,
+        types,
+        limit: 20,
+        temporal: this.hub.config.policy.temporal,
+      })
       const hits = raw
         .filter((hit) => formatScope(hit.scope) === scopeFilter)
         .slice(0, limit)
@@ -605,6 +622,8 @@ export class MemoryService {
       visibility: Visibility
       preferProject?: string
       localBoost?: number
+      /** 预检为 true：尚未生效（scheduled）的条目不进入上下文。 */
+      excludeScheduled?: boolean
     },
   ): KnowledgeHit[] {
     const own = this.store.search(query, {
@@ -615,6 +634,8 @@ export class MemoryService {
       ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
       ...(options.preferProject === undefined ? {} : { preferProject: options.preferProject }),
       ...(options.localBoost === undefined ? {} : { localBoost: options.localBoost }),
+      temporal: this.hub.config.policy.temporal,
+      ...(options.excludeScheduled === true ? { excludeTemporal: SCHEDULED_STATES } : {}),
     })
     if (own.length > 0) return own.slice(0, options.limit)
     for (const parent of this.parents) {
@@ -624,6 +645,7 @@ export class MemoryService {
         limit: options.limit,
         minScore: options.minScore,
         scopeFilter: null,
+        excludeScheduled: options.excludeScheduled,
       })
       if (levelHits.length > 0) return levelHits
     }
@@ -643,6 +665,7 @@ export class MemoryService {
       limit: number
       minScore?: number
       scopeFilter?: string | null
+      excludeScheduled?: boolean
     },
   ): KnowledgeHit[] {
     const coreId = parent.coreId
@@ -654,6 +677,8 @@ export class MemoryService {
       limit: Math.max(1, options.limit),
       ...(options.minScore === undefined ? {} : { minScore: options.minScore }),
       coreTag: coreId,
+      temporal: parent.hub.config.policy.temporal,
+      ...(options.excludeScheduled === true ? { excludeTemporal: SCHEDULED_STATES } : {}),
     })
     return raw
       .filter(
@@ -669,7 +694,7 @@ export class MemoryService {
   }
 
   async get(agent: AgentLike, id: string, version?: number, core?: string, options: ReadOptions = {}): Promise<{
-    metadata: Omit<KnowledgeRecord, 'body' | 'path' | 'extra'>
+    metadata: Omit<KnowledgeRecord, 'body' | 'path' | 'extra'> & { temporal: TemporalState; temporalNote?: string }
     body: string
     headings: string[]
     section: string | null
@@ -680,16 +705,21 @@ export class MemoryService {
   }> {
     const workspace = await this.resolveWorkspace(agent)
     const visibility = this.visibilityFor(workspace)
-    let resolved: { record: KnowledgeRecord; core: string | null; root: string } | null
+    let resolved: { record: KnowledgeRecord; core: string | null; root: string; policy: TemporalPolicy } | null
     if (core !== undefined && core !== '') {
       const store = this.storeForCore(core)
       if (store === null) {
         throw new MemoryError('NOT_FOUND', `knowledge ${id} does not exist in core ${core}`)
       }
       const record = await store.store.get(id, version)
-      resolved = record === null ? null : { record, core: store.coreId, root: store.hub.root }
+      resolved = record === null
+        ? null
+        : { record, core: store.coreId, root: store.hub.root, policy: store.hub.config.policy.temporal }
     } else {
-      resolved = await this.resolveRecordForRead(id, version)
+      const own = await this.resolveRecordForRead(id, version)
+      resolved = own === null
+        ? null
+        : { ...own, policy: this.hub.config.policy.temporal }
     }
     if (resolved === null) {
       throw new MemoryError('NOT_FOUND', `knowledge ${id}${version === undefined ? '' : `@${version}`} does not exist`)
@@ -703,6 +733,8 @@ export class MemoryService {
     }
     const { body: fullBody, path, extra: _extra, ...metadata } = record
     void _extra
+    const temporal = temporalState(record, Date.now(), resolved.policy)
+    const temporalNote = temporalAnnotation(record, temporal, resolved.policy)
     // 默认只返回「结论 + 小节目录」的摘要，避免整篇正文反复进入上下文爆炸；
     // 需要证据/边界时用 section 读指定小节，确实需要全文才传 full。
     const headings = bodyHeadings(fullBody)
@@ -735,7 +767,11 @@ export class MemoryService {
       }
     }
     return {
-      metadata,
+      metadata: {
+        ...metadata,
+        temporal,
+        ...(temporalNote === null ? {} : { temporalNote }),
+      },
       body,
       headings,
       section,
@@ -914,6 +950,9 @@ export class MemoryService {
         ...(args.target === undefined ? {} : { target: args.target }),
         ...(args.expected_version === undefined ? {} : { expectedVersion: args.expected_version }),
         ...(args.reason === undefined ? {} : { reason: args.reason }),
+        ...(args.valid_from === undefined ? {} : { validFrom: args.valid_from }),
+        ...(args.expires_at === undefined ? {} : { expiresAt: args.expires_at }),
+        ...(args.last_verified === undefined ? {} : { lastVerified: args.last_verified }),
       },
       { taskId: state.taskId },
     )
@@ -1212,6 +1251,7 @@ export class MemoryService {
       staleCitationDays,
       ...(args.now === undefined ? {} : { now: args.now }),
       maxBodyBytes: this.hub.config.policy.limits.max_body_bytes,
+      temporal: this.hub.config.policy.temporal,
     })
 
     const taskId = newMaintenanceTaskId()
@@ -1337,9 +1377,17 @@ export class MemoryService {
       summary: string
       scope: string
       updatedAt: string
+      temporal: TemporalState
+      validFrom: string | null
+      expiresAt: string | null
+      lastVerified: string | null
       core?: string | null
     }
-    const describe = (record: KnowledgeRecord, core?: string | null): KnowledgeRow => ({
+    const describe = (
+      record: KnowledgeRecord,
+      core?: string | null,
+      policy: TemporalPolicy = this.hub.config.policy.temporal,
+    ): KnowledgeRow => ({
       id: record.id,
       type: record.type,
       status: record.status,
@@ -1348,6 +1396,10 @@ export class MemoryService {
       summary: record.summary,
       scope: formatScope(record.scope),
       updatedAt: record.updatedAt,
+      temporal: temporalState(record, Date.now(), policy),
+      validFrom: record.validFrom,
+      expiresAt: record.expiresAt,
+      lastVerified: record.lastVerified,
       ...(core === undefined ? {} : { core }),
     })
     const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record))
@@ -1358,7 +1410,7 @@ export class MemoryService {
       if (coreId === null) continue
       for (const record of parent.store.docs.values()) {
         if (record.scope.level !== 'project' || record.scope.workspaceId !== coreId) continue
-        parentKnowledge.push(describe(record, coreId))
+        parentKnowledge.push(describe(record, coreId, parent.hub.config.policy.temporal))
       }
     }
     // 金字塔面板：自己的 Hub 在前，随后按 近→远 是各祖先层，层内按更新时间倒序。
@@ -1379,6 +1431,19 @@ export class MemoryService {
         scope: formatScope(proposal.scope),
         taskId: proposal.taskId,
         createdAt: proposal.createdAt,
+        validFrom: proposal.validFrom,
+        expiresAt: proposal.expiresAt,
+        lastVerified: proposal.lastVerified,
+        temporal: temporalState(
+          {
+            validFrom: proposal.validFrom,
+            expiresAt: proposal.expiresAt,
+            lastVerified: proposal.lastVerified,
+            updatedAt: proposal.updatedAt,
+          },
+          Date.now(),
+          this.hub.config.policy.temporal,
+        ),
       }))
     const tasks = [...this.tasks.values()]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
@@ -1443,6 +1508,7 @@ export class MemoryService {
         gate: this.hub.config.policy.gate,
         evidence: this.hub.config.policy.evidence,
         maintenance: this.hub.config.policy.maintenance,
+        temporal: this.hub.config.policy.temporal,
       },
       knowledge,
       pending,
@@ -1458,16 +1524,27 @@ export class MemoryService {
   } | null {
     let record = this.store.docs.get(id)
     let root = this.hub.root
+    let policy = this.hub.config.policy.temporal
     if (record === undefined && core !== undefined && core !== '') {
       const target = this.storeForCore(core)
       record = target?.store.docs.get(id)
-      if (target !== null && record !== undefined) root = target.hub.root
+      if (target !== null && record !== undefined) {
+        root = target.hub.root
+        policy = target.hub.config.policy.temporal
+      }
     }
     if (record === undefined) return null
     const { body, path, extra: _extra, scope, ...rest } = record
     void _extra
+    const temporal = temporalState(record, Date.now(), policy)
+    const temporalNote = temporalAnnotation(record, temporal, policy)
     return {
-      metadata: { ...rest, scope: formatScope(scope) },
+      metadata: {
+        ...rest,
+        scope: formatScope(scope),
+        temporal,
+        ...(temporalNote === null ? {} : { temporalNote }),
+      },
       body,
       path: KnowledgeStore.relativePath(root, path),
     }
@@ -1713,6 +1790,7 @@ export class MemoryService {
       visibility,
       preferProject: workspace.id ?? undefined,
       localBoost: this.hub.config.policy.preflight.local_boost,
+      excludeScheduled: true,
     })
   }
 
@@ -1733,7 +1811,12 @@ export class MemoryService {
     let included = 0
     for (const hit of hits) {
       const source = hit.core !== undefined && hit.core !== null && hit.core !== this.coreId ? ` · core:${hit.core}` : ''
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} · ${hit.title} — ${truncate(hit.summary, 160)} (${formatScope(hit.scope)}${source})`
+      const freshness = hit.temporal === 'stale'
+        ? ' · 已过期，需复核'
+        : hit.temporal === 'aging'
+          ? ' · 长期未确认'
+          : ''
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} · ${hit.title} — ${truncate(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`
       const candidate = [...lines, line, ...footer].join('\n')
       if (this.estimateTokens(candidate) > budget && included > 0) break
       lines.push(line)

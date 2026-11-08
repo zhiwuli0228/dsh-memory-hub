@@ -1,6 +1,7 @@
 import { isScopeVisible } from './scope.js'
+import { DEFAULT_TEMPORAL_POLICY, temporalDecay, temporalState, type TemporalPolicy } from './temporal.js'
 import { daysSince } from './time.js'
-import type { KnowledgeHit, KnowledgeRecord, KnowledgeStatus, KnowledgeType, Visibility } from './types.js'
+import type { KnowledgeHit, KnowledgeRecord, KnowledgeStatus, KnowledgeType, TemporalState, Visibility } from './types.js'
 
 const HAN = /\p{Script=Han}/u
 const WORD = /[\p{Script=Han}]+|[a-z0-9][a-z0-9_]*/gu
@@ -62,6 +63,12 @@ export interface SearchFilters {
   preferProject?: string
   /** 命中来源的核心 Hub 标注（跨 Hub 检索时由调用方传入）。 */
   coreTag?: string | null
+  /** 时效降权策略；缺省用 90 天 / 0.85 / 0.6 / 0.3 的默认值。 */
+  temporal?: TemporalPolicy
+  /** 完全不返回这些时效状态的条目（预检用它排除尚未生效的条目）。 */
+  excludeTemporal?: ReadonlySet<TemporalState>
+  /** 固定「现在」以便测试；缺省用系统时间。 */
+  nowMs?: number
 }
 
 const TYPE_BOOST: Record<KnowledgeType, number> = {
@@ -168,12 +175,17 @@ export class KnowledgeIndex {
     }
 
     const normalizedQuery = normalizeText(query).trim()
+    const policy = filters.temporal ?? DEFAULT_TEMPORAL_POLICY
+    const nowMs = filters.nowMs ?? Date.now()
     const hits: KnowledgeHit[] = []
     for (const [id, baseScore] of scores) {
       const entry = this.entries.get(id)
       if (entry === undefined) continue
       const record = entry.record
+      const state = temporalState(record, nowMs, policy)
+      if (filters.excludeTemporal?.has(state) === true) continue
       let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-daysSince(record.updatedAt) / 180) * 0.3
+      score *= temporalDecay(state, policy)
       if (normalizedQuery.length >= 2 && normalizeText(record.title).includes(normalizedQuery)) {
         score *= 1.25
       }
@@ -196,6 +208,7 @@ export class KnowledgeIndex {
         path: record.path,
         snippet: makeSnippet(record, queryTokens),
         score,
+        temporal: state,
         core: filters.coreTag ?? null,
       })
     }

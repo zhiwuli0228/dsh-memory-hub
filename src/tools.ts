@@ -292,6 +292,18 @@ export function createTools(host: ToolHost): ToolDefinition[] {
           target: { type: 'string', description: 'Target id for update/deprecate.' },
           expected_version: { type: 'number', description: 'Current target version for update/deprecate.' },
           reason: { type: 'string', description: 'Required for deprecate; recorded in the audit log.' },
+          valid_from: {
+            type: 'string',
+            description: 'Optional ISO 8601 timestamp with timezone: when the fact starts to hold. Defaults to the commit time. Entries whose valid_from is still in the future are treated as scheduled and stay out of preflight until then.',
+          },
+          expires_at: {
+            type: 'string',
+            description: 'Optional ISO 8601 timestamp with timezone: when the fact stops being trustworthy (for example a release date or a temporary workaround). Expired entries are kept but demoted in search and marked for review; they are never deleted automatically.',
+          },
+          last_verified: {
+            type: 'string',
+            description: 'Optional ISO 8601 timestamp with timezone: when the fact was last confirmed correct. Defaults to the commit time on create/update; older than policy.temporal.aging_days (90) demotes the entry to "aging".',
+          },
         },
         ['operation', 'type', 'scope', 'title', 'summary'],
       ),
@@ -313,6 +325,9 @@ export function createTools(host: ToolHost): ToolDefinition[] {
           ...(input.target === undefined ? {} : { target: String(input.target) }),
           ...(input.expected_version === undefined ? {} : { expected_version: Number(input.expected_version) }),
           ...(input.reason === undefined ? {} : { reason: String(input.reason) }),
+          ...(input.valid_from === undefined ? {} : { valid_from: String(input.valid_from) }),
+          ...(input.expires_at === undefined ? {} : { expires_at: String(input.expires_at) }),
+          ...(input.last_verified === undefined ? {} : { last_verified: String(input.last_verified) }),
         })
       },
     }),

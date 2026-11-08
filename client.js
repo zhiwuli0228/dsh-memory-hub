@@ -81,6 +81,13 @@
     'knowledge.updated': '更新于',
     'knowledge.core': '核心共享',
     'knowledge.parent': '父核心蒸馏',
+    'temporal.fresh': '时效正常',
+    'temporal.aging': '长期未确认',
+    'temporal.stale': '已过期',
+    'temporal.scheduled': '尚未生效',
+    'temporal.validFrom': '生效',
+    'temporal.expiresAt': '到期',
+    'temporal.lastVerified': '上次确认',
     'pending.empty': '没有待审批候选',
     'pending.emptyHint': '新的候选会出现在这里，你可以直接在这里批准或拒绝。',
     'pending.hint': '在这里点击「批准 / 拒绝」即可完成人工审核；批准后账本记为 panel:human，与 DSH 会话内审批等效。',
@@ -256,6 +263,13 @@
     'knowledge.updated': 'Updated',
     'knowledge.core': 'Core shared',
     'knowledge.parent': 'Parent core',
+    'temporal.fresh': 'Fresh',
+    'temporal.aging': 'Aging',
+    'temporal.stale': 'Expired',
+    'temporal.scheduled': 'Scheduled',
+    'temporal.validFrom': 'Valid from',
+    'temporal.expiresAt': 'Expires',
+    'temporal.lastVerified': 'Verified',
     'pending.empty': 'No pending proposals',
     'pending.emptyHint': 'New candidates appear here; approve or reject them right on this panel.',
     'pending.hint': 'Click approve/reject here to review by hand; an approval is recorded as panel:human in the ledger.',
@@ -512,6 +526,12 @@
     return '';
   }
 
+  function temporalTone(state) {
+    if (state === 'stale') return 'err';
+    if (state === 'aging') return 'warn';
+    return '';
+  }
+
   function assessmentLabel(assessment) {
     if (assessment === null || assessment === undefined) return '—';
     if (typeof assessment.kind !== 'string') return '—';
@@ -597,6 +617,9 @@
         h(Tag, { key: 'scope' }, item.scope),
         isCore ? h(Tag, { key: 'core', tone: 'ok' }, t('knowledge.core')) : null,
         isParent ? h(Tag, { key: 'parent', tone: 'warn' }, t('knowledge.parent')) : null,
+        item.temporal && item.temporal !== 'fresh'
+          ? h(Tag, { key: 'temporal', tone: temporalTone(item.temporal) }, t(`temporal.${item.temporal}`))
+          : null,
       ];
       return h('button', {
         type: 'button',
@@ -637,7 +660,21 @@
             : null,
           props.parentCoreIds && props.parentCoreIds.some((id) => metadata.scope === `project:${id}`)
             ? h(Tag, { tone: 'warn' }, t('knowledge.parent'))
+            : null,
+          metadata.temporal && metadata.temporal !== 'fresh'
+            ? h(Tag, { tone: temporalTone(metadata.temporal) }, t(`temporal.${metadata.temporal}`))
             : null),
+        metadata.temporalNote
+          ? h('div', { className: 'dmh-row-id' }, metadata.temporalNote)
+          : null,
+        metadata.expiresAt || metadata.validFrom || metadata.lastVerified
+          ? h('div', { className: 'dmh-row-id dmh-mono' },
+              [
+                metadata.validFrom ? `${t('temporal.validFrom')} ${formatTime(metadata.validFrom)}` : null,
+                metadata.expiresAt ? `${t('temporal.expiresAt')} ${formatTime(metadata.expiresAt)}` : null,
+                metadata.lastVerified ? `${t('temporal.lastVerified')} ${formatTime(metadata.lastVerified)}` : null,
+              ].filter(Boolean).join(' · '))
+          : null,
         h('div', { className: 'dmh-row-summary' }, metadata.summary || ''),
         h('div', { className: 'dmh-section-title' }, t('knowledge.body')),
         h('pre', { className: 'dmh-body' }, detail.body || ''),
@@ -905,9 +942,20 @@
               h('span', { className: 'dmh-row-id' }, proposal.id),
               h(Tag, { tone: 'warn' }, proposal.operation),
               h(Tag, null, proposal.type),
-              h(Tag, null, proposal.scope)),
+              h(Tag, null, proposal.scope),
+              proposal.temporal && proposal.temporal !== 'fresh'
+                ? h(Tag, { tone: temporalTone(proposal.temporal) }, t(`temporal.${proposal.temporal}`))
+                : null),
             h('div', { className: 'dmh-row-title' }, proposal.title),
             h('div', { className: 'dmh-row-summary' }, proposal.summary),
+            proposal.expiresAt || proposal.validFrom || proposal.lastVerified
+              ? h('div', { className: 'dmh-row-id dmh-mono' },
+                  [
+                    proposal.validFrom ? `${t('temporal.validFrom')} ${formatTime(proposal.validFrom)}` : null,
+                    proposal.expiresAt ? `${t('temporal.expiresAt')} ${formatTime(proposal.expiresAt)}` : null,
+                    proposal.lastVerified ? `${t('temporal.lastVerified')} ${formatTime(proposal.lastVerified)}` : null,
+                  ].filter(Boolean).join(' · '))
+              : null,
             h('div', { className: 'dmh-row-id dmh-mono' }, `${proposal.taskId} · ${formatTime(proposal.createdAt)}`),
             h('div', { className: 'dmh-form-actions' },
               h('button', {

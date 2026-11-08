@@ -93,6 +93,17 @@ const maintenanceSchema = z.object({
   stale_citation_days: z.number().int().min(1).max(3650).default(90),
 }).default({})
 
+/**
+ * 时效降权。默认值来自 2026-11-08 评审：aging 取 90 天；所有系数都是乘在检索分上的，
+ * 1 表示关闭该项降权。过期条目不删除，只是降低排序并在预检里标注。
+ */
+const temporalSchema = z.object({
+  aging_days: z.number().int().min(1).max(3650).default(90),
+  aging_decay: z.number().min(0.1).max(1).default(0.85),
+  stale_decay: z.number().min(0.1).max(1).default(0.6),
+  scheduled_decay: z.number().min(0.1).max(1).default(0.3),
+}).default({})
+
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
@@ -120,6 +131,7 @@ export const configSchema = z.object({
     }).default({}),
     limits: limitsSchema,
     maintenance: maintenanceSchema,
+    temporal: temporalSchema,
   }).default({}),
   consolidation: z.object({
     mode: z.literal('manual').default('manual'),
@@ -209,6 +221,11 @@ policy:
     max_proposals: 10
     stale_pending_days: 30
     stale_citation_days: 90
+  temporal:
+    aging_days: 90          # days without confirmation before an entry is "aging"
+    aging_decay: 0.85       # score multiplier for aging entries
+    stale_decay: 0.6        # score multiplier once expires_at has passed
+    scheduled_decay: 0.3    # score multiplier for valid_from entries not yet in effect
 
 consolidation:
   mode: manual

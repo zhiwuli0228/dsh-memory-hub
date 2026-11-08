@@ -100,8 +100,30 @@ updated_at: '2026-11-01T09:00:00+08:00'
 | `created_at` | 是 | ISO 8601，带时区；**必须加引号**，避免 YAML 解析成日期对象 |
 | `updated_at` | 是 | 同上；每次写入更新 |
 | `applies_to` | 否 | `{branches: [...], versions: [...]}`，V0.1 只记录、不自动过滤 |
+| `valid_from` | 否 | 事实开始成立的时刻；未来时刻表示「尚未生效」 |
+| `expires_at` | 否 | 事实不再可信的时刻；过了只降权、不删除 |
+| `last_verified` | 否 | 上次确认仍然正确的时刻；创建/更新提交时缺省补成提交时刻 |
 
 未知字段会被保留但忽略；插件不会因为未知字段而拒绝文件。
+
+### 2.1 时效字段
+
+三个字段都可选、都必须是带时区的 ISO 8601（如 `2026-12-01T00:00:00+08:00`）。**派生状态不落盘**，读取时按下面规则实时计算：
+
+| 状态 | 条件（按优先级） | 检索降权 | 预检 |
+| --- | --- | --- | --- |
+| `stale` | `expires_at` ≤ 现在 | × `stale_decay`（默认 0.6） | 注入并标「已过期，需复核」 |
+| `scheduled` | `valid_from` > 现在 | × `scheduled_decay`（默认 0.3） | **不注入**（`memory_search` 仍可查到，带 `temporal: "scheduled"`） |
+| `aging` | `last_verified`（缺失时用 `updated_at`）早于 `aging_days`（默认 90 天） | × `aging_decay`（默认 0.85） | 注入并标「长期未确认」 |
+| `fresh` | 其余 | × 1 | 正常注入 |
+
+约束与行为：
+
+- `valid_from` 不得晚于 `expires_at`；`last_verified` 不得晚于「现在 + 5 分钟」（时钟偏差容忍）。违反时 `memory_propose` 直接拒绝。
+- 过期**不等于**废弃：条目仍是 `accepted`，仍可检索、可引用；只是排序变低并在维护报告里列为 `expired`。要不要废弃由人决定（deprecate 提案）。
+- 老文件不需要迁移：没有 `last_verified` 时用 `updated_at` 回退，因此「超过 90 天没更新」的老条目会开始按 0.85 降权。想完全保持旧排序，把 `policy.temporal.aging_decay` 设为 `1.0`。
+- 更新提案缺省**保留**原条目的三个字段（补 `last_verified` 为提交时刻）；文件模型无法区分「未提供」与「清空」，要清空请用新的 create 条目替代旧条目。
+- 所有阈值与系数在 `config.yaml` 的 `policy.temporal` 下，改完由 watcher 热加载。
 
 ## 3. 正文约定
 

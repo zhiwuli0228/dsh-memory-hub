@@ -41,6 +41,62 @@ describe('memory service', () => {
     }
   })
 
+  it('keeps not-yet-valid entries out of preflight but reachable through memory_search', async () => {
+    const harness = await createHarness()
+    try {
+      const proposal = await harness.store.propose(
+        {
+          operation: 'create',
+          type: 'knowledge',
+          scope: 'global',
+          title: '缓存广播将在 1.5 改协议',
+          summary: '1.5 起广播改为增量。',
+          content: '## 结论\n\n1.5 改增量。\n',
+          validFrom: '2027-01-01T00:00:00Z',
+        },
+        { taskId: 'TSK-seed' },
+      )
+      const { record } = await harness.store.commit(proposal.id)
+      await harness.service.preflightForTurn(harness.agent, 1, '缓存广播增量协议')
+      expect(harness.service.stateFor(harness.agent.id)?.status).toBe('no_match')
+
+      const found = await harness.service.search(harness.agent, { query: '缓存广播增量协议' })
+      const hit = found.hits.find((candidate) => candidate.id === record.id)
+      expect(hit?.temporal).toBe('scheduled')
+
+      const read = await harness.service.get(harness.agent, record.id)
+      expect(read.metadata.temporal).toBe('scheduled')
+      expect(read.metadata.temporalNote).toContain('尚未生效')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('marks an expired entry in the preflight pack instead of hiding it', async () => {
+    const harness = await createHarness()
+    try {
+      const proposal = await harness.store.propose(
+        {
+          operation: 'create',
+          type: 'knowledge',
+          scope: 'global',
+          title: '发布窗口原本是周三',
+          summary: '旧的发布窗口。',
+          content: '## 结论\n\n周三发布。\n',
+          expiresAt: '2026-01-01T00:00:00Z',
+        },
+        { taskId: 'TSK-seed' },
+      )
+      const { record } = await harness.store.commit(proposal.id)
+      await harness.service.preflightForTurn(harness.agent, 1, '发布窗口周三')
+      const pack = harness.service.packFor(harness.agent.id)
+      expect(pack).toContain(record.id)
+      expect(pack).toContain('已过期')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
   it('honors the preflight min_score and directive footer', async () => {
     const harness = await createHarness()
     try {

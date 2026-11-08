@@ -216,8 +216,96 @@ describe('knowledge store', () => {
     }
   })
 
-  it('rejects writes in read-only mode', async () => {
+  it('persists temporal fields and fills last_verified on commit', async () => {
     const harness = await createHarness()
+    try {
+      const proposal = await harness.store.propose(
+        {
+          operation: 'create',
+          type: 'knowledge',
+          scope: 'global',
+          title: '发布窗口',
+          summary: '1.4 计划在 2026-12-01 发布。',
+          content: '## 结论\n\n发布日期为 2026-12-01。\n',
+          validFrom: '2026-11-20T00:00:00Z',
+          expiresAt: '2026-12-31T00:00:00Z',
+        },
+        { taskId: 'TSK-1' },
+      )
+      const beforeCommit = harness.store.getProposal(proposal.id)
+      expect(beforeCommit?.validFrom).toBe('2026-11-20T00:00:00Z')
+      expect(beforeCommit?.expiresAt).toBe('2026-12-31T00:00:00Z')
+      expect(beforeCommit?.lastVerified).toBeNull()
+
+      const { record } = await harness.store.commit(proposal.id)
+      expect(record.validFrom).toBe('2026-11-20T00:00:00Z')
+      expect(record.expiresAt).toBe('2026-12-31T00:00:00Z')
+      expect(record.lastVerified).not.toBeNull()
+
+      const reloaded = await harness.store.get(record.id)
+      expect(reloaded?.validFrom).toBe('2026-11-20T00:00:00Z')
+      expect(reloaded?.expiresAt).toBe('2026-12-31T00:00:00Z')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('keeps expires_at across an update that does not restate it', async () => {
+    const harness = await createHarness()
+    try {
+      const id = await harness.seed({ title: '临时绕行', summary: '绕行方案。', body: '## 结论\n\n绕行。\n' })
+      const seeded = harness.store.docs.get(id)
+      expect(seeded).toBeDefined()
+      const update = await harness.store.propose(
+        {
+          operation: 'update',
+          type: 'decision',
+          scope: 'global',
+          title: '临时绕行（已修订）',
+          summary: '绕行方案修订。',
+          content: '## 结论\n\n绕行修订。\n',
+          sourceRefs: ['note:update'],
+          target: id,
+          expectedVersion: 1,
+          expiresAt: '2027-01-01T00:00:00Z',
+        },
+        { taskId: 'TSK-1' },
+      )
+      const { record } = await harness.store.commit(update.id)
+      expect(record.expiresAt).toBe('2027-01-01T00:00:00Z')
+      expect(record.lastVerified).not.toBeNull()
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('rejects invalid temporal combinations before writing a proposal', async () => {
+    const harness = await createHarness()
+    try {
+      const base = {
+        operation: 'create' as const,
+        type: 'knowledge' as const,
+        scope: 'global',
+        title: '时间非法',
+        summary: '时间字段非法。',
+        content: '## 结论\n\n非法。\n',
+      }
+      await expect(
+        harness.store.propose({ ...base, validFrom: '2026-12-01T00:00:00Z', expiresAt: '2026-11-01T00:00:00Z' }, { taskId: 'TSK-1' }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      await expect(
+        harness.store.propose({ ...base, expiresAt: '2026-11-01' }, { taskId: 'TSK-1' }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      await expect(
+        harness.store.propose({ ...base, lastVerified: '2099-01-01T00:00:00Z' }, { taskId: 'TSK-1' }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      expect(harness.store.proposals.size).toBe(0)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('rejects writes in read-only mode', async () => {    const harness = await createHarness()
     try {
       harness.hub.readOnly = true
       await expect(

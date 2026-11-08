@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted（2026-11-08 评审确认：aging 窗口取 90 天；待实现）
+Implemented（2026-11-08；aging 90 天；尚未发布）。实现见 src/temporal.ts、src/frontmatter.ts、src/search.ts、src/maintenance.ts、client.js 与 tests/temporal.test.ts。
 
 ## 1. Problem
 

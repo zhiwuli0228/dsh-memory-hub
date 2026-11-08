@@ -8,7 +8,7 @@ import type { Ledger } from './ledger.js'
 import { KnowledgeIndex, type SearchFilters } from './search.js'
 import { formatScope, isScopeVisible, parseScope } from './scope.js'
 import { formatSequence } from './ids.js'
-import { nowIso } from './time.js'
+import { isIsoTimestamp, nowIso } from './time.js'
 import {
   PREFIX_TYPE,
   TYPE_PREFIX,
@@ -27,6 +27,29 @@ export interface Diagnostic {
   message: string
 }
 
+/** 允许未来 5 分钟的时钟偏差；与 frontmatter 校验保持一致。 */
+const FUTURE_TOLERANCE_MS = 5 * 60_000
+
+/** 把可选时间参数规整成 null 或带时区的 ISO 字符串；非法值直接拒绝。 */
+function temporalValueOf(value: string | undefined, field: string): string | null {
+  if (value === undefined) return null
+  const trimmed = value.trim()
+  if (trimmed === '') return null
+  if (!isIsoTimestamp(trimmed)) {
+    throw new MemoryError('INVALID_INPUT', `${field} must be an ISO 8601 timestamp with timezone`)
+  }
+  return trimmed
+}
+
+function assertTemporalWindow(validFrom: string | null, expiresAt: string | null, lastVerified: string | null): void {
+  if (validFrom !== null && expiresAt !== null && Date.parse(validFrom) > Date.parse(expiresAt)) {
+    throw new MemoryError('INVALID_INPUT', 'expires_at must not be earlier than valid_from')
+  }
+  if (lastVerified !== null && Date.parse(lastVerified) > Date.now() + FUTURE_TOLERANCE_MS) {
+    throw new MemoryError('INVALID_INPUT', 'last_verified must not be in the future')
+  }
+}
+
 export interface ProposalInput {
   operation: ProposalOperation
   type: KnowledgeType
@@ -43,6 +66,9 @@ export interface ProposalInput {
   expectedVersion?: number
   reason?: string
   promotedFrom?: string | null
+  validFrom?: string
+  expiresAt?: string
+  lastVerified?: string
 }
 
 export interface CreateProposalOptions {
@@ -242,6 +268,10 @@ export class KnowledgeStore {
     }
 
     const scope = parseScope(input.scope)
+    const validFrom = temporalValueOf(input.validFrom, 'valid_from')
+    const expiresAt = temporalValueOf(input.expiresAt, 'expires_at')
+    const lastVerified = temporalValueOf(input.lastVerified, 'last_verified')
+    assertTemporalWindow(validFrom, expiresAt, lastVerified)
     if (input.operation !== 'create') {
       if (input.target === undefined || input.target === '') {
         throw new MemoryError('INVALID_INPUT', `${input.operation} requires target`)
@@ -299,6 +329,9 @@ export class KnowledgeStore {
       target: input.target ?? null,
       expectedVersion: input.expectedVersion ?? null,
       reason: input.reason ?? null,
+      validFrom,
+      expiresAt,
+      lastVerified,
       taskId: options.taskId,
       createdAt: now,
       updatedAt: now,
@@ -413,6 +446,9 @@ export class KnowledgeStore {
       appliesTo: proposal.appliesTo,
       createdAt: now,
       updatedAt: now,
+      validFrom: proposal.validFrom,
+      expiresAt: proposal.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
       format: 1,
       body: proposal.body,
       path: this.hub.knowledgePath(proposal.type, id),
@@ -434,6 +470,10 @@ export class KnowledgeStore {
       appliesTo: proposal.appliesTo,
       version: target.version + 1,
       updatedAt: now,
+      // 文件模型里「未提供」与「清空」不可区分：更新提案缺省保留 target 的时间字段。
+      validFrom: proposal.validFrom ?? target.validFrom,
+      expiresAt: proposal.expiresAt ?? target.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
       body: proposal.body,
       path: this.hub.knowledgePath(target.type, target.id),
     }
@@ -580,6 +620,9 @@ export class KnowledgeStore {
       target: null,
       expectedVersion: null,
       reason: null,
+      validFrom: null,
+      expiresAt: null,
+      lastVerified: null,
       taskId: 'TSK-consolidation',
       createdAt: now,
       updatedAt: now,

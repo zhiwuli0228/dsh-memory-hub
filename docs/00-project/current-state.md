@@ -10,6 +10,8 @@ V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 
 当前工作树为 **V0.6.0（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
+V0.7 正在实现三项已 Accepted 的 P0 提案（顺序：时效字段 → 去重合并 → 回顾式萃取）。**第一项「时效字段」已完成实现与测试，尚未发布**：`valid_from` / `expires_at` / `last_verified` 三个可选 frontmatter 字段、读取时派生 `fresh/aging/stale/scheduled`、检索确定性降权（默认 90 天 / 0.85 / 0.6 / 0.3）、预检排除尚未生效条目并标注过期/长期未确认、维护报告统计四种状态、面板列表与详情显示时效标签。`format` 仍为 1，老文件零迁移。
+
 ## 已实现
 
 - [x] Cordis 插件入口 `src/index.ts`（`apply` / `inject`）
@@ -78,7 +80,11 @@ V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板除「待审批」人工审核外只读；配置与审核走回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 79 个 vitest 测试（11 个文件）
+- [x] 时效字段（V0.7 WIP，按 [proposal-temporal-fields](../03-openspec/proposal-temporal-fields.md)）：`valid_from` / `expires_at` / `last_verified` 可选、带时区校验、`valid_from ≤ expires_at` 与「`last_verified` 不得在 5 分钟后」两道校验；派生状态 `fresh/aging/stale/scheduled` 只读不落盘
+- [x] 时效降权：`policy.temporal.aging_days`（默认 90）、`aging_decay` 0.85、`stale_decay` 0.6、`scheduled_decay` 0.3；老文件用 `updated_at` 回退，`aging_decay: 1.0` 可完全关闭
+- [x] 预检时效门：`scheduled` 不注入上下文（`memory_search` 仍可查到并带 `temporal`），`stale` / `aging` 注入并标「已过期，需复核」/「长期未确认」；`memory_get` 元数据带 `temporal` 与 `temporalNote`
+- [x] 时效维护视图：报告 Summary 增加 `temporal` 计数，Issues 增加 `expired`（warn）与 `aging`（info，只报告不写候选）；面板知识行/详情/待审批卡显示时效标签与三个时间
+- [x] 96 个 vitest 测试（12 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
@@ -196,13 +202,13 @@ dsh-memory-hub/
 - [proposal-maintenance.md](../03-openspec/proposal-maintenance.md) — 已实现的 OpenSpec 提案。
 - [COMPATIBILITY.md](../COMPATIBILITY.md) — 宿主冒烟与未验证项。
 - [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) — 2026-11 调研：ChatGPT/Claude/Qwen/OpenClaw 的记忆与萃取机制、开源记忆层、评测基准，以及由此重排的瓶颈与 P0/P1 路线。
-- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；未实现）。
+- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；未实现）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；未实现）。
 
 ## 下一步推荐工作
 
-1. 按评审结论实施三份 P0 提案（均已 Accepted）：先 [时效字段](../03-openspec/proposal-temporal-fields.md)（aging 90 天），再 [去重合并](../03-openspec/proposal-dedupe-merge.md)（独立 `operation: 'merge'`），最后 [回顾式萃取](../03-openspec/proposal-retrospective-extraction.md)（定时任务 + 核心/子工作区各一条）。
+1. 继续 V0.7：实现 [去重合并](../03-openspec/proposal-dedupe-merge.md)（独立 `operation: 'merge'`），再做 [回顾式萃取](../03-openspec/proposal-retrospective-extraction.md)（定时任务 + 核心/子工作区各一条）。
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
 4. 压测 5k+ 条知识索引与检索性能。

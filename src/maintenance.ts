@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { KnowledgeRecord, ProposalRecord } from './types.js'
 import type { KnowledgeStore, ProposalInput } from './store.js'
 import { formatScope } from './scope.js'
+import { DEFAULT_TEMPORAL_POLICY, temporalState, type TemporalPolicy } from './temporal.js'
 
 export type MaintenanceApply = 'report' | 'propose'
 
@@ -21,6 +22,7 @@ export interface MaintenanceAnalysisOptions {
   staleCitationDays: number
   now?: Date
   maxBodyBytes: number
+  temporal?: TemporalPolicy
 }
 
 export interface MaintenanceIssue {
@@ -33,6 +35,8 @@ export interface MaintenanceIssue {
     | 'load-diagnostic'
     | 'oversized-body'
     | 'scope-mismatch'
+    | 'expired'
+    | 'aging'
   severity: 'info' | 'warn'
   message: string
   ids: string[]
@@ -60,6 +64,10 @@ export interface MaintenanceAnalysis {
     pending: number
     accepted: number
     proposalsExisting: number
+    fresh: number
+    aging: number
+    stale: number
+    scheduled: number
   }
 }
 
@@ -78,6 +86,28 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
   const workspaceIds = new Set(options.workspaces.map((workspace) => workspace.id))
   const issues: MaintenanceIssue[] = []
   const candidates: MaintenanceCandidate[] = []
+  const temporal = options.temporal ?? DEFAULT_TEMPORAL_POLICY
+  const temporalCounts = { fresh: 0, aging: 0, stale: 0, scheduled: 0 }
+
+  for (const record of accepted) {
+    const state = temporalState(record, nowMs, temporal)
+    temporalCounts[state] += 1
+    if (state === 'stale') {
+      issues.push({
+        code: 'expired',
+        severity: 'warn',
+        message: `${record.id} 已于 ${record.expiresAt ?? '未知时间'} 到期，需要复核后更新 expires_at：${record.title}`,
+        ids: [record.id],
+      })
+    } else if (state === 'aging') {
+      issues.push({
+        code: 'aging',
+        severity: 'info',
+        message: `${record.id} 已 ${Math.floor(ageDays(record.lastVerified ?? record.updatedAt, nowMs) ?? 0)} 天未确认：${record.title}`,
+        ids: [record.id],
+      })
+    }
+  }
 
   const duplicateGroups = new Map<string, KnowledgeRecord[]>()
   for (const record of accepted) {
@@ -266,6 +296,7 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
       pending: pending.length,
       accepted: accepted.length,
       proposalsExisting: store.proposals.size,
+      ...temporalCounts,
     },
   }
 }
@@ -296,6 +327,7 @@ export function renderMaintenanceReport(input: {
     `- pending: ${input.analysis.totals.pending}`,
     `- issues: ${input.analysis.issues.length}`,
     `- candidates: ${input.analysis.candidates.length}`,
+    `- temporal: fresh ${input.analysis.totals.fresh} · aging ${input.analysis.totals.aging} · stale ${input.analysis.totals.stale} · scheduled ${input.analysis.totals.scheduled}`,
     `- proposals created: ${input.created.length}`,
     `- skipped (already pending): ${input.skipped}`,
     `- max proposals: ${input.maxProposals}`,
@@ -342,6 +374,7 @@ export function renderMaintenanceReport(input: {
     '- This report is not authoritative knowledge.',
     '- Proposals are pending; nothing was committed, deleted, or rewritten.',
     '- Exact duplicates become deprecate proposals; project knowledge is promoted only with an explicit reuse tag.',
+    '- Expired entries are reported only: they are never deleted or rewritten automatically.',
     '- Review pending proposals in the Web panel or with memory_get, then commit intentionally.',
     '',
   )

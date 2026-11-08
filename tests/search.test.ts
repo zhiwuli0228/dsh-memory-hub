@@ -19,6 +19,9 @@ function record(overrides: Partial<KnowledgeRecord>): KnowledgeRecord {
     appliesTo: { branches: [], versions: [] },
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-01T00:00:00Z',
+    validFrom: null,
+    expiresAt: null,
+    lastVerified: null,
     format: 1,
     body: 'Body',
     path: '/hub/knowledge/decision/DEC-000001.md',
@@ -124,6 +127,66 @@ describe('knowledge index', () => {
       localBoost: 2,
     })
     expect(boosted[0]?.id).toBe('KNO-000002')
+  })
+
+  it('demotes expired entries and can exclude not-yet-valid ones', () => {
+    const index = new KnowledgeIndex()
+    const visibility = { global: true, domains: new Set<string>(), projects: new Set<string>() }
+    const nowMs = Date.parse('2026-11-08T12:00:00Z')
+    index.add(record({ id: 'KNO-000001', title: '部署窗口', summary: '窗口是周三。' }))
+    index.add(record({
+      id: 'KNO-000002',
+      title: '部署窗口',
+      summary: '窗口是周三。',
+      expiresAt: '2026-11-01T00:00:00Z',
+    }))
+    index.add(record({
+      id: 'KNO-000003',
+      title: '部署窗口',
+      summary: '窗口是周三。',
+      validFrom: '2026-12-01T00:00:00Z',
+    }))
+
+    const hits = index.search('部署窗口', { visibility, nowMs })
+    const fresh = hits.find((hit) => hit.id === 'KNO-000001')
+    const stale = hits.find((hit) => hit.id === 'KNO-000002')
+    const scheduled = hits.find((hit) => hit.id === 'KNO-000003')
+    expect(fresh?.temporal).toBe('fresh')
+    expect(stale?.temporal).toBe('stale')
+    expect(scheduled?.temporal).toBe('scheduled')
+    expect(hits[0]?.id).toBe('KNO-000001')
+    expect((stale?.score ?? 0) / (fresh?.score ?? 1)).toBeCloseTo(0.6, 2)
+
+    const withoutScheduled = index.search('部署窗口', {
+      visibility,
+      nowMs,
+      excludeTemporal: new Set(['scheduled']),
+    })
+    expect(withoutScheduled.some((hit) => hit.id === 'KNO-000003')).toBe(false)
+    expect(withoutScheduled.some((hit) => hit.id === 'KNO-000002')).toBe(true)
+  })
+
+  it('ages entries that have not been verified for 90 days', () => {
+    const index = new KnowledgeIndex()
+    const visibility = { global: true, domains: new Set<string>(), projects: new Set<string>() }
+    index.add(record({
+      id: 'KNO-000001',
+      title: '构建命令',
+      summary: '使用 npm run check。',
+      updatedAt: '2026-06-01T00:00:00Z',
+      lastVerified: '2026-11-07T00:00:00Z',
+    }))
+    index.add(record({
+      id: 'KNO-000002',
+      title: '构建命令',
+      summary: '使用 npm run check。',
+      updatedAt: '2026-06-01T00:00:00Z',
+    }))
+
+    const hits = index.search('构建命令', { visibility, nowMs: Date.parse('2026-11-08T12:00:00Z') })
+    expect(hits[0]?.id).toBe('KNO-000001')
+    expect(hits[0]?.temporal).toBe('fresh')
+    expect(hits[1]?.temporal).toBe('aging')
   })
 
   it('returns no hits for an empty or unmatchable query', () => {

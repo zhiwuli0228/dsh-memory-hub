@@ -48,6 +48,15 @@ export interface AppliesTo {
   versions: string[]
 }
 
+/**
+ * 时效派生状态：读取时按三个时间字段实时计算，不落盘。
+ * - scheduled: valid_from 在未来（尚未生效）
+ * - stale:     expires_at 已过（需要复核；不删除、只降权）
+ * - aging:     last_verified（缺失时用 updated_at）超过 aging_days
+ * - fresh:     其余
+ */
+export type TemporalState = 'fresh' | 'aging' | 'stale' | 'scheduled'
+
 export interface KnowledgeRecord {
   id: string
   type: KnowledgeType
@@ -64,6 +73,12 @@ export interface KnowledgeRecord {
   appliesTo: AppliesTo
   createdAt: string
   updatedAt: string
+  /** 事实开始成立的时刻；null 表示与 created_at 相同（未标注）。 */
+  validFrom: string | null
+  /** 事实不再可信的时刻；null 表示不设到期。 */
+  expiresAt: string | null
+  /** 上次被确认仍然正确的时刻；null 表示从未显式确认（回退到 updated_at）。 */
+  lastVerified: string | null
   deprecatedReason?: string
   format: number
   body: string
@@ -82,6 +97,8 @@ export interface KnowledgeHit {
   path: string
   snippet: string
   score: number
+  /** 命中条目的时效派生状态；用于预检标记与过滤。 */
+  temporal: TemporalState
   /** 来源核心 Hub（跨 Hub 检索时标注；null/undefined 表示当前 Hub）。 */
   core?: string | null
 }
@@ -107,6 +124,9 @@ export interface ProposalRecord {
   target: string | null
   expectedVersion: number | null
   reason: string | null
+  validFrom: string | null
+  expiresAt: string | null
+  lastVerified: string | null
   taskId: string
   createdAt: string
   updatedAt: string

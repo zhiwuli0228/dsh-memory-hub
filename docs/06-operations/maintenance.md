@@ -35,10 +35,12 @@ policy:
    E:\009workspace\dsh\dsh-memory-hub\dsh-memory-hub\reports\latest.md
    C:\Users\18811\.dsh\memory-hub\reports\latest.md
    ```
-2. 看 `Summary`：`knowledge`、`pending`、`issues`、`candidates`、`proposals created`。
+2. 看 `Summary`：`knowledge`、`pending`、`issues`、`candidates`、`temporal`、`proposals created`。
 3. 看 `Issues`：
    - `duplicate-exact`：已有 deprecate pending，优先处理；
    - `duplicate-near` / `uncited` / `stale-pending`：只报告，人工判断；
+   - `expired`：`expires_at` 已过，复核后要么更新内容并刷新 `last_verified`，要么发布 deprecate 提案；
+   - `aging`：超过 90 天未确认，抽查一下是否仍然成立；
    - `load-diagnostic`：先修 YAML / frontmatter；
    - `scope-mismatch`：检查 `project:<id>` 是否已注册。
 4. 打开记忆中枢面板「待审批」，逐条查看候选；需要时 `memory_get` 读全文。
