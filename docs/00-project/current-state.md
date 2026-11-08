@@ -4,9 +4,11 @@
 
 ## 当前阶段
 
-V0.5.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.5.0` 与 GitHub Release `v0.5.0` 已发布（run `42441770848`，publishTimestamp `1794107806`）。
+V0.5.2 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.5.2`（`latest`）与 GitHub Release `v0.5.2` 已发布（run `42443017229`，publishTimestamp `1794108947`）；`v0.5.1`（run `42442447042`）与 `v0.5.0`（run `42441770848`）为同一功能的连续修复。
 
-当前工作树为 **V0.5.0（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+在真实 Host（0.2.2-rc.1，隔离 profile）上验证时修掉两个只有实机才暴露的问题：Host 的 `daily.time` 必须是 `HH:mm:ss`（v0.5.1 内部把 `HH:mm` 规范化后注册）；`session-controller` 可能晚于 `schedule` 就绪，首次注册会被拒（v0.5.2 对可自愈错误做 5 次退避重试，并在 `config()` 中返回 `distill`，面板保存后不会显示成未配置）。
+
+当前工作树为 **V0.5.2（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
@@ -32,6 +34,8 @@ V0.5.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 - [x] 工作区定时蒸馏（V0.5.0）：`core_workspaces[]` / `workspaces[]` 可选 `distill { enabled, time, target, session_id, agent_preset, max_proposals }`；面板「配置」页逐工作区配置
 - [x] 定时蒸馏由 Host `schedule` 服务执行：`target: new` 每次新建会话（`cwd` = 工作区 root），`target: session` 投递到指定会话；任务标题 `memory-hub:distill:<hub-id>:<kind>:<id>`
 - [x] 幂等对齐：插件启动、配置热更新、`schedule` 延迟挂载时创建/更新/删除任务；单条失败回填诊断，不影响其他工作区
+- [x] 真实 Host 兼容修复（V0.5.1/V0.5.2）：Host `daily.time` 要求 `HH:mm:ss`（内部把配置的 `HH:mm` 规范化）；`session-controller` 晚于 `schedule` 就绪时首次注册失败，改为 5 次退避重试；`/api/config` 返回 `distill`，面板保存后不回退成“未配置”
+- [x] 实机验证：隔离 profile 安装 0.5.2 冷启动，首次注册被拒后自动重试成功（`action: created`），重启后 `kept` 且 `taskId` 不变，失败条目不误删旧任务；移除配置后任务被删除
 - [x] 蒸馏提示词只读 L1、`memory_propose` 到 `project:<父核心>`（顶端用 `memory_consolidate` 到 global）、`memory_close_task`；禁止 `memory_commit`
 - [x] 定时蒸馏配置校验：启用必须有 root；`target: session` 必须有 `session_id`；`max_proposals` 1..20
 - [x] 设计决策：[ADR-0007](../01-architecture/decisions/ADR-0007-scheduled-distillation.md)；操作与排障：[distillation-schedule](../06-operations/distillation-schedule.md)
@@ -72,7 +76,7 @@ V0.5.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板除「待审批」人工审核外只读；配置与审核走回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 77 个 vitest 测试（11 个文件）
+- [x] 79 个 vitest 测试（11 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance

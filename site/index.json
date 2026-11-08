@@ -27,6 +27,26 @@
       },
       "versions": [
         {
+          "version": "0.5.2",
+          "publishTimestamp": 1794108947,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.5"
+          }
+        },
+        {
+          "version": "0.5.1",
+          "publishTimestamp": 1794108272,
+          "source": {
+            "type": "npm"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.5"
+          }
+        },
+        {
           "version": "0.5.0",
           "publishTimestamp": 1794107806,
           "source": {
