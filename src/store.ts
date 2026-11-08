@@ -6,7 +6,8 @@ import { MemoryError } from './errors.js'
 import { parseKnowledgeFile, parseProposalFile, PROPOSAL_ID_PATTERN, serializeKnowledgeFile, serializeProposalFile } from './frontmatter.js'
 import type { Hub } from './hub.js'
 import type { Ledger } from './ledger.js'
-import { KnowledgeIndex, type SearchFilters } from './search.js'
+import { KnowledgeIndex, type SearchFilters, type SearchIndex } from './search.js'
+import { SqliteIndex } from './index-sqlite.js'
 import { formatScope, isScopeVisible, parseScope } from './scope.js'
 import { formatSequence } from './ids.js'
 import { isIsoTimestamp, nowIso } from './time.js'
@@ -119,7 +120,13 @@ function sequenceOf(id: string): number {
 export const PENDING_EAGER_LIMIT = 200
 
 export class KnowledgeStore {
-  readonly index = new KnowledgeIndex()
+  /** 检索后端：默认内存索引；条目多且 node:sqlite 可用时换成派生 SQLite 索引。 */
+  index: SearchIndex = new KnowledgeIndex()
+  indexBackend: 'memory' | 'sqlite' = 'memory'
+  /** 本次启动是否重建了派生索引（false = 复用了上次的库）。 */
+  indexRebuilt = false
+  /** 请求 SQLite 但不可用/只读时的说明；会进入 diagnostics。 */
+  indexWarning: string | null = null
   readonly docs = new Map<string, KnowledgeRecord>()
   readonly proposals = new Map<string, ProposalRecord>()
   /** 超出预解析上限的 pending/ 文件：先记路径，打开或审批时再解析（见 getProposal）。 */
@@ -133,17 +140,55 @@ export class KnowledgeStore {
   ) {}
 
   async load(): Promise<void> {
+    this.closeIndex()
     this.docs.clear()
     this.proposals.clear()
     this.pendingBacklog.clear()
     this.diagnostics.length = 0
     this.sequences = {}
+    this.index = new KnowledgeIndex()
+    this.indexBackend = 'memory'
+    this.indexRebuilt = false
+    this.indexWarning = null
 
+    // 先只读目录名拿到条目数（auto 模式据此选后端），解析与建索引在之后一次完成。
+    const knowledgeFiles: Array<{ type: KnowledgeType; dir: string; files: string[] }> = []
+    let knowledgeCount = 0
     for (const type of Object.keys(TYPE_PREFIX) as KnowledgeType[]) {
       const dir = this.hub.knowledgeDir(type)
-      const files = await readdirSafe(dir)
+      const files = (await readdirSafe(dir)).filter((file) => file.endsWith('.md'))
+      knowledgeFiles.push({ type, dir, files })
+      knowledgeCount += files.length
+    }
+
+    const storage = this.hub.config.storage
+    const wantsSqlite =
+      storage.index === 'sqlite' ||
+      (storage.index === 'auto' && knowledgeCount >= storage.sqlite_min_entries)
+    const fingerprint = await this.knowledgeFingerprint(knowledgeCount)
+    if (wantsSqlite) {
+      if (this.hub.readOnly) {
+        this.indexWarning = 'read-only hub: the derived SQLite index is disabled'
+      } else {
+        const outcome = await SqliteIndex.open({
+          path: this.hub.indexPath(),
+          recordOf: (id) => this.docs.get(id),
+          fingerprint,
+          candidateLimit: storage.index_candidate_limit,
+        })
+        if ('reason' in outcome) {
+          this.indexWarning = `sqlite index unavailable (${outcome.reason}); using the memory index`
+        } else {
+          this.index = outcome.index
+          this.indexBackend = 'sqlite'
+          this.indexRebuilt = outcome.rebuilt
+        }
+      }
+    }
+
+    const parsed: KnowledgeRecord[] = []
+    for (const { type, dir, files } of knowledgeFiles) {
       for (const file of files) {
-        if (!file.endsWith('.md')) continue
         const path = join(dir, file)
         try {
           const record = parseKnowledgeFile(await readFile(path, 'utf8'), path)
@@ -155,12 +200,30 @@ export class KnowledgeStore {
             continue
           }
           this.docs.set(record.id, record)
-          this.index.add(record)
+          parsed.push(record)
           this.bumpSequence(TYPE_PREFIX[type], sequenceOf(record.id))
         } catch (error) {
           this.diagnostics.push({ path, message: (error as Error).message })
         }
       }
+    }
+
+    if (this.indexBackend === 'sqlite') {
+      const sqlite = this.index as SqliteIndex
+      if (this.indexRebuilt) {
+        await sqlite.rebuild(
+          (async function* records() {
+            yield* parsed
+          })(),
+        )
+      }
+      // 复用与重建都刷新指纹/时间：下次启动只要文件没动就直接用。
+      sqlite.setFingerprint(await this.knowledgeFingerprint(this.docs.size))
+    } else {
+      for (const record of parsed) this.index.add(record)
+    }
+    if (this.indexWarning !== null) {
+      this.diagnostics.push({ path: this.hub.indexPath(), message: this.indexWarning })
     }
 
     const pendingFiles = (await readdirSafe(this.hub.pendingDir()))
@@ -201,6 +264,17 @@ export class KnowledgeStore {
 
   records(): KnowledgeRecord[] {
     return [...this.docs.values()]
+  }
+
+  /** 释放派生索引句柄（SQLite 文件在 Windows 上不关闭就无法删除/移动）。 */
+  closeIndex(): void {
+    if (this.index instanceof SqliteIndex) {
+      try {
+        this.index.close()
+      } catch {
+        // 已经关闭或文件已删除：忽略。
+      }
+    }
   }
 
   async get(id: string, version?: number): Promise<KnowledgeRecord | null> {
@@ -478,7 +552,27 @@ export class KnowledgeStore {
       approvalRef,
     })
     await this.archiveProposal(proposal, 'committed', `${record.id}@${record.version}`)
+    await this.refreshIndexFingerprint()
     return { record, superseded }
+  }
+
+  /**
+   * 数据指纹 = 条目数 + 知识目录最近 mtime。目录 mtime 在新建/删除/原子替换文件时
+   * 都会变化，所以外部编辑（或 git checkout）能被下一次启动检测到并触发重建。
+   */
+  private async knowledgeFingerprint(count: number): Promise<string> {
+    let maxMtime = 0
+    for (const type of Object.keys(TYPE_PREFIX) as KnowledgeType[]) {
+      const info = await stat(this.hub.knowledgeDir(type)).catch(() => null)
+      if (info !== null) maxMtime = Math.max(maxMtime, Math.floor(info.mtimeMs))
+    }
+    return `${count}:${maxMtime}`
+  }
+
+  private async refreshIndexFingerprint(): Promise<void> {
+    if (this.indexBackend !== 'sqlite') return
+    const fingerprint = await this.knowledgeFingerprint(this.docs.size)
+    ;(this.index as SqliteIndex).setFingerprint(fingerprint)
   }
 
   /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
@@ -803,7 +897,9 @@ export class KnowledgeStore {
   async refreshPath(path: string): Promise<void> {
     const info = await stat(path).catch(() => null)
     if (info === null) {
+      const touchedKnowledge = isUnder(join(this.hub.root, 'knowledge'), path)
       this.removePath(path)
+      if (touchedKnowledge) await this.refreshIndexFingerprint()
       return
     }
     if (!info.isFile()) return
@@ -826,6 +922,7 @@ export class KnowledgeStore {
     } catch (error) {
       this.diagnostics.push({ path, message: (error as Error).message })
     }
+    await this.refreshIndexFingerprint()
   }
 
   private removePath(path: string): void {

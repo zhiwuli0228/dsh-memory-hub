@@ -221,6 +221,11 @@ export class Hub {
     return join(this.root, 'records', 'sequences.json')
   }
 
+  /** 派生检索索引（可删除、可重建；不是权威数据）。 */
+  indexPath(): string {
+    return join(this.root, 'records', 'index.sqlite')
+  }
+
   pendingDir(): string {
     return join(this.root, 'pending')
   }

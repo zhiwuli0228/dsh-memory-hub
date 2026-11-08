@@ -1775,6 +1775,8 @@ export class MemoryService {
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
+        backend: this.store.indexBackend,
+        rebuilt: this.store.indexRebuilt,
         diagnostics: this.store.diagnostics.slice(0, 20),
       },
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
@@ -1973,6 +1975,8 @@ export class MemoryService {
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
+        backend: this.store.indexBackend,
+        rebuilt: this.store.indexRebuilt,
         diagnostics: this.store.diagnostics.slice(0, 20),
       },
       policy: {

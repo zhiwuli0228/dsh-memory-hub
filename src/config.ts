@@ -174,6 +174,12 @@ export const configSchema = z.object({
   storage: z.object({
     watch: z.boolean().default(true),
     lock_stale_ms: z.number().int().positive().default(600_000),
+    // 检索索引后端：auto = 条目数达到阈值且 node:sqlite 可用时用 SQLite，
+    // 否则用内存索引；sqlite/memory 为显式选择（不可用时仍回退内存并记诊断）。
+    index: z.enum(['auto', 'memory', 'sqlite']).default('auto'),
+    sqlite_min_entries: z.number().int().min(1000).max(10_000_000).default(30_000),
+    // 每轮进入精确打分的候选上限；小 Hub 会全量打分，结果与内存索引完全一致。
+    index_candidate_limit: z.number().int().min(100).max(1_000_000).default(2000),
   }).default({}),
 })
 
@@ -284,6 +290,13 @@ consolidation:
 storage:
   watch: true
   lock_stale_ms: 600000
+  # auto = use the derived SQLite index once the Hub exceeds sqlite_min_entries
+  # (requires Node.js >= 22.5 for node:sqlite; otherwise the memory index is used).
+  index: auto
+  sqlite_min_entries: 30000
+  # Entries scored exactly per query. Small Hubs score every candidate (same
+  # results as the memory index); only very broad queries hit this cap.
+  index_candidate_limit: 2000
 `
 
 export async function readConfigFile(path: string): Promise<MemoryConfig | null> {
@@ -313,3 +326,5 @@ export async function readConfigFile(path: string): Promise<MemoryConfig | null>
 export function defaultConfig(): MemoryConfig {
   return configSchema.parse({})
 }
+
+

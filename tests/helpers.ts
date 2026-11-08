@@ -131,6 +131,7 @@ export async function createHarness(
     ctx,
     agent,
     cleanup: async () => {
+      store.closeIndex()
       await hub.close()
       await ledger.close()
       await rm(root, { recursive: true, force: true })

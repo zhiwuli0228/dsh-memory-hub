@@ -11700,7 +11700,13 @@ var configSchema = external_exports.object({
   }).default({}),
   storage: external_exports.object({
     watch: external_exports.boolean().default(true),
-    lock_stale_ms: external_exports.number().int().positive().default(6e5)
+    lock_stale_ms: external_exports.number().int().positive().default(6e5),
+    // 检索索引后端：auto = 条目数达到阈值且 node:sqlite 可用时用 SQLite，
+    // 否则用内存索引；sqlite/memory 为显式选择（不可用时仍回退内存并记诊断）。
+    index: external_exports.enum(["auto", "memory", "sqlite"]).default("auto"),
+    sqlite_min_entries: external_exports.number().int().min(1e3).max(1e7).default(3e4),
+    // 每轮进入精确打分的候选上限；小 Hub 会全量打分，结果与内存索引完全一致。
+    index_candidate_limit: external_exports.number().int().min(100).max(1e6).default(2e3)
   }).default({})
 });
 var DEFAULT_CONFIG_YAML = `# dsh-memory-hub configuration
@@ -11805,6 +11811,13 @@ consolidation:
 storage:
   watch: true
   lock_stale_ms: 600000
+  # auto = use the derived SQLite index once the Hub exceeds sqlite_min_entries
+  # (requires Node.js >= 22.5 for node:sqlite; otherwise the memory index is used).
+  index: auto
+  sqlite_min_entries: 30000
+  # Entries scored exactly per query. Small Hubs score every candidate (same
+  # results as the memory index); only very broad queries hit this cap.
+  index_candidate_limit: 2000
 `;
 async function readConfigFile(path) {
   let raw;
@@ -12090,6 +12103,10 @@ var Hub = class _Hub {
   }
   sequencesPath() {
     return join2(this.root, "records", "sequences.json");
+  }
+  /** 派生检索索引（可删除、可重建；不是权威数据）。 */
+  indexPath() {
+    return join2(this.root, "records", "index.sqlite");
   }
   pendingDir() {
     return join2(this.root, "pending");
@@ -12594,6 +12611,25 @@ function countTokens(tokens) {
   for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
   return counts;
 }
+function indexEntryOf(record) {
+  const tokens = countTokens([
+    ...tokenize(record.title),
+    ...tokenize(record.title),
+    ...tokenize(record.title),
+    ...tokenize(record.tags.join(" ")),
+    ...tokenize(record.tags.join(" ")),
+    ...tokenize(record.summary),
+    ...tokenize(record.summary),
+    ...tokenize(record.body)
+  ]);
+  return {
+    record,
+    length: [...tokens.values()].reduce((sum, value) => sum + value, 0),
+    tokens,
+    times: temporalTimesOf(record),
+    titleNormalized: normalizeText(record.title)
+  };
+}
 var TYPE_BOOST = {
   constraint: 1.2,
   decision: 1.15,
@@ -12616,26 +12652,10 @@ var KnowledgeIndex = class {
   }
   add(record) {
     if (this.entries.has(record.id)) this.remove(record.id);
-    const tokens = countTokens([
-      ...tokenize(record.title),
-      ...tokenize(record.title),
-      ...tokenize(record.title),
-      ...tokenize(record.tags.join(" ")),
-      ...tokenize(record.tags.join(" ")),
-      ...tokenize(record.summary),
-      ...tokenize(record.summary),
-      ...tokenize(record.body)
-    ]);
-    const length = [...tokens.values()].reduce((sum, value) => sum + value, 0);
-    this.entries.set(record.id, {
-      record,
-      length,
-      tokens,
-      times: temporalTimesOf(record),
-      titleNormalized: normalizeText(record.title)
-    });
-    this.totalLength += length;
-    for (const [token, count] of tokens) {
+    const entry = indexEntryOf(record);
+    this.entries.set(record.id, entry);
+    this.totalLength += entry.length;
+    for (const [token, count] of entry.tokens) {
       let posting = this.postings.get(token);
       if (posting === void 0) {
         posting = /* @__PURE__ */ new Map();
@@ -12656,6 +12676,11 @@ var KnowledgeIndex = class {
     }
     this.entries.delete(id);
   }
+  clear() {
+    this.entries.clear();
+    this.postings.clear();
+    this.totalLength = 0;
+  }
   get(id) {
     return this.entries.get(id)?.record;
   }
@@ -12663,81 +12688,110 @@ var KnowledgeIndex = class {
     return [...this.entries.values()].map((entry) => entry.record);
   }
   search(query, filters) {
-    const queryTokens = [...new Set(tokenize(query))];
-    if (queryTokens.length === 0) return [];
-    const statuses = filters.statuses ?? /* @__PURE__ */ new Set(["accepted"]);
-    const allowed = /* @__PURE__ */ new Set();
-    for (const [id, entry] of this.entries) {
-      const record = entry.record;
-      if (!statuses.has(record.status)) continue;
-      if (!isScopeVisible(record.scope, filters.visibility)) continue;
-      if (filters.types !== void 0 && !filters.types.has(record.type)) continue;
-      allowed.add(id);
-    }
-    if (allowed.size === 0) return [];
-    const avgLength = this.totalLength / Math.max(1, this.entries.size);
-    const scores = /* @__PURE__ */ new Map();
-    for (const token of queryTokens) {
-      const posting = this.postings.get(token);
-      if (posting === void 0) continue;
-      const df = posting.size;
-      const idf = Math.log(1 + (this.entries.size - df + 0.5) / (df + 0.5));
-      for (const [id, tf] of posting) {
-        if (!allowed.has(id)) continue;
-        const entry = this.entries.get(id);
-        if (entry === void 0) continue;
-        const denominator = tf + K1 * (1 - B + B * (entry.length / Math.max(1, avgLength)));
-        const score = idf * (tf * (K1 + 1)) / Math.max(1e-6, denominator);
-        scores.set(id, (scores.get(id) ?? 0) + score);
-      }
-    }
-    const normalizedQuery = normalizeText(query).trim();
-    const policy = filters.temporal ?? DEFAULT_TEMPORAL_POLICY;
-    const nowMs = filters.nowMs ?? Date.now();
-    const limit = Math.max(1, filters.limit ?? 8);
-    const best = [];
-    for (const [id, baseScore] of scores) {
-      const entry = this.entries.get(id);
-      if (entry === void 0) continue;
-      const record = entry.record;
-      const state = temporalStateFromTimes(entry.times, nowMs, policy);
-      if (filters.excludeTemporal?.has(state) === true) continue;
-      const updatedAt = entry.times.updatedAt;
-      const ageDays2 = updatedAt === null ? 0 : Math.max(0, (nowMs - updatedAt) / 864e5);
-      let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-ageDays2 / 180) * 0.3;
-      score *= temporalDecay(state, policy);
-      if (normalizedQuery.length >= 2 && entry.titleNormalized.includes(normalizedQuery)) {
-        score *= 1.25;
-      }
-      if (filters.preferProject !== void 0 && record.scope.level === "project" && record.scope.workspaceId === filters.preferProject) {
-        score *= filters.localBoost ?? 1;
-      }
-      if (filters.minScore !== void 0 && score < filters.minScore) continue;
-      offerTop(best, { id, score, temporal: state }, limit);
-    }
-    best.sort((left, right) => {
-      if (right.score !== left.score) return right.score - left.score;
-      return right.id.localeCompare(left.id);
-    });
-    return best.map((candidate) => {
-      const record = this.entries.get(candidate.id).record;
-      return {
-        id: record.id,
-        version: record.version,
-        type: record.type,
-        status: record.status,
-        scope: record.scope,
-        title: record.title,
-        summary: record.summary,
-        path: record.path,
-        snippet: makeSnippet(record, queryTokens),
-        score: candidate.score,
-        temporal: candidate.temporal,
-        core: filters.coreTag ?? null
-      };
+    return rankHits(query, filters, {
+      entryCount: this.entries.size,
+      totalLength: this.totalLength,
+      postings: (token) => this.postings.get(token),
+      entry: (id) => this.entries.get(id)
     });
   }
 };
+function queryTokensOf(query) {
+  return [...new Set(tokenize(query))];
+}
+function searchSetup(query, filters, entryCount, totalLength) {
+  return {
+    entryCount,
+    avgLength: totalLength / Math.max(1, entryCount),
+    policy: filters.temporal ?? DEFAULT_TEMPORAL_POLICY,
+    nowMs: filters.nowMs ?? Date.now(),
+    normalizedQuery: normalizeText(query).trim(),
+    statuses: filters.statuses ?? /* @__PURE__ */ new Set(["accepted"])
+  };
+}
+function bm25Term(tf, df, entryCount, length, avgLength) {
+  const idf = Math.log(1 + (entryCount - df + 0.5) / (df + 0.5));
+  const denominator = tf + K1 * (1 - B + B * (length / Math.max(1, avgLength)));
+  return idf * (tf * (K1 + 1)) / Math.max(1e-6, denominator);
+}
+function passesFilters(record, filters, setup) {
+  if (!setup.statuses.has(record.status)) return false;
+  if (!isScopeVisible(record.scope, filters.visibility)) return false;
+  if (filters.types !== void 0 && !filters.types.has(record.type)) return false;
+  return true;
+}
+function rankScored(filters, setup, queryTokens, scored) {
+  const limit = Math.max(1, filters.limit ?? 8);
+  const best = [];
+  for (const { entry, baseScore } of scored) {
+    const record = entry.record;
+    if (!passesFilters(record, filters, setup)) continue;
+    const state = temporalStateFromTimes(entry.times, setup.nowMs, setup.policy);
+    if (filters.excludeTemporal?.has(state) === true) continue;
+    const updatedAt = entry.times.updatedAt;
+    const ageDays2 = updatedAt === null ? 0 : Math.max(0, (setup.nowMs - updatedAt) / 864e5);
+    let score = baseScore * TYPE_BOOST[record.type] + Math.exp(-ageDays2 / 180) * 0.3;
+    score *= temporalDecay(state, setup.policy);
+    if (setup.normalizedQuery.length >= 2 && entry.titleNormalized.includes(setup.normalizedQuery)) {
+      score *= 1.25;
+    }
+    if (filters.preferProject !== void 0 && record.scope.level === "project" && record.scope.workspaceId === filters.preferProject) {
+      score *= filters.localBoost ?? 1;
+    }
+    if (filters.minScore !== void 0 && score < filters.minScore) continue;
+    offerTop(best, { id: record.id, score, temporal: state, entry }, limit);
+  }
+  best.sort((left, right) => {
+    if (right.score !== left.score) return right.score - left.score;
+    return right.id.localeCompare(left.id);
+  });
+  return best.map((candidate) => {
+    const record = candidate.entry.record;
+    return {
+      id: record.id,
+      version: record.version,
+      type: record.type,
+      status: record.status,
+      scope: record.scope,
+      title: record.title,
+      summary: record.summary,
+      path: record.path,
+      snippet: makeSnippet(record, queryTokens),
+      score: candidate.score,
+      temporal: candidate.temporal,
+      core: filters.coreTag ?? null
+    };
+  });
+}
+function rankHits(query, filters, source) {
+  const queryTokens = queryTokensOf(query);
+  if (queryTokens.length === 0) return [];
+  const setup = searchSetup(query, filters, source.entryCount, source.totalLength);
+  const scores = /* @__PURE__ */ new Map();
+  for (const token of queryTokens) {
+    const posting = source.postings(token);
+    if (posting === void 0) continue;
+    const df = posting.size;
+    for (const [id, tf] of posting) {
+      const entry = source.entry(id);
+      if (entry === void 0) continue;
+      if (!passesFilters(entry.record, filters, setup)) continue;
+      const term = bm25Term(tf, df, source.entryCount, entry.length, setup.avgLength);
+      scores.set(id, (scores.get(id) ?? 0) + term);
+    }
+  }
+  return rankScored(
+    filters,
+    setup,
+    queryTokens,
+    (function* scored() {
+      for (const [id, baseScore] of scores) {
+        const entry = source.entry(id);
+        if (entry !== void 0) yield { entry, baseScore };
+      }
+    })()
+  );
+}
 function ranksBefore(left, right) {
   if (left.score !== right.score) return left.score > right.score;
   return left.id > right.id;
@@ -12764,6 +12818,354 @@ function makeSnippet(record, queryTokens) {
   }
   return record.body.trim().slice(0, 240);
 }
+
+// src/index-sqlite.ts
+import { mkdir as mkdir2 } from "node:fs/promises";
+import { dirname as dirname3 } from "node:path";
+var SQLITE_INDEX_FORMAT = 1;
+var DEFAULT_CANDIDATE_LIMIT = 5e3;
+var SCHEMA = `
+CREATE TABLE IF NOT EXISTS docs (
+  rowid INTEGER PRIMARY KEY,
+  id TEXT NOT NULL UNIQUE,
+  length INTEGER NOT NULL,
+  tokens TEXT NOT NULL,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  updated_ms INTEGER,
+  valid_from_ms INTEGER,
+  expires_at_ms INTEGER,
+  last_verified_ms INTEGER,
+  title_norm TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS terms (
+  token TEXT PRIMARY KEY,
+  df INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
+  tokens,
+  content='',
+  tokenize='unicode61'
+);
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS docs_status ON docs(status);
+`;
+function countOccurrences(haystack, needle) {
+  let count = 0;
+  let position = haystack.indexOf(needle);
+  while (position !== -1) {
+    count += 1;
+    position = haystack.indexOf(needle, position + needle.length - 1);
+  }
+  return count;
+}
+function tokenTextOf(tokens) {
+  const parts = [];
+  for (const [token, count] of tokens) {
+    for (let index = 0; index < count; index += 1) parts.push(token);
+  }
+  return parts.join(" ");
+}
+var SqliteIndex = class _SqliteIndex {
+  constructor(db, options) {
+    this.db = db;
+    this.options = options;
+    this.candidateLimit = options.candidateLimit ?? DEFAULT_CANDIDATE_LIMIT;
+    this.stmts = {
+      insertDoc: db.prepare(
+        "INSERT INTO docs(id, length, tokens, type, status, updated_ms, valid_from_ms, expires_at_ms, last_verified_ms, title_norm) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ),
+      insertFts: db.prepare("INSERT INTO docs_fts(rowid, tokens) VALUES (?, ?)"),
+      deleteFts: db.prepare("INSERT INTO docs_fts(docs_fts, rowid, tokens) VALUES ('delete', ?, ?)"),
+      deleteDoc: db.prepare("DELETE FROM docs WHERE rowid = ?"),
+      docByRowid: db.prepare(
+        "SELECT rowid, id, length, tokens, updated_ms, valid_from_ms, expires_at_ms, last_verified_ms, title_norm FROM docs WHERE rowid = ?"
+      ),
+      docById: db.prepare(
+        "SELECT rowid, id, length, tokens, updated_ms, valid_from_ms, expires_at_ms, last_verified_ms, title_norm FROM docs WHERE id = ?"
+      ),
+      lastRowid: db.prepare("SELECT last_insert_rowid() AS rowid"),
+      termDf: db.prepare("SELECT df FROM terms WHERE token = ?"),
+      termInc: db.prepare("INSERT INTO terms(token, df) VALUES (?, 1) ON CONFLICT(token) DO UPDATE SET df = df + 1"),
+      termDec: db.prepare("UPDATE terms SET df = df - 1 WHERE token = ?"),
+      termPrune: db.prepare("DELETE FROM terms WHERE token = ? AND df <= 0"),
+      metaGet: db.prepare("SELECT value FROM meta WHERE key = ?"),
+      metaSet: db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)"),
+      deleteAllDocs: db.prepare("DELETE FROM docs"),
+      deleteAllTerms: db.prepare("DELETE FROM terms")
+    };
+  }
+  entryCount = 0;
+  totalLength = 0;
+  inTransaction = false;
+  /** 最近一次检索实际取到的候选数，用于诊断与基准。 */
+  lastCandidateCount = 0;
+  candidateLimit;
+  stmts;
+  get size() {
+    return this.entryCount;
+  }
+  /**
+   * 打开（必要时重建）索引。`node:sqlite` 不可用的运行时直接返回原因，由调用方
+   * 回退内存索引——这条路径不能影响启动。
+   */
+  static async open(options) {
+    let DatabaseSync;
+    try {
+      const module = await import("node:sqlite");
+      DatabaseSync = module.DatabaseSync;
+    } catch {
+      return { reason: "node:sqlite is not available in this Node.js runtime" };
+    }
+    if (DatabaseSync === void 0) return { reason: "node:sqlite did not export DatabaseSync" };
+    let db = null;
+    try {
+      await mkdir2(dirname3(options.path), { recursive: true });
+      db = new DatabaseSync(options.path);
+      db.exec("PRAGMA journal_mode = WAL");
+      db.exec("PRAGMA synchronous = NORMAL");
+      db.exec(SCHEMA);
+    } catch (error) {
+      try {
+        db?.close();
+      } catch {
+      }
+      return { reason: `cannot open ${options.path}: ${error.message}` };
+    }
+    if (db === null) return { reason: `cannot open ${options.path}` };
+    const index = new _SqliteIndex(db, options);
+    try {
+      const format = index.getMeta("format_version");
+      const fingerprint = index.getMeta("fingerprint");
+      const count = Number(index.getMeta("entry_count") ?? "0");
+      const totalLength = Number(index.getMeta("total_length") ?? "0");
+      const reusable = format === String(SQLITE_INDEX_FORMAT) && fingerprint === options.fingerprint && Number.isFinite(count) && Number.isFinite(totalLength);
+      if (reusable) {
+        index.entryCount = count;
+        index.totalLength = totalLength;
+        return { index, rebuilt: false };
+      }
+      index.reset();
+      return { index, rebuilt: true };
+    } catch (error) {
+      try {
+        db.exec("DROP TABLE IF EXISTS docs; DROP TABLE IF EXISTS terms; DROP TABLE IF EXISTS docs_fts; DROP TABLE IF EXISTS meta");
+        db.exec(SCHEMA);
+        index.reset();
+        return { index, rebuilt: true };
+      } catch {
+        return { reason: `index is unusable and cannot be rebuilt: ${error.message}` };
+      }
+    }
+  }
+  add(record) {
+    const entry = indexEntryOf(record);
+    this.transaction(() => this.insertEntry(record, entry, true));
+  }
+  remove(id) {
+    const row = this.stmts.docById.get(id);
+    if (row === void 0) return;
+    this.transaction(() => this.deleteEntry(row, true));
+  }
+  clear() {
+    this.transaction(() => {
+      const rows = this.db.prepare("SELECT rowid, tokens FROM docs").all();
+      for (const row of rows) this.stmts.deleteFts.run(row.rowid, row.tokens);
+      this.stmts.deleteAllDocs.run();
+      this.stmts.deleteAllTerms.run();
+      this.entryCount = 0;
+      this.totalLength = 0;
+      this.writeCounters();
+    });
+  }
+  /** 重建时把整批写入包在一个事务里：df 在内存累计后一次性写入。 */
+  async rebuild(records) {
+    this.reset();
+    const df = /* @__PURE__ */ new Map();
+    this.db.exec("BEGIN");
+    this.inTransaction = true;
+    try {
+      for await (const record of records) {
+        const entry = indexEntryOf(record);
+        this.insertEntry(record, entry, false);
+        for (const token of entry.tokens.keys()) df.set(token, (df.get(token) ?? 0) + 1);
+      }
+      this.writeDf(df);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.inTransaction = false;
+    }
+  }
+  /** 启动加载完成后写入本次观测到的指纹，供下次启动判断是否需要重建。 */
+  setFingerprint(fingerprint) {
+    this.transaction(() => {
+      this.writeMeta("fingerprint", fingerprint);
+      this.writeMeta("format_version", String(SQLITE_INDEX_FORMAT));
+      this.writeMeta("built_at", nowIso());
+      this.writeCounters();
+    });
+  }
+  search(query, filters) {
+    const tokens = queryTokensOf(query);
+    if (tokens.length === 0) return [];
+    const setup = searchSetup(query, filters, this.entryCount, this.totalLength);
+    const df = /* @__PURE__ */ new Map();
+    for (const token of tokens) df.set(token, this.termDf(token));
+    const rows = this.candidates(tokens, filters);
+    const needles = tokens.map((token) => ` ${token} `);
+    const self = this;
+    return rankScored(
+      filters,
+      setup,
+      tokens,
+      (function* scored() {
+        for (const row of rows) {
+          const entry = self.entryOf(row);
+          if (entry === void 0) continue;
+          const padded = ` ${row.tokens} `;
+          let baseScore = 0;
+          for (const [position, token] of tokens.entries()) {
+            const termDf = df.get(token) ?? 0;
+            if (termDf === 0) continue;
+            const tf = countOccurrences(padded, needles[position]);
+            if (tf === 0) continue;
+            baseScore += bm25Term(tf, termDf, self.entryCount, row.length, setup.avgLength);
+          }
+          yield { entry, baseScore };
+        }
+      })()
+    );
+  }
+  close() {
+    this.db.close();
+  }
+  /** FTS5 只负责取候选：状态/类型过滤 + bm25 取前 N 条 rowid，再回表一次。 */
+  candidates(tokens, filters) {
+    const match = tokens.map((token) => `"${token.replace(/"/g, '""')}"`).join(" OR ");
+    const statuses = [...filters.statuses ?? /* @__PURE__ */ new Set(["accepted"])];
+    const params = [match, this.candidateLimit];
+    let sql = `SELECT d.rowid, d.id, d.length, d.tokens, d.updated_ms, d.valid_from_ms, d.expires_at_ms, d.last_verified_ms, d.title_norm FROM docs d JOIN (SELECT rowid FROM docs_fts WHERE docs_fts MATCH ? ORDER BY rank LIMIT ?) m ON m.rowid = d.rowid WHERE d.status IN (${statuses.map(() => "?").join(", ")})`;
+    params.push(...statuses);
+    if (filters.types !== void 0 && filters.types.size > 0) {
+      const types = [...filters.types];
+      sql += ` AND d.type IN (${types.map(() => "?").join(", ")})`;
+      params.push(...types);
+    }
+    const rows = this.db.prepare(sql).all(...params);
+    this.lastCandidateCount = rows.length;
+    return rows;
+  }
+  insertEntry(record, entry, trackDf) {
+    const previous = this.stmts.docById.get(record.id);
+    if (previous !== void 0) this.deleteEntry(previous, trackDf);
+    const tokenText = tokenTextOf(entry.tokens);
+    this.stmts.insertDoc.run(
+      record.id,
+      entry.length,
+      tokenText,
+      record.type,
+      record.status,
+      entry.times.updatedAt,
+      entry.times.validFrom,
+      entry.times.expiresAt,
+      entry.times.lastVerified,
+      entry.titleNormalized
+    );
+    const rowid = Number(this.stmts.lastRowid.get().rowid);
+    this.stmts.insertFts.run(rowid, tokenText);
+    if (trackDf) {
+      for (const token of entry.tokens.keys()) this.stmts.termInc.run(token);
+    }
+    this.entryCount += 1;
+    this.totalLength += entry.length;
+    this.writeCounters();
+  }
+  deleteEntry(row, trackDf) {
+    this.stmts.deleteFts.run(row.rowid, row.tokens);
+    this.stmts.deleteDoc.run(row.rowid);
+    if (trackDf) {
+      for (const token of new Set(row.tokens.split(" "))) {
+        this.stmts.termDec.run(token);
+        this.stmts.termPrune.run(token);
+      }
+    }
+    this.entryCount = Math.max(0, this.entryCount - 1);
+    this.totalLength = Math.max(0, this.totalLength - row.length);
+    this.writeCounters();
+  }
+  writeDf(df) {
+    const entries = [...df.entries()];
+    for (let index = 0; index < entries.length; index += 500) {
+      const chunk = entries.slice(index, index + 500);
+      const placeholders = chunk.map(() => "(?, ?)").join(", ");
+      this.db.prepare(`INSERT OR REPLACE INTO terms(token, df) VALUES ${placeholders}`).run(...chunk.flat());
+    }
+  }
+  entryOf(row) {
+    const record = this.options.recordOf(row.id);
+    if (record === void 0) return void 0;
+    return {
+      record,
+      length: row.length,
+      tokens: /* @__PURE__ */ new Map(),
+      times: {
+        updatedAt: row.updated_ms,
+        validFrom: row.valid_from_ms,
+        expiresAt: row.expires_at_ms,
+        lastVerified: row.last_verified_ms
+      },
+      titleNormalized: row.title_norm
+    };
+  }
+  termDf(token) {
+    const row = this.stmts.termDf.get(token);
+    return row?.df ?? 0;
+  }
+  transaction(fn) {
+    if (this.inTransaction) {
+      fn();
+      return;
+    }
+    this.db.exec("BEGIN");
+    this.inTransaction = true;
+    try {
+      fn();
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.inTransaction = false;
+    }
+  }
+  reset() {
+    this.stmts.deleteAllDocs.run();
+    this.stmts.deleteAllTerms.run();
+    this.db.exec("INSERT INTO docs_fts(docs_fts) VALUES('delete-all')");
+    this.entryCount = 0;
+    this.totalLength = 0;
+    this.writeMeta("format_version", String(SQLITE_INDEX_FORMAT));
+    this.writeMeta("entry_count", "0");
+    this.writeMeta("total_length", "0");
+  }
+  writeCounters() {
+    this.writeMeta("entry_count", String(this.entryCount));
+    this.writeMeta("total_length", String(this.totalLength));
+  }
+  getMeta(key) {
+    const row = this.stmts.metaGet.get(key);
+    return row?.value;
+  }
+  writeMeta(key, value) {
+    this.stmts.metaSet.run(key, value);
+  }
+};
 
 // src/store.ts
 var FUTURE_TOLERANCE_MS2 = 5 * 6e4;
@@ -12800,7 +13202,13 @@ var KnowledgeStore = class {
     this.hub = hub;
     this.ledger = ledger;
   }
+  /** 检索后端：默认内存索引；条目多且 node:sqlite 可用时换成派生 SQLite 索引。 */
   index = new KnowledgeIndex();
+  indexBackend = "memory";
+  /** 本次启动是否重建了派生索引（false = 复用了上次的库）。 */
+  indexRebuilt = false;
+  /** 请求 SQLite 但不可用/只读时的说明；会进入 diagnostics。 */
+  indexWarning = null;
   docs = /* @__PURE__ */ new Map();
   proposals = /* @__PURE__ */ new Map();
   /** 超出预解析上限的 pending/ 文件：先记路径，打开或审批时再解析（见 getProposal）。 */
@@ -12808,16 +13216,49 @@ var KnowledgeStore = class {
   diagnostics = [];
   sequences = {};
   async load() {
+    this.closeIndex();
     this.docs.clear();
     this.proposals.clear();
     this.pendingBacklog.clear();
     this.diagnostics.length = 0;
     this.sequences = {};
+    this.index = new KnowledgeIndex();
+    this.indexBackend = "memory";
+    this.indexRebuilt = false;
+    this.indexWarning = null;
+    const knowledgeFiles = [];
+    let knowledgeCount = 0;
     for (const type of Object.keys(TYPE_PREFIX)) {
       const dir = this.hub.knowledgeDir(type);
-      const files = await readdirSafe(dir);
+      const files = (await readdirSafe(dir)).filter((file) => file.endsWith(".md"));
+      knowledgeFiles.push({ type, dir, files });
+      knowledgeCount += files.length;
+    }
+    const storage = this.hub.config.storage;
+    const wantsSqlite = storage.index === "sqlite" || storage.index === "auto" && knowledgeCount >= storage.sqlite_min_entries;
+    const fingerprint = await this.knowledgeFingerprint(knowledgeCount);
+    if (wantsSqlite) {
+      if (this.hub.readOnly) {
+        this.indexWarning = "read-only hub: the derived SQLite index is disabled";
+      } else {
+        const outcome = await SqliteIndex.open({
+          path: this.hub.indexPath(),
+          recordOf: (id) => this.docs.get(id),
+          fingerprint,
+          candidateLimit: storage.index_candidate_limit
+        });
+        if ("reason" in outcome) {
+          this.indexWarning = `sqlite index unavailable (${outcome.reason}); using the memory index`;
+        } else {
+          this.index = outcome.index;
+          this.indexBackend = "sqlite";
+          this.indexRebuilt = outcome.rebuilt;
+        }
+      }
+    }
+    const parsed = [];
+    for (const { type, dir, files } of knowledgeFiles) {
       for (const file of files) {
-        if (!file.endsWith(".md")) continue;
         const path = join3(dir, file);
         try {
           const record = parseKnowledgeFile(await readFile4(path, "utf8"), path);
@@ -12829,12 +13270,28 @@ var KnowledgeStore = class {
             continue;
           }
           this.docs.set(record.id, record);
-          this.index.add(record);
+          parsed.push(record);
           this.bumpSequence(TYPE_PREFIX[type], sequenceOf(record.id));
         } catch (error) {
           this.diagnostics.push({ path, message: error.message });
         }
       }
+    }
+    if (this.indexBackend === "sqlite") {
+      const sqlite = this.index;
+      if (this.indexRebuilt) {
+        await sqlite.rebuild(
+          (async function* records() {
+            yield* parsed;
+          })()
+        );
+      }
+      sqlite.setFingerprint(await this.knowledgeFingerprint(this.docs.size));
+    } else {
+      for (const record of parsed) this.index.add(record);
+    }
+    if (this.indexWarning !== null) {
+      this.diagnostics.push({ path: this.hub.indexPath(), message: this.indexWarning });
     }
     const pendingFiles = (await readdirSafe(this.hub.pendingDir())).filter((file) => file.endsWith(".md") && PROPOSAL_ID_PATTERN.test(file.slice(0, -3))).sort((left, right) => right.localeCompare(left));
     for (const [index, file] of pendingFiles.entries()) {
@@ -12856,8 +13313,8 @@ var KnowledgeStore = class {
     const sequenceRaw = await readTextOrNull(this.hub.sequencesPath());
     if (sequenceRaw !== null) {
       try {
-        const parsed = JSON.parse(sequenceRaw);
-        for (const [key, value] of Object.entries(parsed)) {
+        const parsed2 = JSON.parse(sequenceRaw);
+        for (const [key, value] of Object.entries(parsed2)) {
           if (typeof value === "number" && Number.isFinite(value)) {
             this.sequences[key] = Math.max(this.sequences[key] ?? 0, value);
           }
@@ -12869,6 +13326,15 @@ var KnowledgeStore = class {
   }
   records() {
     return [...this.docs.values()];
+  }
+  /** 释放派生索引句柄（SQLite 文件在 Windows 上不关闭就无法删除/移动）。 */
+  closeIndex() {
+    if (this.index instanceof SqliteIndex) {
+      try {
+        this.index.close();
+      } catch {
+      }
+    }
   }
   async get(id, version) {
     const current = this.docs.get(id);
@@ -13130,7 +13596,25 @@ var KnowledgeStore = class {
       approvalRef
     });
     await this.archiveProposal(proposal, "committed", `${record.id}@${record.version}`);
+    await this.refreshIndexFingerprint();
     return { record, superseded };
+  }
+  /**
+   * 数据指纹 = 条目数 + 知识目录最近 mtime。目录 mtime 在新建/删除/原子替换文件时
+   * 都会变化，所以外部编辑（或 git checkout）能被下一次启动检测到并触发重建。
+   */
+  async knowledgeFingerprint(count) {
+    let maxMtime = 0;
+    for (const type of Object.keys(TYPE_PREFIX)) {
+      const info = await stat2(this.hub.knowledgeDir(type)).catch(() => null);
+      if (info !== null) maxMtime = Math.max(maxMtime, Math.floor(info.mtimeMs));
+    }
+    return `${count}:${maxMtime}`;
+  }
+  async refreshIndexFingerprint() {
+    if (this.indexBackend !== "sqlite") return;
+    const fingerprint = await this.knowledgeFingerprint(this.docs.size);
+    this.index.setFingerprint(fingerprint);
   }
   /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
   async reject(proposalId, reason) {
@@ -13431,7 +13915,9 @@ var KnowledgeStore = class {
   async refreshPath(path) {
     const info = await stat2(path).catch(() => null);
     if (info === null) {
+      const touchedKnowledge = isUnder(join3(this.hub.root, "knowledge"), path);
       this.removePath(path);
+      if (touchedKnowledge) await this.refreshIndexFingerprint();
       return;
     }
     if (!info.isFile()) return;
@@ -13454,6 +13940,7 @@ var KnowledgeStore = class {
     } catch (error) {
       this.diagnostics.push({ path, message: error.message });
     }
+    await this.refreshIndexFingerprint();
   }
   removePath(path) {
     const name2 = basename2(path);
@@ -13506,7 +13993,7 @@ function truncate(value, max) {
 
 // src/ledger.ts
 import { open as open3, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname4 } from "node:path";
 function emptyState() {
   return {
     tasks: /* @__PURE__ */ new Map(),
@@ -13553,7 +14040,7 @@ var Ledger = class {
     const line = JSON.stringify({ ...event, v: 1, at: nowIso() }) + "\n";
     const run = this.queue.then(async () => {
       try {
-        await ensureDir(dirname3(this.file));
+        await ensureDir(dirname4(this.file));
         const handle = await open3(this.file, "a");
         try {
           await handle.write(line);
@@ -16038,6 +16525,8 @@ var MemoryService = class {
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
+        backend: this.store.indexBackend,
+        rebuilt: this.store.indexRebuilt,
         diagnostics: this.store.diagnostics.slice(0, 20)
       },
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
@@ -16211,6 +16700,8 @@ var MemoryService = class {
       counts: this.store.counts(),
       index: {
         documents: this.store.index.size,
+        backend: this.store.indexBackend,
+        rebuilt: this.store.indexRebuilt,
         diagnostics: this.store.diagnostics.slice(0, 20)
       },
       policy: {

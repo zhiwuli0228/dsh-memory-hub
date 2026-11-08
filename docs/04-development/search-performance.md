@@ -126,3 +126,26 @@ npx vite-node scripts/bench-search.ts --sizes 500,2000 --queries 10
 ```
 
 基准不写真实 Hub、不联网，只用内存；`node:sqlite` 不可用时自动跳过 FTS5 一列。
+
+## 8. 派生 SQLite 索引实测（2026-11-08）
+
+实现见 [proposal-derived-index.md](../03-openspec/proposal-derived-index.md)。设计是 **FTS5 取候选 + 同一份 JS 精排**：把自家分词结果按空格拼成 `tokens` 串写进 contentless FTS5，中文词元可精确命中；查询先 `MATCH ... OR` 取 `index_candidate_limit`（默认 2000）个 rowid，再回表、由 `rankScored` 精确打分。
+
+| 条目 | 内存 p50 | 派生索引 p50 | 纯 FTS5 命中 | 内存堆 | 索引磁盘 | 重建 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20k | 39 ms | 112 ms | 17 ms | ~210 MB | 50 MB | 3.0 s |
+| 50k | 158 ms | 231 ms | 45 ms | ~600 MB | 124 MB | 8.5 s |
+| 100k | 352 ms | 399 ms | 88 ms | ~1.1 GB | 246 MB | 18.7 s |
+
+要点：
+
+- 纯 postings 方案已被否掉：100k 单查询 p50 1.5–2.4 s（50 万行搬进 JS + 逐行取元数据）。
+- 派生索引不是延迟优化，**是内存上限方案**：100k 用 ~250 MB 磁盘换掉 ~1.1 GB 常驻堆，延迟只慢 10–15%。
+- 命中数 ≤ 候选上限时与内存索引逐位一致；超过上限是两阶段检索，synthetic 最坏语料 recall@8 = 0.925（候选 2000），调大 `index_candidate_limit` 可换精度。
+- 因此 `storage.index: auto` 的阈值定在 **30k**：30k 以下内存更快，30k 以上用磁盘换内存。
+
+复现：
+
+```powershell
+npx vite-node scripts/bench-search.ts --sizes 20000,50000,100000 --candidates 2000
+```
