@@ -98,7 +98,9 @@
 
 - **[已完成]** skill 里的「批量萃取」工作流：`batch.yaml` 清单、chunk 规则、提示词骨架、批次状态机；模板 `docs/07-templates/batch-extraction.md`。
 - **[已完成]** 面板按 `tags:batch:<id>` 聚合与筛选（只读视图，不新增写端点）；列表只返回最近 `PANEL_PENDING_LIMIT=200` 条，`pendingTotal` / `pendingBatches` 仍为全量计数。
-- **[待做]** 大批量 `pending/` 的启动保护：候选超过阈值时延迟解析（先只读目录名与 mtime，打开时再解析），避免 5k 候选拖慢启动。
+- **[已完成]** 大批量 `pending/` 的启动保护：只预解析最新 `PENDING_EAGER_LIMIT=200` 条，其余按 id 惰性解析（`getProposal` 首次打开时同步读一次）；实测 3k 候选 3.56s → 0.33s，10k 候选 0.35s，`scripts/bench-pending.ts` 可复测。
+
+**惰性加载的边界**：计数（`counts().pending`）与 id 序号是完整的；但 `pendingForTask` 的每任务上限、维护提案的 `maint-` 去重、面板批次计数只看已加载的候选。批量萃取时按「新批次先审」推进即可，旧候选在打开或审批时自动加载。
 - 验收：一个 50 份文档的样例批次，跑完产出 ≤ 150 条候选，面板可按批筛选、批量批准 50 条。
 
 ### P1：按业务域分库 + 蒸馏改造

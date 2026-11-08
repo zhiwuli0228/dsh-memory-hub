@@ -65,6 +65,7 @@
 1. `docs/04-development/search-performance.md`（规模实测与优化记录）
 2. `docs/01-architecture/scale-plan.md`（多年积累的入库 / 审批 / 分库预案）
 3. `scripts/bench-search.ts`（可复现基准，`npx vite-node scripts/bench-search.ts`）
+4. `scripts/bench-pending.ts`（候选积压启动基准，`npx vite-node scripts/bench-pending.ts -- 3000`）
 
 ### 部署 / 运维改动
 

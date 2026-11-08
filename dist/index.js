@@ -12141,6 +12141,7 @@ async function ensureLayout(root) {
 }
 
 // src/store.ts
+import { readFileSync } from "node:fs";
 import { readdir, readFile as readFile4, stat as stat2 } from "node:fs/promises";
 import { basename as basename2, join as join3, relative, sep } from "node:path";
 
@@ -12793,6 +12794,7 @@ function sequenceOf(id) {
   const value = Number.parseInt(tail, 10);
   return Number.isFinite(value) ? value : 0;
 }
+var PENDING_EAGER_LIMIT = 200;
 var KnowledgeStore = class {
   constructor(hub, ledger) {
     this.hub = hub;
@@ -12801,11 +12803,14 @@ var KnowledgeStore = class {
   index = new KnowledgeIndex();
   docs = /* @__PURE__ */ new Map();
   proposals = /* @__PURE__ */ new Map();
+  /** 超出预解析上限的 pending/ 文件：先记路径，打开或审批时再解析（见 getProposal）。 */
+  pendingBacklog = /* @__PURE__ */ new Map();
   diagnostics = [];
   sequences = {};
   async load() {
     this.docs.clear();
     this.proposals.clear();
+    this.pendingBacklog.clear();
     this.diagnostics.length = 0;
     this.sequences = {};
     for (const type of Object.keys(TYPE_PREFIX)) {
@@ -12831,10 +12836,15 @@ var KnowledgeStore = class {
         }
       }
     }
-    const pendingFiles = await readdirSafe(this.hub.pendingDir());
-    for (const file of pendingFiles) {
-      if (!file.endsWith(".md") || !PROPOSAL_ID_PATTERN.test(file.slice(0, -3))) continue;
+    const pendingFiles = (await readdirSafe(this.hub.pendingDir())).filter((file) => file.endsWith(".md") && PROPOSAL_ID_PATTERN.test(file.slice(0, -3))).sort((left, right) => right.localeCompare(left));
+    for (const [index, file] of pendingFiles.entries()) {
+      const id = file.slice(0, -3);
       const path = join3(this.hub.pendingDir(), file);
+      if (index >= PENDING_EAGER_LIMIT) {
+        this.pendingBacklog.set(id, path);
+        this.bumpSequence("PRO", sequenceOf(id));
+        continue;
+      }
       try {
         const proposal = parseProposalFile(await readFile4(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
@@ -12881,7 +12891,20 @@ var KnowledgeStore = class {
     return this.index.search(query, options);
   }
   getProposal(id) {
-    return this.proposals.get(id) ?? null;
+    const cached = this.proposals.get(id);
+    if (cached !== void 0) return cached;
+    const path = this.pendingBacklog.get(id);
+    if (path === void 0) return null;
+    try {
+      const proposal = parseProposalFile(readFileSync(path, "utf8"), path);
+      this.proposals.set(proposal.id, proposal);
+      this.pendingBacklog.delete(id);
+      return proposal;
+    } catch (error) {
+      this.pendingBacklog.delete(id);
+      this.diagnostics.push({ path, message: error.message });
+      return null;
+    }
   }
   pendingForTask(taskId) {
     return [...this.proposals.values()].filter((proposal) => proposal.taskId === taskId && proposal.status === "pending");
@@ -12901,7 +12924,7 @@ var KnowledgeStore = class {
     }
     return {
       knowledge: this.docs.size,
-      pending: [...this.proposals.values()].filter((proposal) => proposal.status === "pending").length,
+      pending: this.pendingBacklog.size + [...this.proposals.values()].filter((proposal) => proposal.status === "pending").length,
       byStatus,
       byType
     };
@@ -13416,6 +13439,7 @@ var KnowledgeStore = class {
       try {
         const proposal = parseProposalFile(await readFile4(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
+        this.pendingBacklog.delete(proposal.id);
       } catch (error) {
         this.diagnostics.push({ path, message: error.message });
       }
@@ -13441,7 +13465,9 @@ var KnowledgeStore = class {
     }
     if (this.proposals.has(id)) {
       this.proposals.delete(id);
+      return;
     }
+    this.pendingBacklog.delete(id);
   }
   bumpSequence(prefix, value) {
     this.sequences[prefix] = Math.max(this.sequences[prefix] ?? 0, value);
@@ -15938,7 +15964,7 @@ var MemoryService = class {
     const tierOf = (row) => row.core === void 0 || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1;
     const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
     const allPending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-    const pendingTotal = allPending.length;
+    const pendingTotal = this.store.counts().pending;
     const batchOf = (tags) => {
       const tag = tags.find((value) => value.startsWith("batch:"));
       return tag === void 0 ? null : tag.slice("batch:".length);

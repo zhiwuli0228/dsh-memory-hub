@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'node:path'
 import { ensureDir, pathExists, readTextOrNull, removeFile, writeAtomic } from './atomic.js'
@@ -114,10 +115,15 @@ function sequenceOf(id: string): number {
   return Number.isFinite(value) ? value : 0
 }
 
+/** 启动时预解析的候选数上限；更多的 pending/ 文件按需解析，避免几千条候选拖慢启动。 */
+export const PENDING_EAGER_LIMIT = 200
+
 export class KnowledgeStore {
   readonly index = new KnowledgeIndex()
   readonly docs = new Map<string, KnowledgeRecord>()
   readonly proposals = new Map<string, ProposalRecord>()
+  /** 超出预解析上限的 pending/ 文件：先记路径，打开或审批时再解析（见 getProposal）。 */
+  private readonly pendingBacklog = new Map<string, string>()
   readonly diagnostics: Diagnostic[] = []
   sequences: Record<string, number> = {}
 
@@ -129,6 +135,7 @@ export class KnowledgeStore {
   async load(): Promise<void> {
     this.docs.clear()
     this.proposals.clear()
+    this.pendingBacklog.clear()
     this.diagnostics.length = 0
     this.sequences = {}
 
@@ -156,10 +163,18 @@ export class KnowledgeStore {
       }
     }
 
-    const pendingFiles = await readdirSafe(this.hub.pendingDir())
-    for (const file of pendingFiles) {
-      if (!file.endsWith('.md') || !PROPOSAL_ID_PATTERN.test(file.slice(0, -3))) continue
+    const pendingFiles = (await readdirSafe(this.hub.pendingDir()))
+      .filter((file) => file.endsWith('.md') && PROPOSAL_ID_PATTERN.test(file.slice(0, -3)))
+      // 文件名是零填充序号，倒序即“最新在前”；只预解析最新的一批，其余按需解析。
+      .sort((left, right) => right.localeCompare(left))
+    for (const [index, file] of pendingFiles.entries()) {
+      const id = file.slice(0, -3)
       const path = join(this.hub.pendingDir(), file)
+      if (index >= PENDING_EAGER_LIMIT) {
+        this.pendingBacklog.set(id, path)
+        this.bumpSequence('PRO', sequenceOf(id))
+        continue
+      }
       try {
         const proposal = parseProposalFile(await readFile(path, 'utf8'), path)
         this.proposals.set(proposal.id, proposal)
@@ -211,7 +226,21 @@ export class KnowledgeStore {
   }
 
   getProposal(id: string): ProposalRecord | null {
-    return this.proposals.get(id) ?? null
+    const cached = this.proposals.get(id)
+    if (cached !== undefined) return cached
+    const path = this.pendingBacklog.get(id)
+    if (path === undefined) return null
+    // 少量、低频的“打开旧候选”路径：同步读一次即可，避免把整条服务链路改成异步。
+    try {
+      const proposal = parseProposalFile(readFileSync(path, 'utf8'), path)
+      this.proposals.set(proposal.id, proposal)
+      this.pendingBacklog.delete(id)
+      return proposal
+    } catch (error) {
+      this.pendingBacklog.delete(id)
+      this.diagnostics.push({ path, message: (error as Error).message })
+      return null
+    }
   }
 
   pendingForTask(taskId: string): ProposalRecord[] {
@@ -233,7 +262,7 @@ export class KnowledgeStore {
     }
     return {
       knowledge: this.docs.size,
-      pending: [...this.proposals.values()].filter((proposal) => proposal.status === 'pending').length,
+      pending: this.pendingBacklog.size + [...this.proposals.values()].filter((proposal) => proposal.status === 'pending').length,
       byStatus,
       byType,
     }
@@ -782,6 +811,7 @@ export class KnowledgeStore {
       try {
         const proposal = parseProposalFile(await readFile(path, 'utf8'), path)
         this.proposals.set(proposal.id, proposal)
+        this.pendingBacklog.delete(proposal.id)
       } catch (error) {
         this.diagnostics.push({ path, message: (error as Error).message })
       }
@@ -808,7 +838,9 @@ export class KnowledgeStore {
     }
     if (this.proposals.has(id)) {
       this.proposals.delete(id)
+      return
     }
+    this.pendingBacklog.delete(id)
   }
 
   private bumpSequence(prefix: string, value: number): void {

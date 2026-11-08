@@ -1,6 +1,9 @@
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MemoryError } from '../src/errors.js'
+import { serializeProposalFile } from '../src/frontmatter.js'
+import { PENDING_EAGER_LIMIT } from '../src/store.js'
 import { createHarness } from './helpers.js'
 
 describe('knowledge store', () => {
@@ -351,6 +354,64 @@ describe('knowledge store', () => {
       expect(
         harness.store.diagnostics.some((item) => item.message.includes('newer than this version supports')),
       ).toBe(true)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('defers parsing of a large pending backlog until a proposal is opened', async () => {
+    const harness = await createHarness()
+    try {
+      const dir = harness.hub.pendingDir()
+      await mkdir(dir, { recursive: true })
+      const now = '2026-11-08T00:00:00.000Z'
+      for (let index = 1; index <= 250; index += 1) {
+        const id = `PRO-${String(index).padStart(6, '0')}`
+        await writeFile(
+          join(dir, `${id}.md`),
+          serializeProposalFile({
+            id,
+            status: 'pending',
+            operation: 'create',
+            type: 'knowledge',
+            scope: { level: 'global' },
+            title: `候选 ${index}`,
+            summary: '批量萃取产生的候选。',
+            tags: ['batch:backlog'],
+            sourceRefs: [`file:notes/${index}.md`],
+            related: [],
+            supersedes: [],
+            appliesTo: { branches: [], versions: [] },
+            promotedFrom: null,
+            target: null,
+            expectedVersion: null,
+            reason: null,
+            validFrom: null,
+            expiresAt: null,
+            lastVerified: null,
+            mergedIds: [],
+            taskId: 'TSK-1',
+            createdAt: now,
+            updatedAt: now,
+            committedTo: null,
+            body: '## 结论\n\n批量萃取正文。\n',
+            path: join(dir, `${id}.md`),
+            extra: {},
+          }),
+        )
+      }
+
+      await harness.store.load()
+      // 只预解析最新的 PENDING_EAGER_LIMIT 条；总数与序号仍然完整。
+      expect(harness.store.proposals.size).toBe(PENDING_EAGER_LIMIT)
+      expect(harness.store.counts().pending).toBe(250)
+      expect(harness.store.sequences.PRO).toBe(250)
+
+      const oldest = harness.store.getProposal('PRO-000001')
+      expect(oldest?.title).toBe('候选 1')
+      expect(harness.store.proposals.size).toBe(PENDING_EAGER_LIMIT + 1)
+      // 打开之后不再重复计入。
+      expect(harness.store.counts().pending).toBe(250)
     } finally {
       await harness.cleanup()
     }

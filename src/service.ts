@@ -1694,7 +1694,7 @@ export class MemoryService {
     const allPending = [...this.store.proposals.values()]
       .filter((proposal) => proposal.status === 'pending')
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-    const pendingTotal = allPending.length
+    const pendingTotal = this.store.counts().pending
     const batchOf = (tags: readonly string[]): string | null => {
       const tag = tags.find((value) => value.startsWith('batch:'))
       return tag === undefined ? null : tag.slice('batch:'.length)
