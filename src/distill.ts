@@ -85,6 +85,17 @@ function localTimeZone(): string {
   }
 }
 
+/** Host 的 daily.time 要求 `HH:mm:ss`（可带小数），配置里允许更友好的 `HH:mm`。 */
+function hostDailyTime(time: string): string {
+  return time.length === 5 ? `${time}:00` : time
+}
+
+function taskTimeMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): boolean {
+  if (task.time === undefined) return true
+  const normalized = task.time.length > 5 ? task.time.slice(0, 5) : task.time
+  return normalized === entry.time
+}
+
 function parentCoreOf(config: MemoryConfig, coreId: string): string | undefined {
   const dualRole = config.workspaces.find((workspace) => workspace.id === coreId)
   const parent = dualRole?.core_id
@@ -229,7 +240,7 @@ function targetMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): 
 function taskMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): boolean {
   if (task.status !== undefined && task.status !== 'active') return false
   if (task.kind !== undefined && task.kind !== 'daily') return false
-  if (task.time !== undefined && task.time !== entry.time) return false
+  if (!taskTimeMatches(entry, task)) return false
   return targetMatches(entry, task)
 }
 
@@ -279,7 +290,7 @@ export async function reconcileDistillSchedules(
         const created = await service.create({
           title: entry.title,
           prompt: entry.prompt,
-          timing: { kind: 'daily', daily: { time: entry.time, time_zone: entry.timeZone } },
+          timing: { kind: 'daily', daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
           target: entry.target,
         })
         entries.push({ ...base, taskId: created.id, action: 'created' })
@@ -292,7 +303,7 @@ export async function reconcileDistillSchedules(
             id: task.id,
             action: 'update',
             patch: {
-              timing: { kind: 'daily', daily: { time: entry.time, time_zone: entry.timeZone } },
+              timing: { kind: 'daily', daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
               target: entry.target,
               prompt: entry.prompt,
               active: true,

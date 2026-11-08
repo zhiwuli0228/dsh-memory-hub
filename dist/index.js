@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.5.0
+// dsh-memory-hub 0.5.1
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13269,7 +13269,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.5.0",
+  version: "0.5.1",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, per-workspace scheduled distillation, and a Web panel with human review.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -15166,6 +15166,14 @@ function localTimeZone() {
     return "UTC";
   }
 }
+function hostDailyTime(time) {
+  return time.length === 5 ? `${time}:00` : time;
+}
+function taskTimeMatches(entry, task) {
+  if (task.time === void 0) return true;
+  const normalized = task.time.length > 5 ? task.time.slice(0, 5) : task.time;
+  return normalized === entry.time;
+}
 function parentCoreOf(config, coreId) {
   const dualRole = config.workspaces.find((workspace) => workspace.id === coreId);
   const parent = dualRole?.core_id;
@@ -15279,7 +15287,7 @@ function targetMatches(entry, task) {
 function taskMatches(entry, task) {
   if (task.status !== void 0 && task.status !== "active") return false;
   if (task.kind !== void 0 && task.kind !== "daily") return false;
-  if (task.time !== void 0 && task.time !== entry.time) return false;
+  if (!taskTimeMatches(entry, task)) return false;
   return targetMatches(entry, task);
 }
 async function listTasks(service) {
@@ -15318,7 +15326,7 @@ async function reconcileDistillSchedules(service, config, hubId) {
         const created = await service.create({
           title: entry.title,
           prompt: entry.prompt,
-          timing: { kind: "daily", daily: { time: entry.time, time_zone: entry.timeZone } },
+          timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
           target: entry.target
         });
         entries.push({ ...base, taskId: created.id, action: "created" });
@@ -15331,7 +15339,7 @@ async function reconcileDistillSchedules(service, config, hubId) {
             id: task.id,
             action: "update",
             patch: {
-              timing: { kind: "daily", daily: { time: entry.time, time_zone: entry.timeZone } },
+              timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
               target: entry.target,
               prompt: entry.prompt,
               active: true

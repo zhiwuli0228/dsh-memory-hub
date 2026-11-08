@@ -132,6 +132,8 @@ describe('distill schedules', () => {
 
     const first = await reconcileDistillSchedules(service, config, 'primary')
     expect(first.entries.map((entry) => entry.action)).toEqual(['created'])
+    // Host 的 daily.time 要求 HH:mm:ss；配置里仍是友好的 HH:mm。
+    expect(service.created[0]?.timing.daily.time).toBe('04:15:00')
     expect(service.created[0]?.target).toEqual({ kind: 'new', create: { cwd: resolve('C:/work/core-a') } })
 
     const second = await reconcileDistillSchedules(service, config, 'primary')

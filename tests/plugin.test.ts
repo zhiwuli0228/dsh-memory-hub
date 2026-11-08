@@ -869,7 +869,7 @@ core_workspaces:
 
     expect(created).toHaveLength(1)
     expect(created[0]?.title).toBe('memory-hub:distill:primary:core:core-a')
-    expect(created[0]?.timing).toEqual({ kind: 'daily', daily: { time: '04:15', time_zone: expect.any(String) } })
+    expect(created[0]?.timing).toEqual({ kind: 'daily', daily: { time: '04:15:00', time_zone: expect.any(String) } })
     expect(created[0]?.target).toEqual({ kind: 'new', create: { cwd: resolve(coreRoot) } })
     expect(String(created[0]?.prompt)).toContain('不要调用 memory_commit')
     expect(String(created[0]?.prompt)).toContain('memory_close_task')
