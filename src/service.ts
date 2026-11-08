@@ -22,6 +22,7 @@ import {
 } from './maintenance.js'
 import { nowIso } from './time.js'
 import { temporalAnnotation, temporalState, type TemporalPolicy } from './temporal.js'
+import { findNearDuplicates } from './duplicates.js'
 import type {
   AppliesTo,
   CitationRecord,
@@ -104,6 +105,8 @@ export interface ProposeArgs {
   expires_at?: string
   /** 上次确认仍然正确的时刻；创建/更新时缺省由提交时刻补齐。 */
   last_verified?: string
+  /** merge 专用：要并入 target 的知识 id（1..10）。 */
+  merged_ids?: string[]
 }
 
 export interface MaintenanceArgs {
@@ -609,6 +612,77 @@ export class MemoryService {
   }
 
   /**
+   * 近重复检测（只读）。只在当前可见范围、同类型同作用域之间比较；
+   * 不跨 Hub（跨核心的近似标题应走蒸馏而不是合并）。
+   */
+  async duplicates(agent: AgentLike, args: { scope?: string; threshold?: number; limit?: number }): Promise<{
+    total: number
+    threshold: number
+    pairs: Array<{
+      keeper: { id: string; version: number; title: string; summary: string }
+      other: { id: string; version: number; title: string; summary: string }
+      similarity: number
+      titleSimilarity: number
+      highConfidence: boolean
+    }>
+  }> {
+    const workspace = await this.resolveWorkspace(agent)
+    const visibility = this.visibilityFor(workspace)
+    let scopeFilter: string | null = null
+    if (args.scope !== undefined) {
+      const scope = parseScope(args.scope)
+      if (!isScopeVisible(scope, visibility)) {
+        throw new MemoryError('SCOPE_FORBIDDEN', `scope ${args.scope} is not visible from this workspace`)
+      }
+      scopeFilter = formatScope(scope)
+    }
+    const threshold = args.threshold ?? this.hub.config.policy.dedupe.threshold
+    if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
+      throw new MemoryError('INVALID_INPUT', 'threshold must be within (0, 1]')
+    }
+    const limit = Math.max(1, Math.min(50, args.limit ?? 10))
+    const records = [...this.store.docs.values()].filter((record) => {
+      if (record.status !== 'accepted') return false
+      if (!isScopeVisible(record.scope, visibility)) return false
+      if (scopeFilter !== null && formatScope(record.scope) !== scopeFilter) return false
+      return true
+    })
+    const pairs = findNearDuplicates({ records, threshold, maxPairs: limit })
+    return {
+      total: pairs.length,
+      threshold,
+      pairs: pairs.map((pair) => {
+        const keeper = this.store.docs.get(pair.keeperId)!
+        const other = this.store.docs.get(pair.otherId)!
+        return {
+          keeper: { id: keeper.id, version: keeper.version, title: keeper.title, summary: keeper.summary },
+          other: { id: other.id, version: other.version, title: other.title, summary: other.summary },
+          similarity: pair.similarity,
+          titleSimilarity: pair.titleSimilarity,
+          highConfidence: pair.highConfidence,
+        }
+      }),
+    }
+  }
+
+  /** 面板只读视图：被合并条目的摘要 + target 旧正文到合并稿的行级 diff。 */
+  private mergePreview(proposal: ProposalRecord): {
+    merged: Array<{ id: string; title: string; summary: string }>
+    diff: Array<{ kind: 'context' | 'add' | 'del'; text: string }>
+    truncated: boolean
+  } {
+    const merged = proposal.mergedIds.map((id) => {
+      const record = this.store.docs.get(id)
+      return record === undefined
+        ? { id, title: '(not found)', summary: '' }
+        : { id, title: record.title, summary: record.summary }
+    })
+    const target = proposal.target === null ? undefined : this.store.docs.get(proposal.target)
+    const diff = lineDiff(target?.body ?? '', proposal.body, PANEL_DIFF_LINES)
+    return { merged, diff: diff.lines, truncated: diff.truncated }
+  }
+
+  /**
    * 金字塔回退检索：本层（自己的 Hub）有 ≥1 个合格命中即返回、不再上溯；
    * 本层为空才回退到最近的祖先层，依次类推。每层命中都带 core 标注。
    */
@@ -953,6 +1027,7 @@ export class MemoryService {
         ...(args.valid_from === undefined ? {} : { validFrom: args.valid_from }),
         ...(args.expires_at === undefined ? {} : { expiresAt: args.expires_at }),
         ...(args.last_verified === undefined ? {} : { lastVerified: args.last_verified }),
+        ...(args.merged_ids === undefined ? {} : { mergedIds: args.merged_ids }),
       },
       { taskId: state.taskId },
     )
@@ -1422,29 +1497,33 @@ export class MemoryService {
     const pending = [...this.store.proposals.values()]
       .filter((proposal) => proposal.status === 'pending')
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-      .map((proposal) => ({
-        id: proposal.id,
-        operation: proposal.operation,
-        type: proposal.type,
-        title: proposal.title,
-        summary: proposal.summary,
-        scope: formatScope(proposal.scope),
-        taskId: proposal.taskId,
-        createdAt: proposal.createdAt,
-        validFrom: proposal.validFrom,
-        expiresAt: proposal.expiresAt,
-        lastVerified: proposal.lastVerified,
-        temporal: temporalState(
-          {
-            validFrom: proposal.validFrom,
-            expiresAt: proposal.expiresAt,
-            lastVerified: proposal.lastVerified,
-            updatedAt: proposal.updatedAt,
-          },
-          Date.now(),
-          this.hub.config.policy.temporal,
-        ),
-      }))
+      .map((proposal) => {
+        const merge = proposal.operation === 'merge' ? this.mergePreview(proposal) : null
+        return {
+          id: proposal.id,
+          operation: proposal.operation,
+          type: proposal.type,
+          title: proposal.title,
+          summary: proposal.summary,
+          scope: formatScope(proposal.scope),
+          taskId: proposal.taskId,
+          createdAt: proposal.createdAt,
+          validFrom: proposal.validFrom,
+          expiresAt: proposal.expiresAt,
+          lastVerified: proposal.lastVerified,
+          temporal: temporalState(
+            {
+              validFrom: proposal.validFrom,
+              expiresAt: proposal.expiresAt,
+              lastVerified: proposal.lastVerified,
+              updatedAt: proposal.updatedAt,
+            },
+            Date.now(),
+            this.hub.config.policy.temporal,
+          ),
+          ...(merge === null ? {} : { merged: merge.merged, diff: merge.diff, diffTruncated: merge.truncated }),
+        }
+      })
     const tasks = [...this.tasks.values()]
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, 30)
@@ -1886,6 +1965,59 @@ function hashIntent(intent: string): string {
 
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
+}
+
+/** 面板 diff 最多渲染的行数；超过即截断并提示。 */
+const PANEL_DIFF_LINES = 200
+/** 计算 LCS 时每条最多取的行数，避免 64KB 正文拖慢渲染。 */
+const DIFF_INPUT_LINES = 400
+
+interface DiffLine {
+  kind: 'context' | 'add' | 'del'
+  text: string
+}
+
+/**
+ * 行级 diff（LCS）。只用于面板只读展示：超长正文先按行截断，
+ * 输出再按 `maxLines` 截断，并返回是否发生了截断。
+ */
+function lineDiff(oldText: string, newText: string, maxLines: number): { lines: DiffLine[]; truncated: boolean } {
+  const oldLines = oldText.replace(/\r\n/g, '\n').split('\n').slice(0, DIFF_INPUT_LINES)
+  const newLines = newText.replace(/\r\n/g, '\n').split('\n').slice(0, DIFF_INPUT_LINES)
+  const table: number[][] = Array.from({ length: oldLines.length + 1 }, () => new Array<number>(newLines.length + 1).fill(0))
+  for (let left = oldLines.length - 1; left >= 0; left -= 1) {
+    for (let right = newLines.length - 1; right >= 0; right -= 1) {
+      table[left]![right] = oldLines[left] === newLines[right]
+        ? table[left + 1]![right + 1]! + 1
+        : Math.max(table[left + 1]![right]!, table[left]![right + 1]!)
+    }
+  }
+  const lines: DiffLine[] = []
+  let left = 0
+  let right = 0
+  while (left < oldLines.length && right < newLines.length) {
+    if (oldLines[left] === newLines[right]) {
+      lines.push({ kind: 'context', text: oldLines[left]! })
+      left += 1
+      right += 1
+    } else if (table[left + 1]![right]! >= table[left]![right + 1]!) {
+      lines.push({ kind: 'del', text: oldLines[left]! })
+      left += 1
+    } else {
+      lines.push({ kind: 'add', text: newLines[right]! })
+      right += 1
+    }
+  }
+  while (left < oldLines.length) {
+    lines.push({ kind: 'del', text: oldLines[left]! })
+    left += 1
+  }
+  while (right < newLines.length) {
+    lines.push({ kind: 'add', text: newLines[right]! })
+    right += 1
+  }
+  const truncated = lines.length > maxLines || oldText.split('\n').length > DIFF_INPUT_LINES || newText.split('\n').length > DIFF_INPUT_LINES
+  return { lines: lines.slice(0, maxLines), truncated }
 }
 
 interface BodySection {

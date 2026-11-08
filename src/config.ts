@@ -104,6 +104,15 @@ const temporalSchema = z.object({
   scheduled_decay: z.number().min(0.1).max(1).default(0.3),
 }).default({})
 
+/**
+ * 近重复检测。组合相似度 = 0.6 × 标题/摘要词元 Jaccard + 0.4 × 正文 3-gram Jaccard，
+ * 只在同类型、同作用域之间比较；阈值越高越保守。
+ */
+const dedupeSchema = z.object({
+  threshold: z.number().min(0.5).max(1).default(0.72),
+  max_pairs: z.number().int().min(1).max(100).default(20),
+}).default({})
+
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
@@ -132,6 +141,7 @@ export const configSchema = z.object({
     limits: limitsSchema,
     maintenance: maintenanceSchema,
     temporal: temporalSchema,
+    dedupe: dedupeSchema,
   }).default({}),
   consolidation: z.object({
     mode: z.literal('manual').default('manual'),
@@ -226,6 +236,9 @@ policy:
     aging_decay: 0.85       # score multiplier for aging entries
     stale_decay: 0.6        # score multiplier once expires_at has passed
     scheduled_decay: 0.3    # score multiplier for valid_from entries not yet in effect
+  dedupe:
+    threshold: 0.72         # combined similarity above which a pair is reported as near-duplicate
+    max_pairs: 20           # cap on reported pairs per scan
 
 consolidation:
   mode: manual

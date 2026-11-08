@@ -79,6 +79,8 @@ export interface KnowledgeRecord {
   expiresAt: string | null
   /** 上次被确认仍然正确的时刻；null 表示从未显式确认（回退到 updated_at）。 */
   lastVerified: string | null
+  /** 反向指针：本条被哪条知识合并/取代（`supersedes` 是正向）。 */
+  supersededBy: string | null
   deprecatedReason?: string
   format: number
   body: string
@@ -103,7 +105,7 @@ export interface KnowledgeHit {
   core?: string | null
 }
 
-export type ProposalOperation = 'create' | 'update' | 'deprecate'
+export type ProposalOperation = 'create' | 'update' | 'deprecate' | 'merge'
 
 export type ProposalStatus = 'pending' | 'committed' | 'rejected' | 'superseded'
 
@@ -127,6 +129,8 @@ export interface ProposalRecord {
   validFrom: string | null
   expiresAt: string | null
   lastVerified: string | null
+  /** merge 提案要并入 target 的知识 id（1..10）；其他操作为空数组。 */
+  mergedIds: string[]
   taskId: string
   createdAt: string
   updatedAt: string

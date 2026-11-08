@@ -22,6 +22,7 @@ function record(overrides: Partial<KnowledgeRecord>): KnowledgeRecord {
     validFrom: null,
     expiresAt: null,
     lastVerified: null,
+    supersededBy: null,
     format: 1,
     body: 'Body',
     path: '/hub/knowledge/decision/DEC-000001.md',

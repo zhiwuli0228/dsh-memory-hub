@@ -84,6 +84,15 @@ export type LedgerEvent =
       skipped: number
     })
   | (EventBase & {
+      type: 'knowledge.merged'
+      /** 合并后保留的 target id。 */
+      target: string
+      /** 被并入 target 的知识 id。 */
+      merged: string[]
+      version: number
+      proposalId: string
+    })
+  | (EventBase & {
       type: 'recovered'
       knowledgeId: string
       version: number

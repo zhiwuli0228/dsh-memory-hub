@@ -154,6 +154,7 @@ describe('plugin entry', () => {
       validFrom: null,
       expiresAt: null,
       lastVerified: null,
+      supersededBy: null,
       format: 1,
       body: '## 结论\n\n插件测试。\n',
       path: join(root, 'knowledge', 'decision', 'DEC-000001.md'),
@@ -163,8 +164,9 @@ describe('plugin entry', () => {
 
     const host = createFakeHost(root)
     apply(host.ctx, { root })
-    expect(host.tools.size).toBe(10)
+    expect(host.tools.size).toBe(11)
     expect(host.tools.has('memory_maintenance')).toBe(true)
+    expect(host.tools.has('memory_duplicates')).toBe(true)
     expect(host.skills.get('memory-hub')?.source).toBe('runtime')
     expect(host.listeners.get('agent/pre-step')?.length).toBe(1)
 

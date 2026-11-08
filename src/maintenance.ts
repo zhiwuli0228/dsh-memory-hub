@@ -3,6 +3,11 @@ import type { KnowledgeRecord, ProposalRecord } from './types.js'
 import type { KnowledgeStore, ProposalInput } from './store.js'
 import { formatScope } from './scope.js'
 import { DEFAULT_TEMPORAL_POLICY, temporalState, type TemporalPolicy } from './temporal.js'
+import {
+  DEFAULT_DUPLICATE_MAX_PAIRS,
+  DEFAULT_DUPLICATE_THRESHOLD,
+  findNearDuplicates,
+} from './duplicates.js'
 
 export type MaintenanceApply = 'report' | 'propose'
 
@@ -23,6 +28,7 @@ export interface MaintenanceAnalysisOptions {
   now?: Date
   maxBodyBytes: number
   temporal?: TemporalPolicy
+  dedupe?: { threshold: number; maxPairs: number }
 }
 
 export interface MaintenanceIssue {
@@ -72,7 +78,6 @@ export interface MaintenanceAnalysis {
 }
 
 const PROMOTE_TAGS = new Set(['core', 'shared', 'reusable', 'promote'])
-const NEAR_TITLE_THRESHOLD = 0.82
 
 export function maintenanceToken(fingerprint: string): string {
   return `maint-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 12)}`
@@ -159,13 +164,19 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
     }
   }
 
-  const nearPairs = findNearDuplicateTitles(accepted)
-  for (const [left, right] of nearPairs) {
+  const nearPairs = findNearDuplicates({
+    records: accepted,
+    threshold: options.dedupe?.threshold ?? DEFAULT_DUPLICATE_THRESHOLD,
+    maxPairs: options.dedupe?.maxPairs ?? DEFAULT_DUPLICATE_MAX_PAIRS,
+  })
+  for (const pair of nearPairs) {
+    const keeper = store.docs.get(pair.keeperId)
+    const other = store.docs.get(pair.otherId)
     issues.push({
       code: 'duplicate-near',
       severity: 'info',
-      message: `${left.id}（${left.title}）与 ${right.id}（${right.title}）标题高度相似，需人工判断是否合并。`,
-      ids: [left.id, right.id],
+      message: `${pair.otherId}（${other?.title ?? '?'}）与 ${pair.keeperId}（${keeper?.title ?? '?'}）相似度 ${pair.similarity}${pair.highConfidence ? '（标题高度相似）' : ''}，建议保留 ${pair.keeperId} 并用 memory_propose operation:"merge" 合并。`,
+      ids: [pair.otherId, pair.keeperId],
     })
   }
 
@@ -379,42 +390,6 @@ export function renderMaintenanceReport(input: {
     '',
   )
   return lines.join('\n')
-}
-
-function findNearDuplicateTitles(records: KnowledgeRecord[]): Array<[KnowledgeRecord, KnowledgeRecord]> {
-  const pairs: Array<[KnowledgeRecord, KnowledgeRecord]> = []
-  for (let index = 0; index < records.length; index += 1) {
-    const left = records[index]!
-    const leftGrams = bigrams(left.title)
-    for (let other = index + 1; other < records.length; other += 1) {
-      const right = records[other]!
-      if (left.type !== right.type) continue
-      if (normalizeText(left.title) === normalizeText(right.title)) continue
-      const score = jaccard(leftGrams, bigrams(right.title))
-      if (score >= NEAR_TITLE_THRESHOLD) pairs.push([left, right])
-    }
-  }
-  return pairs
-}
-
-function bigrams(value: string): Set<string> {
-  const chars = Array.from(normalizeText(value))
-  const grams = new Set<string>()
-  if (chars.length < 2) {
-    if (chars.length === 1) grams.add(chars[0]!)
-    return grams
-  }
-  for (let index = 0; index < chars.length - 1; index += 1) {
-    grams.add(`${chars[index]}${chars[index + 1]}`)
-  }
-  return grams
-}
-
-function jaccard(left: Set<string>, right: Set<string>): number {
-  if (left.size === 0 || right.size === 0) return 0
-  let intersection = 0
-  for (const value of left) if (right.has(value)) intersection += 1
-  return intersection / (left.size + right.size - intersection)
 }
 
 function normalizeText(value: string): string {

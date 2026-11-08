@@ -11648,6 +11648,10 @@ var temporalSchema = external_exports.object({
   stale_decay: external_exports.number().min(0.1).max(1).default(0.6),
   scheduled_decay: external_exports.number().min(0.1).max(1).default(0.3)
 }).default({});
+var dedupeSchema = external_exports.object({
+  threshold: external_exports.number().min(0.5).max(1).default(0.72),
+  max_pairs: external_exports.number().int().min(1).max(100).default(20)
+}).default({});
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
@@ -11675,7 +11679,8 @@ var configSchema = external_exports.object({
     }).default({}),
     limits: limitsSchema,
     maintenance: maintenanceSchema,
-    temporal: temporalSchema
+    temporal: temporalSchema,
+    dedupe: dedupeSchema
   }).default({}),
   consolidation: external_exports.object({
     mode: external_exports.literal("manual").default("manual"),
@@ -11765,6 +11770,9 @@ policy:
     aging_decay: 0.85       # score multiplier for aging entries
     stale_decay: 0.6        # score multiplier once expires_at has passed
     scheduled_decay: 0.3    # score multiplier for valid_from entries not yet in effect
+  dedupe:
+    threshold: 0.72         # combined similarity above which a pair is reported as near-duplicate
+    max_pairs: 20           # cap on reported pairs per scan
 
 consolidation:
   mode: manual
@@ -12177,6 +12185,7 @@ var knowledgeFrontmatterBase = external_exports.object({
   source_refs: external_exports.array(external_exports.string().trim().min(1).max(500)).max(20).default([]),
   related: external_exports.array(external_exports.string()).default([]),
   supersedes: external_exports.array(external_exports.string()).default([]),
+  superseded_by: external_exports.string().nullable().default(null),
   promoted_from: external_exports.string().nullable().default(null),
   applies_to: appliesToSchema,
   valid_from: timestampSchema.nullable().default(null),
@@ -12212,7 +12221,7 @@ var knowledgeFrontmatterSchema = knowledgeFrontmatterBase.superRefine((value, ct
 var proposalFrontmatterBase = external_exports.object({
   id: external_exports.string().regex(PROPOSAL_ID_PATTERN),
   status: external_exports.enum(["pending", "committed", "rejected", "superseded"]),
-  operation: external_exports.enum(["create", "update", "deprecate"]),
+  operation: external_exports.enum(["create", "update", "deprecate", "merge"]),
   type: external_exports.enum(KNOWLEDGE_TYPES),
   scope: external_exports.string().min(1),
   title: external_exports.string().trim().min(1).max(200),
@@ -12229,6 +12238,7 @@ var proposalFrontmatterBase = external_exports.object({
   valid_from: timestampSchema.nullable().default(null),
   expires_at: timestampSchema.nullable().default(null),
   last_verified: timestampSchema.nullable().default(null),
+  merged_ids: external_exports.array(external_exports.string()).max(10).default([]),
   task_id: external_exports.string().min(1),
   created_at: timestampSchema,
   updated_at: timestampSchema,
@@ -12311,6 +12321,7 @@ function parseKnowledgeFile(raw, path) {
     validFrom: fm.valid_from,
     expiresAt: fm.expires_at,
     lastVerified: fm.last_verified,
+    supersededBy: fm.superseded_by,
     ...fm.deprecated_reason === void 0 ? {} : { deprecatedReason: fm.deprecated_reason },
     format: fm.format,
     body,
@@ -12331,6 +12342,7 @@ function serializeKnowledgeFile(record) {
     source_refs: record.sourceRefs,
     related: record.related,
     supersedes: record.supersedes,
+    ...record.supersededBy === null ? {} : { superseded_by: record.supersededBy },
     promoted_from: record.promotedFrom,
     applies_to: record.appliesTo,
     ...record.validFrom === null ? {} : { valid_from: record.validFrom },
@@ -12378,6 +12390,7 @@ function parseProposalFile(raw, path) {
     validFrom: fm.valid_from,
     expiresAt: fm.expires_at,
     lastVerified: fm.last_verified,
+    mergedIds: fm.merged_ids,
     taskId: fm.task_id,
     createdAt: fm.created_at,
     updatedAt: fm.updated_at,
@@ -12405,6 +12418,7 @@ function serializeProposalFile(record) {
     target: record.target,
     expected_version: record.expectedVersion,
     reason: record.reason,
+    ...record.mergedIds.length === 0 ? {} : { merged_ids: record.mergedIds },
     ...record.validFrom === null ? {} : { valid_from: record.validFrom },
     ...record.expiresAt === null ? {} : { expires_at: record.expiresAt },
     ...record.lastVerified === null ? {} : { last_verified: record.lastVerified },
@@ -12892,6 +12906,51 @@ var KnowledgeStore = class {
         throw new MemoryError("INVALID_STATE", `supersedes target ${oldId} is not an accepted knowledge entry`);
       }
     }
+    const rawMergedIds = (input.mergedIds ?? []).map((value) => value.trim()).filter(Boolean);
+    if (new Set(rawMergedIds).size !== rawMergedIds.length) {
+      throw new MemoryError("INVALID_INPUT", "merged_ids must not contain duplicates");
+    }
+    const mergedIds = [...new Set(rawMergedIds)];
+    if (input.operation !== "merge") {
+      if (mergedIds.length > 0) {
+        throw new MemoryError("INVALID_INPUT", "merged_ids is only supported for merge");
+      }
+    } else {
+      if (mergedIds.length === 0) {
+        throw new MemoryError("INVALID_INPUT", "merge requires merged_ids");
+      }
+      if (mergedIds.length > 10) {
+        throw new MemoryError("INVALID_INPUT", "merge supports at most 10 merged_ids");
+      }
+      if (input.target === void 0 || input.target === "") {
+        throw new MemoryError("INVALID_INPUT", "merge requires target");
+      }
+      const target = this.docs.get(input.target);
+      if (target === void 0) {
+        throw new MemoryError("NOT_FOUND", `target ${input.target} does not exist`);
+      }
+      if (mergedIds.includes(target.id)) {
+        throw new MemoryError("INVALID_INPUT", "merged_ids must not contain the target");
+      }
+      for (const mergedId of mergedIds) {
+        const merged = this.docs.get(mergedId);
+        if (merged === void 0) {
+          throw new MemoryError("NOT_FOUND", `merged entry ${mergedId} does not exist`);
+        }
+        if (merged.status !== "accepted") {
+          throw new MemoryError("INVALID_STATE", `merged entry ${mergedId} is ${merged.status}`);
+        }
+        if (merged.supersededBy !== null) {
+          throw new MemoryError("INVALID_STATE", `merged entry ${mergedId} is already superseded by ${merged.supersededBy}`);
+        }
+        if (merged.type !== target.type) {
+          throw new MemoryError("INVALID_INPUT", `merged entry ${mergedId} has type ${merged.type}, target has ${target.type}`);
+        }
+        if (formatScope(merged.scope) !== formatScope(target.scope)) {
+          throw new MemoryError("SCOPE_FORBIDDEN", `merged entry ${mergedId} is not in scope ${formatScope(target.scope)}`);
+        }
+      }
+    }
     const number = await this.allocate("PRO");
     const id = `PRO-${formatSequence(number)}`;
     const proposal = {
@@ -12917,6 +12976,7 @@ var KnowledgeStore = class {
       validFrom,
       expiresAt,
       lastVerified,
+      mergedIds,
       taskId: options.taskId,
       createdAt: now,
       updatedAt: now,
@@ -12965,6 +13025,10 @@ var KnowledgeStore = class {
       }
     } else if (proposal.operation === "update") {
       record = await this.updateFromProposal(proposal, now);
+    } else if (proposal.operation === "merge") {
+      const merged = await this.mergeFromProposal(proposal, now);
+      record = merged.record;
+      superseded.push(...merged.merged);
     } else {
       record = await this.deprecateFromProposal(proposal, now);
     }
@@ -13027,6 +13091,7 @@ var KnowledgeStore = class {
       validFrom: proposal.validFrom,
       expiresAt: proposal.expiresAt,
       lastVerified: proposal.lastVerified ?? now,
+      supersededBy: null,
       format: 1,
       body: proposal.body,
       path: this.hub.knowledgePath(proposal.type, id),
@@ -13057,6 +13122,81 @@ var KnowledgeStore = class {
     await this.archiveVersion(target);
     await this.writeRecord(record);
     return record;
+  }
+  /**
+   * merge 提交：target 接受合并稿并 +1；被合并项进入 superseded 并写反向指针。
+   * 纯确定性——不重新计算相似度、不改写被合并项的正文。
+   */
+  async mergeFromProposal(proposal, now) {
+    const target = this.requireTarget(proposal);
+    const mergedIds = proposal.mergedIds;
+    if (mergedIds.length === 0) {
+      throw new MemoryError("INVALID_INPUT", "merge requires merged_ids");
+    }
+    const mergedRecords = [];
+    for (const mergedId of mergedIds) {
+      const merged = this.docs.get(mergedId);
+      if (merged === void 0) throw new MemoryError("NOT_FOUND", `merged entry ${mergedId} does not exist`);
+      if (merged.status !== "accepted") {
+        throw new MemoryError("INVALID_STATE", `merged entry ${mergedId} is ${merged.status}`);
+      }
+      if (merged.supersededBy !== null) {
+        throw new MemoryError("INVALID_STATE", `merged entry ${mergedId} is already superseded by ${merged.supersededBy}`);
+      }
+      if (merged.type !== target.type) {
+        throw new MemoryError("INVALID_INPUT", `merged entry ${mergedId} has type ${merged.type}, target has ${target.type}`);
+      }
+      if (formatScope(merged.scope) !== formatScope(target.scope)) {
+        throw new MemoryError("SCOPE_FORBIDDEN", `merged entry ${mergedId} is not in scope ${formatScope(target.scope)}`);
+      }
+      mergedRecords.push(merged);
+    }
+    const maxSourceRefs = this.hub.config.policy.limits.max_source_refs;
+    const related = [.../* @__PURE__ */ new Set([...target.related, ...mergedIds, ...proposal.related])];
+    const sourceRefs = [.../* @__PURE__ */ new Set([
+      ...target.sourceRefs,
+      ...proposal.sourceRefs,
+      ...mergedRecords.flatMap((merged) => merged.sourceRefs)
+    ])].slice(0, maxSourceRefs);
+    const record = {
+      ...target,
+      title: proposal.title,
+      summary: proposal.summary,
+      tags: proposal.tags,
+      sourceRefs,
+      related,
+      appliesTo: proposal.appliesTo,
+      version: target.version + 1,
+      updatedAt: now,
+      validFrom: proposal.validFrom ?? target.validFrom,
+      expiresAt: proposal.expiresAt ?? target.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
+      supersededBy: null,
+      body: proposal.body,
+      path: this.hub.knowledgePath(target.type, target.id)
+    };
+    await this.archiveVersion(target);
+    await this.writeRecord(record);
+    for (const merged of mergedRecords) {
+      const next = {
+        ...merged,
+        status: "superseded",
+        supersededBy: target.id,
+        version: merged.version + 1,
+        updatedAt: now,
+        path: this.hub.knowledgePath(merged.type, merged.id)
+      };
+      await this.archiveVersion(merged);
+      await this.writeRecord(next);
+    }
+    await this.ledger.append({
+      type: "knowledge.merged",
+      target: target.id,
+      merged: mergedIds,
+      version: record.version,
+      proposalId: proposal.id
+    });
+    return { record, merged: mergedIds };
   }
   async deprecateFromProposal(proposal, now) {
     const target = this.requireTarget(proposal);
@@ -13188,6 +13328,7 @@ var KnowledgeStore = class {
       validFrom: null,
       expiresAt: null,
       lastVerified: null,
+      mergedIds: [],
       taskId: "TSK-consolidation",
       createdAt: now,
       updatedAt: now,
@@ -13494,8 +13635,111 @@ var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/maintenance.ts
 import { createHash } from "node:crypto";
+
+// src/duplicates.ts
+var DEFAULT_DUPLICATE_THRESHOLD = 0.72;
+var DEFAULT_DUPLICATE_MAX_PAIRS = 20;
+var HIGH_CONFIDENCE_TITLE_THRESHOLD = 0.82;
+var BODY_SAMPLE_BYTES = 4096;
+function findNearDuplicates(options) {
+  const threshold = options.threshold ?? DEFAULT_DUPLICATE_THRESHOLD;
+  const maxPairs = options.maxPairs ?? DEFAULT_DUPLICATE_MAX_PAIRS;
+  const buckets = /* @__PURE__ */ new Map();
+  for (const record of options.records) {
+    if (record.status !== "accepted") continue;
+    if (record.supersededBy !== null) continue;
+    const key = `${record.type}\0${formatScope(record.scope)}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(record);
+    buckets.set(key, bucket);
+  }
+  const pairs = [];
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) continue;
+    const profiles = bucket.map(profileOf);
+    for (let left = 0; left < profiles.length; left += 1) {
+      for (let right = left + 1; right < profiles.length; right += 1) {
+        const pair = compare(profiles[left], profiles[right]);
+        if (pair.similarity < threshold) continue;
+        const keeper = keeperOf(profiles[left].record, profiles[right].record);
+        const other = keeper.id === profiles[left].record.id ? profiles[right].record : profiles[left].record;
+        pairs.push({
+          keeperId: keeper.id,
+          otherId: other.id,
+          similarity: round(pair.similarity),
+          titleSimilarity: round(pair.titleSimilarity),
+          highConfidence: pair.titleSimilarity >= HIGH_CONFIDENCE_TITLE_THRESHOLD
+        });
+      }
+    }
+  }
+  pairs.sort(
+    (left, right) => right.similarity - left.similarity || left.keeperId.localeCompare(right.keeperId) || left.otherId.localeCompare(right.otherId)
+  );
+  return pairs.slice(0, Math.max(1, maxPairs));
+}
+function profileOf(record) {
+  const lexicalText = `${record.title} ${record.summary}`;
+  return {
+    record,
+    lexical: lexicalText,
+    lexicalTokens: new Set(tokenize(lexicalText)),
+    bodyTokens: shingles(record.body.slice(0, BODY_SAMPLE_BYTES))
+  };
+}
+function compare(left, right) {
+  const lexical = jaccard(left.lexicalTokens, right.lexicalTokens);
+  const body = jaccard(left.bodyTokens, right.bodyTokens);
+  return {
+    similarity: 0.6 * lexical + 0.4 * body,
+    titleSimilarity: bigramJaccard(left.record.title, right.record.title)
+  };
+}
+function keeperOf(left, right) {
+  if (left.version !== right.version) return left.version > right.version ? left : right;
+  if (left.updatedAt !== right.updatedAt) return left.updatedAt > right.updatedAt ? left : right;
+  if (left.sourceRefs.length !== right.sourceRefs.length) {
+    return left.sourceRefs.length > right.sourceRefs.length ? left : right;
+  }
+  return left.id <= right.id ? left : right;
+}
+function shingles(text) {
+  const chars = Array.from(text.replace(/\s+/g, " "));
+  const grams = /* @__PURE__ */ new Set();
+  if (chars.length <= 3) {
+    if (chars.length > 0) grams.add(chars.join(""));
+    return grams;
+  }
+  for (let index = 0; index <= chars.length - 3; index += 1) {
+    grams.add(`${chars[index]}${chars[index + 1]}${chars[index + 2]}`);
+  }
+  return grams;
+}
+function bigramJaccard(left, right) {
+  return jaccard(bigrams(left), bigrams(right));
+}
+function bigrams(value) {
+  const chars = Array.from(value.trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ""));
+  const grams = /* @__PURE__ */ new Set();
+  if (chars.length < 2) {
+    if (chars.length === 1) grams.add(chars[0]);
+    return grams;
+  }
+  for (let index = 0; index < chars.length - 1; index += 1) grams.add(`${chars[index]}${chars[index + 1]}`);
+  return grams;
+}
+function jaccard(left, right) {
+  if (left.size === 0 || right.size === 0) return 0;
+  let intersection = 0;
+  for (const value of left) if (right.has(value)) intersection += 1;
+  return intersection / (left.size + right.size - intersection);
+}
+function round(value) {
+  return Math.round(value * 1e3) / 1e3;
+}
+
+// src/maintenance.ts
 var PROMOTE_TAGS = /* @__PURE__ */ new Set(["core", "shared", "reusable", "promote"]);
-var NEAR_TITLE_THRESHOLD = 0.82;
 function maintenanceToken(fingerprint) {
   return `maint-${createHash("sha256").update(fingerprint).digest("hex").slice(0, 12)}`;
 }
@@ -13576,13 +13820,19 @@ function analyzeMaintenance(store, options) {
       });
     }
   }
-  const nearPairs = findNearDuplicateTitles(accepted);
-  for (const [left, right] of nearPairs) {
+  const nearPairs = findNearDuplicates({
+    records: accepted,
+    threshold: options.dedupe?.threshold ?? DEFAULT_DUPLICATE_THRESHOLD,
+    maxPairs: options.dedupe?.maxPairs ?? DEFAULT_DUPLICATE_MAX_PAIRS
+  });
+  for (const pair of nearPairs) {
+    const keeper = store.docs.get(pair.keeperId);
+    const other = store.docs.get(pair.otherId);
     issues.push({
       code: "duplicate-near",
       severity: "info",
-      message: `${left.id}\uFF08${left.title}\uFF09\u4E0E ${right.id}\uFF08${right.title}\uFF09\u6807\u9898\u9AD8\u5EA6\u76F8\u4F3C\uFF0C\u9700\u4EBA\u5DE5\u5224\u65AD\u662F\u5426\u5408\u5E76\u3002`,
-      ids: [left.id, right.id]
+      message: `${pair.otherId}\uFF08${other?.title ?? "?"}\uFF09\u4E0E ${pair.keeperId}\uFF08${keeper?.title ?? "?"}\uFF09\u76F8\u4F3C\u5EA6 ${pair.similarity}${pair.highConfidence ? "\uFF08\u6807\u9898\u9AD8\u5EA6\u76F8\u4F3C\uFF09" : ""}\uFF0C\u5EFA\u8BAE\u4FDD\u7559 ${pair.keeperId} \u5E76\u7528 memory_propose operation:"merge" \u5408\u5E76\u3002`,
+      ids: [pair.otherId, pair.keeperId]
     });
   }
   for (const proposal of pending) {
@@ -13770,39 +14020,6 @@ function renderMaintenanceReport(input) {
     ""
   );
   return lines.join("\n");
-}
-function findNearDuplicateTitles(records) {
-  const pairs = [];
-  for (let index = 0; index < records.length; index += 1) {
-    const left = records[index];
-    const leftGrams = bigrams(left.title);
-    for (let other = index + 1; other < records.length; other += 1) {
-      const right = records[other];
-      if (left.type !== right.type) continue;
-      if (normalizeText2(left.title) === normalizeText2(right.title)) continue;
-      const score = jaccard(leftGrams, bigrams(right.title));
-      if (score >= NEAR_TITLE_THRESHOLD) pairs.push([left, right]);
-    }
-  }
-  return pairs;
-}
-function bigrams(value) {
-  const chars = Array.from(normalizeText2(value));
-  const grams = /* @__PURE__ */ new Set();
-  if (chars.length < 2) {
-    if (chars.length === 1) grams.add(chars[0]);
-    return grams;
-  }
-  for (let index = 0; index < chars.length - 1; index += 1) {
-    grams.add(`${chars[index]}${chars[index + 1]}`);
-  }
-  return grams;
-}
-function jaccard(left, right) {
-  if (left.size === 0 || right.size === 0) return 0;
-  let intersection = 0;
-  for (const value of left) if (right.has(value)) intersection += 1;
-  return intersection / (left.size + right.size - intersection);
 }
 function normalizeText2(value) {
   return value.trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
@@ -14236,6 +14453,59 @@ var MemoryService = class {
     };
   }
   /**
+   * 近重复检测（只读）。只在当前可见范围、同类型同作用域之间比较；
+   * 不跨 Hub（跨核心的近似标题应走蒸馏而不是合并）。
+   */
+  async duplicates(agent, args) {
+    const workspace = await this.resolveWorkspace(agent);
+    const visibility = this.visibilityFor(workspace);
+    let scopeFilter = null;
+    if (args.scope !== void 0) {
+      const scope = parseScope(args.scope);
+      if (!isScopeVisible(scope, visibility)) {
+        throw new MemoryError("SCOPE_FORBIDDEN", `scope ${args.scope} is not visible from this workspace`);
+      }
+      scopeFilter = formatScope(scope);
+    }
+    const threshold = args.threshold ?? this.hub.config.policy.dedupe.threshold;
+    if (!Number.isFinite(threshold) || threshold <= 0 || threshold > 1) {
+      throw new MemoryError("INVALID_INPUT", "threshold must be within (0, 1]");
+    }
+    const limit = Math.max(1, Math.min(50, args.limit ?? 10));
+    const records = [...this.store.docs.values()].filter((record) => {
+      if (record.status !== "accepted") return false;
+      if (!isScopeVisible(record.scope, visibility)) return false;
+      if (scopeFilter !== null && formatScope(record.scope) !== scopeFilter) return false;
+      return true;
+    });
+    const pairs = findNearDuplicates({ records, threshold, maxPairs: limit });
+    return {
+      total: pairs.length,
+      threshold,
+      pairs: pairs.map((pair) => {
+        const keeper = this.store.docs.get(pair.keeperId);
+        const other = this.store.docs.get(pair.otherId);
+        return {
+          keeper: { id: keeper.id, version: keeper.version, title: keeper.title, summary: keeper.summary },
+          other: { id: other.id, version: other.version, title: other.title, summary: other.summary },
+          similarity: pair.similarity,
+          titleSimilarity: pair.titleSimilarity,
+          highConfidence: pair.highConfidence
+        };
+      })
+    };
+  }
+  /** 面板只读视图：被合并条目的摘要 + target 旧正文到合并稿的行级 diff。 */
+  mergePreview(proposal) {
+    const merged = proposal.mergedIds.map((id) => {
+      const record = this.store.docs.get(id);
+      return record === void 0 ? { id, title: "(not found)", summary: "" } : { id, title: record.title, summary: record.summary };
+    });
+    const target = proposal.target === null ? void 0 : this.store.docs.get(proposal.target);
+    const diff = lineDiff(target?.body ?? "", proposal.body, PANEL_DIFF_LINES);
+    return { merged, diff: diff.lines, truncated: diff.truncated };
+  }
+  /**
    * 金字塔回退检索：本层（自己的 Hub）有 ≥1 个合格命中即返回、不再上溯；
    * 本层为空才回退到最近的祖先层，依次类推。每层命中都带 core 标注。
    */
@@ -14495,7 +14765,8 @@ var MemoryService = class {
         ...args.reason === void 0 ? {} : { reason: args.reason },
         ...args.valid_from === void 0 ? {} : { validFrom: args.valid_from },
         ...args.expires_at === void 0 ? {} : { expiresAt: args.expires_at },
-        ...args.last_verified === void 0 ? {} : { lastVerified: args.last_verified }
+        ...args.last_verified === void 0 ? {} : { lastVerified: args.last_verified },
+        ...args.merged_ids === void 0 ? {} : { mergedIds: args.merged_ids }
       },
       { taskId: state.taskId }
     );
@@ -14892,29 +15163,33 @@ var MemoryService = class {
     }
     const tierOf = (row) => row.core === void 0 || row.core === null ? 0 : this.parentCoreIds.indexOf(row.core) + 1;
     const knowledge = [...ownKnowledge, ...parentKnowledge].sort((left, right) => tierOf(left) - tierOf(right) || right.updatedAt.localeCompare(left.updatedAt)).slice(0, 200);
-    const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => ({
-      id: proposal.id,
-      operation: proposal.operation,
-      type: proposal.type,
-      title: proposal.title,
-      summary: proposal.summary,
-      scope: formatScope(proposal.scope),
-      taskId: proposal.taskId,
-      createdAt: proposal.createdAt,
-      validFrom: proposal.validFrom,
-      expiresAt: proposal.expiresAt,
-      lastVerified: proposal.lastVerified,
-      temporal: temporalState(
-        {
-          validFrom: proposal.validFrom,
-          expiresAt: proposal.expiresAt,
-          lastVerified: proposal.lastVerified,
-          updatedAt: proposal.updatedAt
-        },
-        Date.now(),
-        this.hub.config.policy.temporal
-      )
-    }));
+    const pending = [...this.store.proposals.values()].filter((proposal) => proposal.status === "pending").sort((left, right) => right.createdAt.localeCompare(left.createdAt)).map((proposal) => {
+      const merge = proposal.operation === "merge" ? this.mergePreview(proposal) : null;
+      return {
+        id: proposal.id,
+        operation: proposal.operation,
+        type: proposal.type,
+        title: proposal.title,
+        summary: proposal.summary,
+        scope: formatScope(proposal.scope),
+        taskId: proposal.taskId,
+        createdAt: proposal.createdAt,
+        validFrom: proposal.validFrom,
+        expiresAt: proposal.expiresAt,
+        lastVerified: proposal.lastVerified,
+        temporal: temporalState(
+          {
+            validFrom: proposal.validFrom,
+            expiresAt: proposal.expiresAt,
+            lastVerified: proposal.lastVerified,
+            updatedAt: proposal.updatedAt
+          },
+          Date.now(),
+          this.hub.config.policy.temporal
+        ),
+        ...merge === null ? {} : { merged: merge.merged, diff: merge.diff, diffTruncated: merge.truncated }
+      };
+    });
     const tasks = [...this.tasks.values()].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 30).map((task) => ({
       taskId: task.taskId,
       sessionId: task.sessionId,
@@ -15302,6 +15577,44 @@ function hashIntent(intent) {
 }
 function truncate3(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+var PANEL_DIFF_LINES = 200;
+var DIFF_INPUT_LINES = 400;
+function lineDiff(oldText, newText, maxLines) {
+  const oldLines = oldText.replace(/\r\n/g, "\n").split("\n").slice(0, DIFF_INPUT_LINES);
+  const newLines = newText.replace(/\r\n/g, "\n").split("\n").slice(0, DIFF_INPUT_LINES);
+  const table = Array.from({ length: oldLines.length + 1 }, () => new Array(newLines.length + 1).fill(0));
+  for (let left2 = oldLines.length - 1; left2 >= 0; left2 -= 1) {
+    for (let right2 = newLines.length - 1; right2 >= 0; right2 -= 1) {
+      table[left2][right2] = oldLines[left2] === newLines[right2] ? table[left2 + 1][right2 + 1] + 1 : Math.max(table[left2 + 1][right2], table[left2][right2 + 1]);
+    }
+  }
+  const lines = [];
+  let left = 0;
+  let right = 0;
+  while (left < oldLines.length && right < newLines.length) {
+    if (oldLines[left] === newLines[right]) {
+      lines.push({ kind: "context", text: oldLines[left] });
+      left += 1;
+      right += 1;
+    } else if (table[left + 1][right] >= table[left][right + 1]) {
+      lines.push({ kind: "del", text: oldLines[left] });
+      left += 1;
+    } else {
+      lines.push({ kind: "add", text: newLines[right] });
+      right += 1;
+    }
+  }
+  while (left < oldLines.length) {
+    lines.push({ kind: "del", text: oldLines[left] });
+    left += 1;
+  }
+  while (right < newLines.length) {
+    lines.push({ kind: "add", text: newLines[right] });
+    right += 1;
+  }
+  const truncated = lines.length > maxLines || oldText.split("\n").length > DIFF_INPUT_LINES || newText.split("\n").length > DIFF_INPUT_LINES;
+  return { lines: lines.slice(0, maxLines), truncated };
 }
 function splitBodySections(body) {
   const sections = [];
@@ -15791,6 +16104,25 @@ function createTools(host) {
       }
     }),
     tool({
+      name: "memory_duplicates",
+      concurrencySafe: true,
+      description: 'Find near-duplicate accepted entries (read-only). Compares only entries of the same type and scope within the visible pyramids; similarity is 0.6 \xD7 title/summary token Jaccard + 0.4 \xD7 body 3-gram Jaccard. Returns a deterministic keeper suggestion per pair. Use it before proposing an operation:"merge" entry; it never writes files.',
+      parameters: objectSchema({
+        scope: { type: "string", description: "Optional scope filter (global, domain:<id>, project:<workspace-id>); must be visible from this workspace." },
+        threshold: { type: "number", description: "Optional combined similarity threshold within (0, 1]; defaults to policy.dedupe.threshold (0.72)." },
+        limit: { type: "number", description: "Maximum pairs to return, 1..50; defaults to 10." }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        const service = await host.service(requireAgent(exec));
+        return service.duplicates(requireAgent(exec), {
+          ...input.scope === void 0 ? {} : { scope: input.scope },
+          ...input.threshold === void 0 ? {} : { threshold: Number(input.threshold) },
+          ...input.limit === void 0 ? {} : { limit: Number(input.limit) }
+        });
+      }
+    }),
+    tool({
       name: "memory_cite",
       description: "Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task. In a dual-role workspace pass core to cite the copy in a specific hub (defaults to the current own core first).",
       parameters: objectSchema(
@@ -15820,7 +16152,7 @@ function createTools(host) {
       description: "Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time.",
       parameters: objectSchema(
         {
-          operation: { type: "string", enum: ["create", "update", "deprecate"], description: "What to do with the knowledge." },
+          operation: { type: "string", enum: ["create", "update", "deprecate", "merge"], description: 'What to do with the knowledge. Use "merge" to fold several accepted entries of the same type and scope into one target entry: pass target, expected_version, merged_ids and the merged body as content.' },
           type: { type: "string", enum: [...KNOWLEDGE_TYPES], description: "Knowledge type." },
           scope: { type: "string", description: "global, domain:<id>, project:<workspace-id>, core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge), or parent (alias for the nearest ancestor core project scope in a dual-role workspace, used for L2 distillation; deeper pyramid levels use explicit project:<ancestor-core-id>)." },
           title: { type: "string", description: "Short title, at most 200 characters." },
@@ -15845,6 +16177,12 @@ function createTools(host) {
           target: { type: "string", description: "Target id for update/deprecate." },
           expected_version: { type: "number", description: "Current target version for update/deprecate." },
           reason: { type: "string", description: "Required for deprecate; recorded in the audit log." },
+          merged_ids: {
+            type: "array",
+            items: { type: "string" },
+            maxItems: 10,
+            description: "Merge only: accepted ids to fold into target (1..10, same type and scope, not target itself, not already merged). They become superseded with superseded_by set to target when the proposal is committed."
+          },
           valid_from: {
             type: "string",
             description: "Optional ISO 8601 timestamp with timezone: when the fact starts to hold. Defaults to the commit time. Entries whose valid_from is still in the future are treated as scheduled and stay out of preflight until then."
@@ -15880,7 +16218,8 @@ function createTools(host) {
           ...input.reason === void 0 ? {} : { reason: String(input.reason) },
           ...input.valid_from === void 0 ? {} : { valid_from: String(input.valid_from) },
           ...input.expires_at === void 0 ? {} : { expires_at: String(input.expires_at) },
-          ...input.last_verified === void 0 ? {} : { last_verified: String(input.last_verified) }
+          ...input.last_verified === void 0 ? {} : { last_verified: String(input.last_verified) },
+          ...input.merged_ids === void 0 ? {} : { merged_ids: input.merged_ids }
         });
       }
     }),
@@ -16076,6 +16415,16 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 
 \u8C03\u5EA6\u63D0\u793A\u5E94\u8981\u6C42\u4F7F\u7528 \`apply: "propose"\`\uFF0C\u5E76\u660E\u786E\u201C\u53EA\u751F\u6210 pending\uFF0C\u4E0D commit\u201D\u3002\u5BA1\u6279\u4ECD\u7531 \`memory_commit\` \u5B8C\u6210\u3002
 
+## \u53BB\u91CD\u4E0E\u5408\u5E76
+
+\u540C\u4E00\u4EF6\u4E8B\u88AB\u8BB0\u4E86\u591A\u6B21\u65F6\uFF1A
+
+1. \`memory_duplicates({ scope?, threshold?, limit? })\` \u53EA\u8BFB\u68C0\u67E5\u8FD1\u91CD\u590D\uFF08\u540C\u7C7B\u578B\u3001\u540C\u4F5C\u7528\u57DF\uFF09\uFF1B\u8FD4\u56DE keeper \u5EFA\u8BAE\u3001similarity \u4E0E \`highConfidence\`\u3002
+2. \u8BA4\u53EF\u540E\u5199\u4E00\u6761 \`operation: "merge"\` \u63D0\u6848\uFF1A\`target\` \u662F\u4FDD\u7559\u9879\uFF0C\`merged_ids\` \u662F\u8981\u5E76\u5165\u7684\u6761\u76EE\uFF081..10\uFF09\uFF0C\`content\` \u662F\u5408\u5E76\u7A3F\u2014\u2014**\u9010\u6761\u4FDD\u7559\u5404\u6765\u6E90\u7684\u300C\u9002\u7528\u4E0E\u9650\u5236\u300D**\uFF1B
+3. \u4EBA\u5DE5\u5728\u9762\u677F\u770B diff \u540E\u6279\u51C6\uFF1B\u63D0\u4EA4\u65F6 target +1\uFF0C\u88AB\u5408\u5E76\u9879\u8FDB\u5165 \`superseded\` \u5E76\u5199 \`superseded_by\`\u3002
+
+\u4E0D\u8981\u7528\u591A\u6761 \`supersedes\` \u624B\u5DE5\u62FC\u5408\u5E76\uFF1A\u90A3\u6837\u6CA1\u6709\u300C\u8C01\u88AB\u5E76\u8FDB\u4E86\u8C01\u300D\u7684\u5355\u70B9\u8BB0\u5F55\uFF0C\u4E5F\u5BB9\u6613\u6F0F\u6B63\u6587\u7EC6\u8282\u3002
+
 ## \u5DE5\u5177\u901F\u67E5
 
 | \u76EE\u7684 | \u5DE5\u5177 |
@@ -16089,6 +16438,7 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 | \u63D0\u4EA4\u5019\u9009 | \`memory_commit\` |
 | \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
 | \u9879\u76EE\u77E5\u8BC6\u664B\u5347 | \`memory_consolidate\` |
+| \u8FD1\u91CD\u590D\u68C0\u67E5 | \`memory_duplicates\` |
 | \u591C\u95F4\u5DE1\u68C0 / \u751F\u6210\u7EF4\u62A4\u63D0\u6848 | \`memory_maintenance\` |
 
 ## \u53CD\u6A21\u5F0F

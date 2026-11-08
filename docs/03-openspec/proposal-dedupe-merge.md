@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted（2026-11-08 评审确认：采用独立 `operation: 'merge'`，不复用 `update` + 多条 `supersedes`；待实现）
+Implemented（2026-11-08；独立 `operation: 'merge'`；尚未发布）。实现见 src/duplicates.ts、src/store.ts（mergeFromProposal）、src/service.ts（duplicates/mergePreview）、client.js 与 tests/duplicates.test.ts / tests/merge.test.ts；决策见 [ADR-0008](../01-architecture/decisions/ADR-0008-merge-operation.md)。
 
 ## 1. Problem
 

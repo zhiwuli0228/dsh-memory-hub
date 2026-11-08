@@ -92,6 +92,16 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 
 调度提示应要求使用 \`apply: "propose"\`，并明确“只生成 pending，不 commit”。审批仍由 \`memory_commit\` 完成。
 
+## 去重与合并
+
+同一件事被记了多次时：
+
+1. \`memory_duplicates({ scope?, threshold?, limit? })\` 只读检查近重复（同类型、同作用域）；返回 keeper 建议、similarity 与 \`highConfidence\`。
+2. 认可后写一条 \`operation: "merge"\` 提案：\`target\` 是保留项，\`merged_ids\` 是要并入的条目（1..10），\`content\` 是合并稿——**逐条保留各来源的「适用与限制」**；
+3. 人工在面板看 diff 后批准；提交时 target +1，被合并项进入 \`superseded\` 并写 \`superseded_by\`。
+
+不要用多条 \`supersedes\` 手工拼合并：那样没有「谁被并进了谁」的单点记录，也容易漏正文细节。
+
 ## 工具速查
 
 | 目的 | 工具 |
@@ -105,6 +115,7 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 | 提交候选 | \`memory_commit\` |
 | 结束任务 | \`memory_close_task\` |
 | 项目知识晋升 | \`memory_consolidate\` |
+| 近重复检查 | \`memory_duplicates\` |
 | 夜间巡检 / 生成维护提案 | \`memory_maintenance\` |
 
 ## 反模式

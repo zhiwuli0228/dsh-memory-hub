@@ -103,6 +103,7 @@ updated_at: '2026-11-01T09:00:00+08:00'
 | `valid_from` | 否 | 事实开始成立的时刻；未来时刻表示「尚未生效」 |
 | `expires_at` | 否 | 事实不再可信的时刻；过了只降权、不删除 |
 | `last_verified` | 否 | 上次确认仍然正确的时刻；创建/更新提交时缺省补成提交时刻 |
+| `superseded_by` | 否 | 反向指针：本条被哪条知识合并/取代；只有 merge 提交会写 |
 
 未知字段会被保留但忽略；插件不会因为未知字段而拒绝文件。
 
@@ -124,6 +125,26 @@ updated_at: '2026-11-01T09:00:00+08:00'
 - 老文件不需要迁移：没有 `last_verified` 时用 `updated_at` 回退，因此「超过 90 天没更新」的老条目会开始按 0.85 降权。想完全保持旧排序，把 `policy.temporal.aging_decay` 设为 `1.0`。
 - 更新提案缺省**保留**原条目的三个字段（补 `last_verified` 为提交时刻）；文件模型无法区分「未提供」与「清空」，要清空请用新的 create 条目替代旧条目。
 - 所有阈值与系数在 `config.yaml` 的 `policy.temporal` 下，改完由 watcher 热加载。
+
+### 2.2 合并（merge）
+
+近重复条目用 `operation: "merge"` 的**候选**合并，仍要人工批准：
+
+```yaml
+operation: merge
+target: DEC-000001          # 保留项
+expected_version: 2
+merged_ids: [DEC-000004, DEC-000007]   # 1..10，同类型同作用域，不能含 target 或已合并项
+```
+
+批准提交时（`memory_commit` 或面板）：
+
+- `target`：正文替换为提案正文，`version + 1`，`related` 与 `source_refs` 取并集，`updated_at` / `last_verified` 刷新；
+- 每个被合并项：`status: superseded`、`superseded_by: <target>`、`version + 1`、`updated_at` 刷新，旧版本各写一份 `history/`；
+- 账本追加 `knowledge.merged`（`target`、`merged`、`version`），随后是既有的 `proposal.committed`；
+- 被合并项默认不再出现在检索结果里，需要时用 `memory_search({ statuses: ["superseded"] })` 查看。
+
+候选文件因此多一个可选 `merged_ids`；检测用只读的 `memory_duplicates`，阈值见 `policy.dedupe.threshold`（默认 0.72）。跨作用域（project 与 core 之间）不做合并——那是蒸馏/晋升，不是去重。
 
 ## 3. 正文约定
 

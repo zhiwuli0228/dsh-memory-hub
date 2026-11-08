@@ -235,6 +235,27 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     }),
 
     tool({
+      name: 'memory_duplicates',
+      concurrencySafe: true,
+      description:
+        'Find near-duplicate accepted entries (read-only). Compares only entries of the same type and scope within the visible pyramids; similarity is 0.6 × title/summary token Jaccard + 0.4 × body 3-gram Jaccard. Returns a deterministic keeper suggestion per pair. Use it before proposing an operation:"merge" entry; it never writes files.',
+      parameters: objectSchema({
+        scope: { type: 'string', description: 'Optional scope filter (global, domain:<id>, project:<workspace-id>); must be visible from this workspace.' },
+        threshold: { type: 'number', description: 'Optional combined similarity threshold within (0, 1]; defaults to policy.dedupe.threshold (0.72).' },
+        limit: { type: 'number', description: 'Maximum pairs to return, 1..50; defaults to 10.' },
+      }),
+      async execute(args, exec) {
+        const input = args as { scope?: string; threshold?: number; limit?: number }
+        const service = await host.service(requireAgent(exec))
+        return service.duplicates(requireAgent(exec), {
+          ...(input.scope === undefined ? {} : { scope: input.scope }),
+          ...(input.threshold === undefined ? {} : { threshold: Number(input.threshold) }),
+          ...(input.limit === undefined ? {} : { limit: Number(input.limit) }),
+        })
+      },
+    }),
+
+    tool({
       name: 'memory_cite',
       description:
         'Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task. In a dual-role workspace pass core to cite the copy in a specific hub (defaults to the current own core first).',
@@ -267,7 +288,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
         'Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time.',
       parameters: objectSchema(
         {
-          operation: { type: 'string', enum: ['create', 'update', 'deprecate'], description: 'What to do with the knowledge.' },
+          operation: { type: 'string', enum: ['create', 'update', 'deprecate', 'merge'], description: 'What to do with the knowledge. Use "merge" to fold several accepted entries of the same type and scope into one target entry: pass target, expected_version, merged_ids and the merged body as content.' },
           type: { type: 'string', enum: [...KNOWLEDGE_TYPES], description: 'Knowledge type.' },
           scope: { type: 'string', description: 'global, domain:<id>, project:<workspace-id>, core (alias for the current core workspace project scope, used to share reusable plugin-development knowledge), or parent (alias for the nearest ancestor core project scope in a dual-role workspace, used for L2 distillation; deeper pyramid levels use explicit project:<ancestor-core-id>).' },
           title: { type: 'string', description: 'Short title, at most 200 characters.' },
@@ -292,6 +313,12 @@ export function createTools(host: ToolHost): ToolDefinition[] {
           target: { type: 'string', description: 'Target id for update/deprecate.' },
           expected_version: { type: 'number', description: 'Current target version for update/deprecate.' },
           reason: { type: 'string', description: 'Required for deprecate; recorded in the audit log.' },
+          merged_ids: {
+            type: 'array',
+            items: { type: 'string' },
+            maxItems: 10,
+            description: 'Merge only: accepted ids to fold into target (1..10, same type and scope, not target itself, not already merged). They become superseded with superseded_by set to target when the proposal is committed.',
+          },
           valid_from: {
             type: 'string',
             description: 'Optional ISO 8601 timestamp with timezone: when the fact starts to hold. Defaults to the commit time. Entries whose valid_from is still in the future are treated as scheduled and stay out of preflight until then.',
@@ -328,6 +355,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
           ...(input.valid_from === undefined ? {} : { valid_from: String(input.valid_from) }),
           ...(input.expires_at === undefined ? {} : { expires_at: String(input.expires_at) }),
           ...(input.last_verified === undefined ? {} : { last_verified: String(input.last_verified) }),
+          ...(input.merged_ids === undefined ? {} : { merged_ids: input.merged_ids as string[] }),
         })
       },
     }),

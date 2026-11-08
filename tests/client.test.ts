@@ -137,6 +137,22 @@ describe('client bundle', () => {
           taskId: 'TSK-20261101-abc123',
           createdAt: '2026-11-01T00:00:00Z',
         },
+        {
+          id: 'PRO-000002',
+          operation: 'merge',
+          type: 'decision',
+          title: '合并后的决策',
+          summary: '把两版合并成一版。',
+          scope: 'global',
+          taskId: 'TSK-20261101-abc123',
+          createdAt: '2026-11-01T00:00:00Z',
+          merged: [{ id: 'DEC-000002', title: '旧条目', summary: '旧摘要。' }],
+          diff: [
+            { kind: 'del', text: '旧正文。' },
+            { kind: 'add', text: '新正文。' },
+          ],
+          diffTruncated: false,
+        },
       ],
       tasks: [
         {
@@ -199,5 +215,12 @@ describe('client bundle', () => {
     expect(pendingHtml).toContain('拒绝选中')
     expect(pendingHtml).toContain('type="checkbox"')
     expect(pendingHtml).toContain('panel:human')
+    // merge 卡片只读展示被合并条目与行级 diff。
+    expect(pendingHtml).toContain('PRO-000002')
+    expect(pendingHtml).toContain('合并 1 条到 target')
+    expect(pendingHtml).toContain('DEC-000002')
+    expect(pendingHtml).toContain('dmh-diff')
+    expect(pendingHtml).toContain('-旧正文。')
+    expect(pendingHtml).toContain('+新正文。')
   })
 })

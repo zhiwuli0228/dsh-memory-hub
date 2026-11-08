@@ -69,6 +69,8 @@ export interface ProposalInput {
   validFrom?: string
   expiresAt?: string
   lastVerified?: string
+  /** merge 提案要并入 target 的知识 id（1..10）。 */
+  mergedIds?: string[]
 }
 
 export interface CreateProposalOptions {
@@ -306,6 +308,52 @@ export class KnowledgeStore {
       }
     }
 
+    const rawMergedIds = (input.mergedIds ?? []).map((value) => value.trim()).filter(Boolean)
+    if (new Set(rawMergedIds).size !== rawMergedIds.length) {
+      throw new MemoryError('INVALID_INPUT', 'merged_ids must not contain duplicates')
+    }
+    const mergedIds = [...new Set(rawMergedIds)]
+    if (input.operation !== 'merge') {
+      if (mergedIds.length > 0) {
+        throw new MemoryError('INVALID_INPUT', 'merged_ids is only supported for merge')
+      }
+    } else {
+      if (mergedIds.length === 0) {
+        throw new MemoryError('INVALID_INPUT', 'merge requires merged_ids')
+      }
+      if (mergedIds.length > 10) {
+        throw new MemoryError('INVALID_INPUT', 'merge supports at most 10 merged_ids')
+      }
+      if (input.target === undefined || input.target === '') {
+        throw new MemoryError('INVALID_INPUT', 'merge requires target')
+      }
+      const target = this.docs.get(input.target)
+      if (target === undefined) {
+        throw new MemoryError('NOT_FOUND', `target ${input.target} does not exist`)
+      }
+      if (mergedIds.includes(target.id)) {
+        throw new MemoryError('INVALID_INPUT', 'merged_ids must not contain the target')
+      }
+      for (const mergedId of mergedIds) {
+        const merged = this.docs.get(mergedId)
+        if (merged === undefined) {
+          throw new MemoryError('NOT_FOUND', `merged entry ${mergedId} does not exist`)
+        }
+        if (merged.status !== 'accepted') {
+          throw new MemoryError('INVALID_STATE', `merged entry ${mergedId} is ${merged.status}`)
+        }
+        if (merged.supersededBy !== null) {
+          throw new MemoryError('INVALID_STATE', `merged entry ${mergedId} is already superseded by ${merged.supersededBy}`)
+        }
+        if (merged.type !== target.type) {
+          throw new MemoryError('INVALID_INPUT', `merged entry ${mergedId} has type ${merged.type}, target has ${target.type}`)
+        }
+        if (formatScope(merged.scope) !== formatScope(target.scope)) {
+          throw new MemoryError('SCOPE_FORBIDDEN', `merged entry ${mergedId} is not in scope ${formatScope(target.scope)}`)
+        }
+      }
+    }
+
     const number = await this.allocate('PRO')
     const id = `PRO-${formatSequence(number)}`
 
@@ -332,6 +380,7 @@ export class KnowledgeStore {
       validFrom,
       expiresAt,
       lastVerified,
+      mergedIds,
       taskId: options.taskId,
       createdAt: now,
       updatedAt: now,
@@ -384,6 +433,10 @@ export class KnowledgeStore {
       }
     } else if (proposal.operation === 'update') {
       record = await this.updateFromProposal(proposal, now)
+    } else if (proposal.operation === 'merge') {
+      const merged = await this.mergeFromProposal(proposal, now)
+      record = merged.record
+      superseded.push(...merged.merged)
     } else {
       record = await this.deprecateFromProposal(proposal, now)
     }
@@ -449,6 +502,7 @@ export class KnowledgeStore {
       validFrom: proposal.validFrom,
       expiresAt: proposal.expiresAt,
       lastVerified: proposal.lastVerified ?? now,
+      supersededBy: null,
       format: 1,
       body: proposal.body,
       path: this.hub.knowledgePath(proposal.type, id),
@@ -480,6 +534,89 @@ export class KnowledgeStore {
     await this.archiveVersion(target)
     await this.writeRecord(record)
     return record
+  }
+
+  /**
+   * merge 提交：target 接受合并稿并 +1；被合并项进入 superseded 并写反向指针。
+   * 纯确定性——不重新计算相似度、不改写被合并项的正文。
+   */
+  private async mergeFromProposal(
+    proposal: ProposalRecord,
+    now: string,
+  ): Promise<{ record: KnowledgeRecord; merged: string[] }> {
+    const target = this.requireTarget(proposal)
+    const mergedIds = proposal.mergedIds
+    if (mergedIds.length === 0) {
+      throw new MemoryError('INVALID_INPUT', 'merge requires merged_ids')
+    }
+    const mergedRecords: KnowledgeRecord[] = []
+    for (const mergedId of mergedIds) {
+      const merged = this.docs.get(mergedId)
+      if (merged === undefined) throw new MemoryError('NOT_FOUND', `merged entry ${mergedId} does not exist`)
+      if (merged.status !== 'accepted') {
+        throw new MemoryError('INVALID_STATE', `merged entry ${mergedId} is ${merged.status}`)
+      }
+      if (merged.supersededBy !== null) {
+        throw new MemoryError('INVALID_STATE', `merged entry ${mergedId} is already superseded by ${merged.supersededBy}`)
+      }
+      if (merged.type !== target.type) {
+        throw new MemoryError('INVALID_INPUT', `merged entry ${mergedId} has type ${merged.type}, target has ${target.type}`)
+      }
+      if (formatScope(merged.scope) !== formatScope(target.scope)) {
+        throw new MemoryError('SCOPE_FORBIDDEN', `merged entry ${mergedId} is not in scope ${formatScope(target.scope)}`)
+      }
+      mergedRecords.push(merged)
+    }
+
+    const maxSourceRefs = this.hub.config.policy.limits.max_source_refs
+    const related = [...new Set([...target.related, ...mergedIds, ...proposal.related])]
+    const sourceRefs = [...new Set([
+      ...target.sourceRefs,
+      ...proposal.sourceRefs,
+      ...mergedRecords.flatMap((merged) => merged.sourceRefs),
+    ])].slice(0, maxSourceRefs)
+
+    const record: KnowledgeRecord = {
+      ...target,
+      title: proposal.title,
+      summary: proposal.summary,
+      tags: proposal.tags,
+      sourceRefs,
+      related,
+      appliesTo: proposal.appliesTo,
+      version: target.version + 1,
+      updatedAt: now,
+      validFrom: proposal.validFrom ?? target.validFrom,
+      expiresAt: proposal.expiresAt ?? target.expiresAt,
+      lastVerified: proposal.lastVerified ?? now,
+      supersededBy: null,
+      body: proposal.body,
+      path: this.hub.knowledgePath(target.type, target.id),
+    }
+    await this.archiveVersion(target)
+    await this.writeRecord(record)
+
+    for (const merged of mergedRecords) {
+      const next: KnowledgeRecord = {
+        ...merged,
+        status: 'superseded',
+        supersededBy: target.id,
+        version: merged.version + 1,
+        updatedAt: now,
+        path: this.hub.knowledgePath(merged.type, merged.id),
+      }
+      await this.archiveVersion(merged)
+      await this.writeRecord(next)
+    }
+
+    await this.ledger.append({
+      type: 'knowledge.merged',
+      target: target.id,
+      merged: mergedIds,
+      version: record.version,
+      proposalId: proposal.id,
+    })
+    return { record, merged: mergedIds }
   }
 
   private async deprecateFromProposal(proposal: ProposalRecord, now: string): Promise<KnowledgeRecord> {
@@ -623,6 +760,7 @@ export class KnowledgeStore {
       validFrom: null,
       expiresAt: null,
       lastVerified: null,
+      mergedIds: [],
       taskId: 'TSK-consolidation',
       createdAt: now,
       updatedAt: now,

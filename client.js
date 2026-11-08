@@ -105,6 +105,9 @@
     'pending.batchConfirmApprove': '确认批准选中的 {count} 条候选？批准后立即成为权威知识。',
     'pending.batchConfirmReject': '确认拒绝选中的 {count} 条候选？候选将归档为 rejected。',
     'pending.batchResult': '批量完成：成功 {ok} 条，失败 {failed} 条',
+    'pending.merge': '合并 {count} 条到 target：{ids}',
+    'pending.mergeDiff': '正文 diff（旧 → 新）',
+    'pending.diffTruncated': '仅显示前 200 行',
     'activity.empty': '还没有任务记录',
     'activity.task': '任务',
     'activity.session': '会话',
@@ -287,6 +290,9 @@
     'pending.batchConfirmApprove': 'Approve the {count} selected proposals? They become authoritative knowledge immediately.',
     'pending.batchConfirmReject': 'Reject the {count} selected proposals? They will be archived as rejected.',
     'pending.batchResult': 'Batch done: {ok} succeeded, {failed} failed',
+    'pending.merge': 'Merge {count} into target: {ids}',
+    'pending.mergeDiff': 'Body diff (old → new)',
+    'pending.diffTruncated': 'Showing the first 200 lines only',
     'activity.empty': 'No task records yet',
     'activity.task': 'Task',
     'activity.session': 'Session',
@@ -456,6 +462,10 @@
 .dmh-kv dd{margin:0;overflow-wrap:anywhere}
 .dmh-footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--dsw-alias-label-secondary);font-size:11px;border-top:1px solid var(--dsw-alias-border-l1);padding-top:12px}
 .dmh-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.dmh-diff{max-height:320px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:6px 8px;margin-top:6px;background:var(--dsw-alias-bg-layer-2);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.55}
+.dmh-diff-line{white-space:pre-wrap;word-break:break-word}
+.dmh-diff-add{color:var(--dsw-alias-state-success-primary)}
+.dmh-diff-del{color:var(--dsw-alias-state-error-primary)}
 .dmh-spin{display:inline-block;width:12px;height:12px;border:2px solid var(--dsw-alias-border-l1);border-top-color:var(--dsw-alias-brand-primary);border-radius:50%;animation:dmh-spin .8s linear infinite}
 @keyframes dmh-spin{to{transform:rotate(360deg)}}
 .dmh-config{display:flex;flex-direction:column;gap:14px}
@@ -948,6 +958,27 @@
                 : null),
             h('div', { className: 'dmh-row-title' }, proposal.title),
             h('div', { className: 'dmh-row-summary' }, proposal.summary),
+            Array.isArray(proposal.merged) && proposal.merged.length > 0
+              ? h('div', { className: 'dmh-row-id dmh-mono' },
+                  t('pending.merge')
+                    .replace('{count}', String(proposal.merged.length))
+                    .replace('{ids}', proposal.merged.map((item) => item.id).join(', ')))
+              : null,
+            Array.isArray(proposal.merged) && proposal.merged.length > 0
+              ? h('div', { className: 'dmh-row-summary' },
+                  proposal.merged.map((item) => `${item.id} ${item.title}`).join(' · '))
+              : null,
+            Array.isArray(proposal.diff) && proposal.diff.length > 0
+              ? h('div', null,
+                  h('div', { className: 'dmh-section-hint' }, t('pending.mergeDiff')),
+                  h('div', { className: 'dmh-diff' },
+                    proposal.diff.map((line, index) =>
+                      h('div', {
+                        key: `${index}-${line.kind}`,
+                        className: `dmh-diff-line${line.kind === 'add' ? ' dmh-diff-add' : ''}${line.kind === 'del' ? ' dmh-diff-del' : ''}`,
+                      }, `${line.kind === 'add' ? '+' : line.kind === 'del' ? '-' : ' '}${line.text}`))),
+                  proposal.diffTruncated ? h('div', { className: 'dmh-section-hint' }, t('pending.diffTruncated')) : null)
+              : null,
             proposal.expiresAt || proposal.validFrom || proposal.lastVerified
               ? h('div', { className: 'dmh-row-id dmh-mono' },
                   [
