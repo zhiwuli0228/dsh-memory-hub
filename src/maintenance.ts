@@ -22,7 +22,8 @@ export interface MaintenanceWorkspace {
 export interface MaintenanceAnalysisOptions {
   coreId: string | null
   workspaces: MaintenanceWorkspace[]
-  citations: Set<string>
+  /** knowledgeId → 最近一次 memory_cite 的 createdAt（ISO）。没有记录即从未被引用。 */
+  citations: ReadonlyMap<string, string>
   stalePendingDays: number
   staleCitationDays: number
   now?: Date
@@ -74,6 +75,8 @@ export interface MaintenanceAnalysis {
     aging: number
     stale: number
     scheduled: number
+    /** 至少被引用过一次的 accepted 条目数。 */
+    cited: number
   }
 }
 
@@ -96,6 +99,15 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
 
   for (const record of accepted) {
     const state = temporalState(record, nowMs, temporal)
+    const lastCitedAt = options.citations.get(record.id) ?? null
+    // 引用也是「仍然有用」的证据：最近一次引用比上次确认更新时，aging 以引用时间为基准。
+    const basis = laterIso(record.lastVerified ?? record.updatedAt, lastCitedAt)
+    const basisAge = ageDays(basis, nowMs)
+    const recentlyCited = basisAge !== null && basisAge < temporal.aging_days
+    if (state === 'aging' && recentlyCited) {
+      temporalCounts.fresh += 1
+      continue
+    }
     temporalCounts[state] += 1
     if (state === 'stale') {
       issues.push({
@@ -105,10 +117,11 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
         ids: [record.id],
       })
     } else if (state === 'aging') {
+      const citationNote = lastCitedAt === null ? '' : `（最近引用 ${formatDay(lastCitedAt)}）`
       issues.push({
         code: 'aging',
         severity: 'info',
-        message: `${record.id} 已 ${Math.floor(ageDays(record.lastVerified ?? record.updatedAt, nowMs) ?? 0)} 天未确认：${record.title}`,
+        message: `${record.id} 已 ${basisAge ?? 0} 天未确认${citationNote}：${record.title}`,
         ids: [record.id],
       })
     }
@@ -193,16 +206,19 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
   }
 
   let uncited = 0
+  const cited = accepted.filter((record) => options.citations.has(record.id)).length
   for (const record of accepted) {
-    if (options.citations.has(record.id)) continue
-    const age = ageDays(record.updatedAt, nowMs)
+    const lastCitedAt = options.citations.get(record.id) ?? null
+    const age = ageDays(lastCitedAt ?? record.updatedAt, nowMs)
     if (age === null || age < options.staleCitationDays) continue
     uncited += 1
     if (uncited > 20) continue
     issues.push({
       code: 'uncited',
       severity: 'info',
-      message: `${record.id} 已 ${age} 天未被引用：${record.title}`,
+      message: lastCitedAt === null
+        ? `${record.id} 创建以来 ${age} 天从未被引用：${record.title}`
+        : `${record.id} 已 ${age} 天未被引用（最近引用 ${formatDay(lastCitedAt)}）：${record.title}`,
       ids: [record.id],
     })
   }
@@ -308,6 +324,7 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
       accepted: accepted.length,
       proposalsExisting: store.proposals.size,
       ...temporalCounts,
+      cited,
     },
   }
 }
@@ -339,6 +356,7 @@ export function renderMaintenanceReport(input: {
     `- issues: ${input.analysis.issues.length}`,
     `- candidates: ${input.analysis.candidates.length}`,
     `- temporal: fresh ${input.analysis.totals.fresh} · aging ${input.analysis.totals.aging} · stale ${input.analysis.totals.stale} · scheduled ${input.analysis.totals.scheduled}`,
+    `- cited: ${input.analysis.totals.cited} / accepted ${input.analysis.totals.accepted}`,
     `- proposals created: ${input.created.length}`,
     `- skipped (already pending): ${input.skipped}`,
     `- max proposals: ${input.maxProposals}`,
@@ -386,6 +404,7 @@ export function renderMaintenanceReport(input: {
     '- Proposals are pending; nothing was committed, deleted, or rewritten.',
     '- Exact duplicates become deprecate proposals; project knowledge is promoted only with an explicit reuse tag.',
     '- Expired entries are reported only: they are never deleted or rewritten automatically.',
+    '- Uncited entries are reported only: a recent citation can refresh aging, but nothing is archived automatically.',
     '- Review pending proposals in the Web panel or with memory_get, then commit intentionally.',
     '',
   )
@@ -398,6 +417,20 @@ function normalizeText(value: string): string {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex')
+}
+
+function laterIso(left: string, right: string | null): string {
+  if (right === null) return left
+  const leftMs = Date.parse(left)
+  const rightMs = Date.parse(right)
+  if (!Number.isFinite(rightMs)) return left
+  if (!Number.isFinite(leftMs)) return right
+  return rightMs > leftMs ? right : left
+}
+
+function formatDay(value: string): string {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : value
 }
 
 function ageDays(value: string, nowMs: number): number | null {
@@ -413,3 +446,5 @@ function mergeTags(existing: string[], extra: string[]): string[] {
 function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}…`
 }
+
+

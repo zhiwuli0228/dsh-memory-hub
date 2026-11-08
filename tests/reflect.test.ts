@@ -51,6 +51,23 @@ class FakeSource implements SessionDigestSource {
     if (record === undefined) throw new Error('session not found')
     return record
   }
+
+  async searchEvents(request: { sessionId: string; query: string; limit?: number }) {
+    const record = this.sessions.get(request.sessionId)
+    if (record === undefined) throw new Error('session not found')
+    const needle = request.query.toLowerCase()
+    const items = record.events
+      .filter((event) => JSON.stringify(event.data ?? '').toLowerCase().includes(needle))
+      .slice(0, request.limit ?? 20)
+      .map((event) => ({
+        sessionId: request.sessionId,
+        seq: event.seq ?? 0,
+        type: event.type,
+        time: event.time,
+        snippet: needle,
+      }))
+    return { session: record.session, items }
+  }
 }
 
 function longConversation(id: string, cwd: string, marker: string): ReflectSessionSnapshot {
@@ -213,6 +230,33 @@ describe('memory_reflect', () => {
       expect(dry.dryRun).toBe(true)
       expect(dry.sessions.map((entry) => entry.sessionId)).toEqual(['s-core'])
       await expect(stat(join(harness.root, 'records', 'reflect-state.json'))).rejects.toThrow()
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('searches original events without writing a watermark', async () => {
+    const source = new FakeSource([longConversation('s-core', 'E:/placeholders/core', '核心')])
+    const harness = await reflectHarness(source)
+    try {
+      source.sessions.get('s-core')!.session.cwd = harness.root
+
+      const result = await harness.service.reflect(harness.agent, { mode: 'search', query: '方案 B' })
+      expect(result.mode).toBe('search')
+      expect(result.available).toBe(true)
+      expect(result.hits?.map((hit) => hit.seq)).toEqual([5])
+      expect(result.hits?.[0]?.snippet).toBe('方案 b')
+      expect(result.hits?.[0]?.cwd).toBe(harness.root)
+      expect(result.hitsTruncated).toBe(false)
+      // 只读：search 模式不写水位、不写账本。
+      await expect(stat(join(harness.root, 'records', 'reflect-state.json'))).rejects.toThrow()
+
+      await expect(
+        harness.service.reflect(harness.agent, { mode: 'search', query: '方案 B', session_id: 's-other' }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+      await expect(
+        harness.service.reflect(harness.agent, { mode: 'search' }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
     } finally {
       await harness.cleanup()
     }

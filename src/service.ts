@@ -23,6 +23,7 @@ import {
 import { nowIso } from './time.js'
 import { temporalAnnotation, temporalState, type TemporalPolicy } from './temporal.js'
 import { findNearDuplicates } from './duplicates.js'
+import { assessProposalRisk, type ProposalRisk } from './risk.js'
 import type {
   AppliesTo,
   CitationRecord,
@@ -706,9 +707,16 @@ export class MemoryService {
    * 回顾式萃取：把本工作区名下已结束会话压成 digest，供模型据此 `memory_propose`。
    * 只读会话与账本/水位；不写任何知识文件，也不调用模型。
    */
-  async reflect(agent: AgentLike, args: { session_id?: string; limit?: number; dry_run?: boolean }): Promise<{
+  async reflect(agent: AgentLike, args: {
+    mode?: 'digest' | 'search'
+    session_id?: string
+    limit?: number
+    dry_run?: boolean
+    query?: string
+  }): Promise<{
     available: boolean
     workspaceId: string
+    mode: 'digest' | 'search'
     reason?: string
     sessions: Array<{
       sessionId: string
@@ -720,11 +728,22 @@ export class MemoryService {
       digestHash: string
       seqRange: { from: number; to: number } | null
     }>
+    hits?: Array<{
+      sessionId: string
+      cwd: string
+      seq: number
+      type: string
+      time: string | null
+      surface: string | null
+      snippet: string
+    }>
+    hitsTruncated?: boolean
     skipped: Array<{ sessionId: string; reason: string }>
     dryRun: boolean
   }> {
     const workspace = await this.resolveWorkspace(agent)
     const dryRun = args.dry_run === true
+    const mode: 'digest' | 'search' = args.mode === 'search' ? 'search' : 'digest'
     const workspaceId = workspace.id
     if (workspaceId === null) {
       throw new MemoryError('INVALID_STATE', 'workspace is not registered in config.yaml; add it before reflecting sessions')
@@ -733,6 +752,7 @@ export class MemoryService {
       return {
         available: false,
         workspaceId,
+        mode,
         reason: 'sessionQuery service unavailable on this host',
         sessions: [],
         skipped: [],
@@ -755,6 +775,7 @@ export class MemoryService {
       return {
         available: false,
         workspaceId,
+        mode,
         reason: `sessionQuery listSessions failed: ${(error as Error).message}`,
         sessions: [],
         skipped: [],
@@ -774,6 +795,86 @@ export class MemoryService {
         return true
       })
       .sort((left, right) => (right.header.createdAt ?? 0) - (left.header.createdAt ?? 0))
+
+    const skipped: Array<{ sessionId: string; reason: string }> = []
+
+    // 原文取证：不压缩、不写水位，只把宿主全文检索命中的原始事件序号与片段交回模型。
+    if (mode === 'search') {
+      const query = (args.query ?? '').trim()
+      if (query === '') {
+        throw new MemoryError('INVALID_INPUT', 'mode "search" requires a non-empty query')
+      }
+      if (typeof this.reflectSource.searchEvents !== 'function') {
+        return {
+          available: false,
+          workspaceId,
+          mode,
+          reason: 'sessionQuery.searchEvents unavailable on this host',
+          sessions: [],
+          skipped: [],
+          dryRun,
+        }
+      }
+      const limit = Math.max(1, Math.min(50, Math.trunc(args.limit ?? 20)))
+      let targets = owned.slice(0, 3)
+      if (args.session_id !== undefined && args.session_id !== '') {
+        const requested = owned.find((record) => record.header.id === args.session_id)
+        if (requested === undefined) {
+          throw new MemoryError(
+            'INVALID_INPUT',
+            `session ${args.session_id} is not an ended session owned by workspace ${workspace.id}`,
+          )
+        }
+        targets = [requested]
+      }
+      const hits: Array<{
+        sessionId: string
+        cwd: string
+        seq: number
+        type: string
+        time: string | null
+        surface: string | null
+        snippet: string
+      }> = []
+      for (const record of targets) {
+        const sessionId = record.header.id
+        const cwd = typeof record.header.cwd === 'string' ? record.header.cwd : ''
+        try {
+          const page = await this.reflectSource.searchEvents({ sessionId, query, limit })
+          for (const item of page.items) {
+            hits.push({
+              sessionId,
+              cwd,
+              seq: item.seq,
+              type: item.type,
+              time: typeof item.time === 'number' ? new Date(item.time).toISOString() : null,
+              surface: typeof item.surface === 'string' ? item.surface : null,
+              snippet: item.snippet,
+            })
+          }
+        } catch (error) {
+          skipped.push({ sessionId, reason: `search-failed: ${(error as Error).message}` })
+        }
+      }
+      const seen = new Set<string>()
+      const unique = hits.filter((hit) => {
+        const key = `${hit.sessionId}:${hit.seq}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      const capped = unique.slice(0, limit)
+      return {
+        available: true,
+        workspaceId,
+        mode,
+        sessions: [],
+        hits: capped,
+        hitsTruncated: unique.length > capped.length,
+        skipped,
+        dryRun: true,
+      }
+    }
 
     let selected = owned
     if (args.session_id !== undefined && args.session_id !== '') {
@@ -798,7 +899,6 @@ export class MemoryService {
       digestHash: string
       seqRange: { from: number; to: number } | null
     }> = []
-    const skipped: Array<{ sessionId: string; reason: string }> = []
 
     for (const record of selected) {
       const sessionId = record.header.id
@@ -862,7 +962,7 @@ export class MemoryService {
       })
     }
 
-    return { available: true, workspaceId, sessions, skipped, dryRun }
+    return { available: true, workspaceId, mode, sessions, skipped, dryRun }
   }
 
   private reflectConfigFor(workspaceId: string) {
@@ -1147,6 +1247,7 @@ export class MemoryService {
     pendingPath: string
     core: string | null
     scope: string
+    risk: ProposalRisk
   }> {
     const state = this.sessions.get(agent.id)
     if (state === undefined) throw new MemoryError('NO_TASK', 'no open task for this session')
@@ -1186,6 +1287,13 @@ export class MemoryService {
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
       throw new MemoryError('INVALID_STATE', `task already has ${pending.length} pending proposals`)
     }
+    // 风险标记只给人看：候选照常写入 pending/，模型不能据此自批或被静默拒绝。
+    const risk = assessProposalRisk({
+      title: args.title,
+      summary: args.summary,
+      ...(args.content === undefined ? {} : { content: args.content }),
+      ...(args.source_refs === undefined ? {} : { sourceRefs: args.source_refs }),
+    })
     const duplicate = pending.find(
       (proposal) =>
         proposal.operation === args.operation &&
@@ -1200,6 +1308,7 @@ export class MemoryService {
         pendingPath: KnowledgeStore.relativePath(owningHub.root, duplicate.path),
         core: owningCoreId,
         scope: formattedScope,
+        risk,
       }
     }
 
@@ -1230,12 +1339,16 @@ export class MemoryService {
       type: 'proposal.created',
       taskId: state.taskId,
       proposalId: proposal.id,
+      ...(risk.level === 'none'
+        ? {}
+        : { riskLevel: risk.level, riskSignals: risk.signals.map((signal) => signal.code) }),
     })
     return {
       proposalId: proposal.id,
       pendingPath: KnowledgeStore.relativePath(owningHub.root, proposal.path),
       core: owningCoreId,
       scope: formattedScope,
+      risk,
     }
   }
 
@@ -1516,7 +1629,7 @@ export class MemoryService {
         admin: workspace.admin,
         enabled: workspace.enabled,
       })),
-      citations: new Set(this.citations.map((citation) => citation.knowledgeId)),
+      citations: this.citationIndex(),
       stalePendingDays,
       staleCitationDays,
       ...(args.now === undefined ? {} : { now: args.now }),
@@ -1614,6 +1727,18 @@ export class MemoryService {
     }
   }
 
+  /** knowledgeId → 最近一次引用时间；维护与面板都用这一份口径。 */
+  private citationIndex(): Map<string, string> {
+    const index = new Map<string, string>()
+    for (const citation of this.citations) {
+      const prior = index.get(citation.knowledgeId)
+      if (prior === undefined || Date.parse(citation.createdAt) > Date.parse(prior)) {
+        index.set(citation.knowledgeId, citation.createdAt)
+      }
+    }
+    return index
+  }
+
   private maintenanceAlreadyPending(candidate: MaintenanceCandidate, tags: Set<string>): boolean {
     if (tags.has(maintenanceToken(candidate.fingerprint))) return true
     for (const proposal of this.store.proposals.values()) {
@@ -1638,6 +1763,7 @@ export class MemoryService {
   }
 
   overview(): Record<string, unknown> {
+    const citations = this.citationIndex()
     interface KnowledgeRow {
       id: string
       type: KnowledgeType
@@ -1651,6 +1777,7 @@ export class MemoryService {
       validFrom: string | null
       expiresAt: string | null
       lastVerified: string | null
+      lastCitedAt: string | null
       core?: string | null
     }
     const describe = (
@@ -1670,6 +1797,7 @@ export class MemoryService {
       validFrom: record.validFrom,
       expiresAt: record.expiresAt,
       lastVerified: record.lastVerified,
+      lastCitedAt: citations.get(record.id) ?? null,
       ...(core === undefined ? {} : { core }),
     })
     const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record))
@@ -1722,6 +1850,12 @@ export class MemoryService {
           validFrom: proposal.validFrom,
           expiresAt: proposal.expiresAt,
           lastVerified: proposal.lastVerified,
+          risk: assessProposalRisk({
+            title: proposal.title,
+            summary: proposal.summary,
+            content: proposal.body,
+            sourceRefs: proposal.sourceRefs,
+          }),
           temporal: temporalState(
             {
               validFrom: proposal.validFrom,
@@ -2311,3 +2445,6 @@ function containsPath(root: string, child: string): boolean {
   const rel = relative(root.replace(/\\/g, '/'), child.replace(/\\/g, '/'))
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !rel.startsWith(`..${sep}`)
 }
+
+
+

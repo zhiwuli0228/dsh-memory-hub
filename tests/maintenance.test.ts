@@ -139,6 +139,48 @@ describe('memory maintenance', () => {
     expect(result.reportPath).not.toBeNull()
   })
 
+  it('uses the most recent citation as freshness for aging and uncited checks', async () => {
+    const harness = await harnessWithCore()
+    const old = await harness.store.propose(
+      {
+        operation: 'create',
+        type: 'decision',
+        scope: 'project:sub',
+        title: '旧决策',
+        summary: '很久没有确认。',
+        content: '## 结论\n仍然有效，但需要复核。\n',
+        sourceRefs: ['note:test fixture'],
+        lastVerified: '2020-01-01T00:00:00.000Z',
+      },
+      { taskId: 'TSK-bitrot' },
+    )
+    const { record } = await harness.store.commit(old.id)
+    const never = await harness.seed({ scope: 'project:sub', title: '从未引用', summary: '无人使用。' })
+
+    const before = await harness.service.maintenance({ admin: true, coreId: 'core', apply: 'report' })
+    expect(before.issues.some((issue) => issue.code === 'aging' && issue.ids.includes(record.id))).toBe(true)
+    expect(before.totals.cited).toBe(0)
+
+    await harness.service.preflightForTurn(harness.agent, 1, '旧决策')
+    await harness.service.cite(harness.agent, { knowledge_id: record.id, purpose: '复用了旧决策' })
+
+    const after = await harness.service.maintenance({ admin: true, coreId: 'core', apply: 'report' })
+    expect(after.totals.cited).toBe(1)
+    expect(after.issues.some((issue) => issue.code === 'aging' && issue.ids.includes(record.id))).toBe(false)
+
+    // 把「现在」推后 200 天：两条都会进入未引用报告，但依据不同。
+    const later = await harness.service.maintenance({
+      admin: true,
+      coreId: 'core',
+      apply: 'report',
+      staleCitationDays: 30,
+      now: new Date(Date.now() + 200 * 86_400_000),
+    })
+    const uncited = later.issues.filter((issue) => issue.code === 'uncited').map((issue) => issue.message)
+    expect(uncited.some((message) => message.includes(record.id) && message.includes('最近引用'))).toBe(true)
+    expect(uncited.some((message) => message.includes(never) && message.includes('从未被引用'))).toBe(true)
+  })
+
   it('rejects non-admin maintenance', async () => {
     const harness = await harnessWithCore()
     await expect(

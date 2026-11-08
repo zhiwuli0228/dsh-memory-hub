@@ -137,6 +137,10 @@ describe('client bundle', () => {
           taskId: 'TSK-20261101-abc123',
           createdAt: '2026-11-01T00:00:00Z',
           batch: 'alpha',
+          risk: {
+            level: 'review',
+            signals: [{ code: 'prompt-injection', label: '要求忽略既有指令', sample: '忽略以上' }],
+          },
         },
         {
           id: 'PRO-000002',
@@ -221,6 +225,8 @@ describe('client bundle', () => {
     expect(pendingHtml).toContain('批准')
     expect(pendingHtml).toContain('拒绝')
     expect(pendingHtml).toContain('全选')
+    expect(pendingHtml).toContain('需确认')
+    expect(pendingHtml).toContain('要求忽略既有指令')
     expect(pendingHtml).toContain('批准选中')
     expect(pendingHtml).toContain('拒绝选中')
     expect(pendingHtml).toContain('type="checkbox"')
@@ -239,3 +245,4 @@ describe('client bundle', () => {
     expect(pendingHtml).toContain('+新正文。')
   })
 })
+

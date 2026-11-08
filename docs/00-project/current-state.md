@@ -101,7 +101,10 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 派生 SQLite 索引（V0.7 WIP，按 [proposal-derived-index](../03-openspec/proposal-derived-index.md)）：`storage.index: auto|memory|sqlite`（默认 `auto`，阈值 `sqlite_min_entries` 30k）、`index_candidate_limit`（默认 2000）、`records/index.sqlite`（contentless FTS5 倒排 + `terms` df + 文档元数据）、`entry_count + 知识目录 mtime` 指纹校验、损坏或缺少 `node:sqlite` 时回退内存并记诊断
 - [x] 检索打分抽成 `SearchIndex` 与 `rankScored` / `bm25Term` / `passesFilters` / `searchSetup`：内存索引与 SQLite 索引共用同一份公式；命中数 ≤ 候选上限时两者逐位一致
 - [x] `/api/overview` 与 `memory_status` 暴露 `index.backend` / `index.rebuilt`；`store.closeIndex()` 释放句柄（Windows 文件锁）
-- [x] 129 个 vitest 测试（17 个文件）
+- [x] P0 原文取证（V0.7 WIP，按 [proposal-evidence-lifecycle-risk](../03-openspec/proposal-evidence-lifecycle-risk.md)）：`memory_reflect` 增加 `mode: "search"`，经宿主 `sessionQuery.searchEvents` 返回 `seq/type/time/snippet`；只读、不写水位与账本；缺省扫最近 3 个本工作区会话，`limit` 1..50
+- [x] P0 引用生命周期：维护报告与 aging 参考最近一次 `memory_cite`（`knowledgeId → lastCitedAt`），`uncited` 区分「从未引用 / 最近引用 N 天前」，totals 增加 `cited`；`/api/overview` 知识行带 `lastCitedAt`；归档仍需人批准的 deprecate 候选
+- [x] P0 写入风险标记：`src/risk.ts` 扫描注入短语、凭据形态、零宽/方向控制符、角色伪造；`memory_propose` 返回 `risk`、账本记 `riskLevel/riskSignals`、面板候选卡片显示「需确认」；**只标记，不阻断、不改写**
+- [x] 137 个 vitest 测试（18 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
@@ -234,6 +237,7 @@ dsh-memory-hub/
 - [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
+- [proposal-evidence-lifecycle-risk.md](../03-openspec/proposal-evidence-lifecycle-risk.md) — P0 三件套（**已实现**）：`memory_reflect` 原文取证、引用驱动生命周期、写入风险标记。
 
 ## 下一步推荐工作
 

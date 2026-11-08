@@ -69,7 +69,7 @@
     'cap.consolidate': '管理员手动把项目知识晋升为 global 候选；幂等、不覆盖下游。',
     'cap.maintenance': '确定性巡检所有 core / 子工作区，写报告并按需生成 pending 提案；不自动提交、不删除。',
     'cap.duplicates': '只读扫描近重复（同类型、同作用域），给出保留项与相似度；合并要另写 operation: merge 的候选等人工批准。',
-    'cap.reflect': '只读回顾本工作区名下已结束的会话，返回 digest 供模型补写候选；不调用模型、不自动创建候选。',
+    'cap.reflect': '只读回顾本工作区名下已结束的会话：默认返回 digest 供模型补写候选，也可用 search 模式按原文检索事件；不调用模型、不自动创建候选。',
     'knowledge.search': '搜索标题、摘要、ID…',
     'knowledge.allTypes': '全部类型',
     'knowledge.allStatuses': '全部状态',
@@ -99,6 +99,12 @@
     'pending.rejected': '已拒绝',
     'pending.confirmApprove': '确认批准候选 {id}？批准后立即成为权威知识。',
     'pending.confirmReject': '确认拒绝候选 {id}？候选将归档为 rejected。',
+    'pending.risk': '需确认',
+    'pending.riskHint': '自动扫描标记：疑似注入/凭据/不可见字符，请人工判断；不会阻止提交。',
+    'risk.invisible-characters': '不可见字符',
+    'risk.prompt-injection': '疑似提示注入',
+    'risk.credential-material': '疑似凭据',
+    'risk.override-phrase': '角色伪造',
     'pending.reviewDisabled': '面板审核已被 policy.panel.review 关闭，请使用会话内 memory_commit 审批。',
     'pending.selectAll': '全选',
     'pending.selected': '已选 {count} 条',
@@ -260,7 +266,7 @@
     'cap.consolidate': 'Admin-only promotion of project knowledge into global candidates; idempotent and non-destructive.',
     'cap.maintenance': 'Deterministic scan of every core / sub-workspace; writes reports and optional pending proposals without committing or deleting.',
     'cap.duplicates': 'Read-only near-duplicate scan (same type and scope) with keeper suggestions; merging needs a separate operation: merge proposal approved by a human.',
-    'cap.reflect': 'Read-only digest of finished sessions owned by this workspace so the model can propose what was missed; never calls a model or auto-creates candidates.',
+    'cap.reflect': 'Read-only session review for this workspace: digest mode for candidate follow-ups, search mode for original event evidence; never calls a model or auto-creates candidates.',
     'knowledge.search': 'Search title, summary, id…',
     'knowledge.allTypes': 'All types',
     'knowledge.allStatuses': 'All statuses',
@@ -290,6 +296,12 @@
     'pending.rejected': 'Rejected',
     'pending.confirmApprove': 'Approve proposal {id}? It becomes authoritative knowledge immediately.',
     'pending.confirmReject': 'Reject proposal {id}? The candidate will be archived as rejected.',
+    'pending.risk': 'Needs review',
+    'pending.riskHint': 'Automated flag: possible injection, credential material or invisible characters. A human decides; creation is never blocked.',
+    'risk.invisible-characters': 'invisible characters',
+    'risk.prompt-injection': 'possible prompt injection',
+    'risk.credential-material': 'possible credential',
+    'risk.override-phrase': 'role/instruction spoofing',
     'pending.reviewDisabled': 'Panel review is disabled by policy.panel.review; use memory_commit approval in a session.',
     'pending.selectAll': 'Select all',
     'pending.selected': '{count} selected',
@@ -992,8 +1004,19 @@
               h(Tag, null, proposal.scope),
               proposal.temporal && proposal.temporal !== 'fresh'
                 ? h(Tag, { tone: temporalTone(proposal.temporal) }, t(`temporal.${proposal.temporal}`))
+                : null,
+              proposal.risk && proposal.risk.level === 'review'
+                ? h(Tag, { tone: 'warn' },
+                    `${t('pending.risk')} · ${proposal.risk.signals
+                      .map((signal) => t(`risk.${signal.code}`))
+                      .filter((label, index, all) => label && all.indexOf(label) === index)
+                      .join(' / ')}`)
                 : null),
             h('div', { className: 'dmh-row-title' }, proposal.title),
+            proposal.risk && proposal.risk.level === 'review'
+              ? h('div', { className: 'dmh-row-id' },
+                  `${t('pending.riskHint')} ${proposal.risk.signals.map((signal) => signal.label).join('；')}`)
+              : null,
             h('div', { className: 'dmh-row-summary' }, proposal.summary),
             Array.isArray(proposal.merged) && proposal.merged.length > 0
               ? h('div', { className: 'dmh-row-id dmh-mono' },

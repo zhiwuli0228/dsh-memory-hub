@@ -238,6 +238,18 @@ Nous Research 的 Hermes Agent 是「预算派」的代表：`MEMORY.md`（2.2k 
 
 它是本项目最像的对照组：同样是「小注入 + 大档案」，同样有后台复盘与审批开关，但把「常驻」和「档案」拆成了两种存储，并给 provider 定了固定钩子。完整拆解与可落地建议见 [hermes-memory-2026.md](hermes-memory-2026.md)。
 
+### 6.8 采纳状态（2026-11-08）
+
+只抄三件事，且都落在既有硬规则内（见 [proposal-evidence-lifecycle-risk.md](../03-openspec/proposal-evidence-lifecycle-risk.md)）：
+
+| 采纳项 | 落地 | 边界 |
+| --- | --- | --- |
+| 原文取证 | `memory_reflect` 的 `mode: "search"` 调宿主 `sessionQuery.searchEvents`，返回 `seq/type/snippet` | 只读；不写水位/账本；无 `searchEvents` 时降级 |
+| 引用驱动生命周期 | 维护报告与 aging 用最近一次 `memory_cite` 作新鲜度证据，`uncited` 区分从未/最近引用 | 只报告；归档仍走人批准的 `deprecate` 候选 |
+| 写入风险标记 | `src/risk.ts` 扫注入短语、凭据、零宽字符、角色伪造；面板/账本/工具响应显示 | 只标记供人确认；不阻断、不改写 |
+
+**不抄**：模型默认直写（违反人工审批）、2,200 字符硬上限（我们的注入是紧凑索引 + 按需读取）、SQLite 当权威存储、向量成为必需依赖、自动 archive 知识（只能产出 `deprecate` 候选）。
+
 ## 7. 横向对照
 
 | 维度 | ChatGPT | Claude | Qwen 记忆库 | OpenClaw | dsh-memory-hub（现状） |

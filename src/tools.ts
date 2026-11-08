@@ -259,16 +259,26 @@ export function createTools(host: ToolHost): ToolDefinition[] {
       name: 'memory_reflect',
       concurrencySafe: true,
       description:
-        'Read a bounded digest of finished sessions owned by this workspace (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down. Read-only: it never creates or commits knowledge. Sessions are attributed by longest-prefix cwd match, so a core workspace only sees its own sessions and a sub-workspace sees its own. Returns "available: false" when the host has no sessionQuery service. Follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> — upward promotion is distillation\'s job.',
+        'Read finished sessions owned by this workspace (attributed by longest-prefix cwd). Two modes: "digest" (default) returns a bounded summary (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down; "search" runs the host sessionQuery full-text index and returns original event hits (seq/type/time/snippet) for evidence checks, without reasoning from summaries. Read-only: it never creates or commits knowledge, and search mode never writes watermarks. Returns "available: false" when the host has no sessionQuery (or no searchEvents). For digest, follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> — upward promotion is distillation\'s job. For search, cite the returned seq range the same way.',
       parameters: objectSchema({
-        session_id: { type: 'string', description: 'Optional exact session id (must be ended and owned by this workspace); omit to pick the most recent unreflected sessions.' },
-        limit: { type: 'number', description: 'Number of sessions to read, 1..3; defaults to policy.reflect.max_sessions (3).' },
-        dry_run: { type: 'boolean', description: 'Build digests without recording them in records/reflect-state.json or the ledger.' },
+        mode: { type: 'string', enum: ['digest', 'search'], description: 'digest = bounded summary of recent sessions (default); search = original event hits from the host full-text index.' },
+        query: { type: 'string', description: 'Required in search mode: literal text to look for inside sessions.' },
+        session_id: { type: 'string', description: 'Optional exact session id (must be ended and owned by this workspace); in digest mode omit to pick the most recent unreflected sessions; in search mode omit to search up to 3 recent owned sessions.' },
+        limit: { type: 'number', description: 'Digest: number of sessions, 1..3 (default policy.reflect.max_sessions). Search: max hits, 1..50 (default 20).' },
+        dry_run: { type: 'boolean', description: 'Digest mode only: build digests without recording them in records/reflect-state.json or the ledger.' },
       }),
       async execute(args, exec) {
-        const input = args as { session_id?: string; limit?: number; dry_run?: boolean }
+        const input = args as {
+          mode?: 'digest' | 'search'
+          query?: string
+          session_id?: string
+          limit?: number
+          dry_run?: boolean
+        }
         const service = await host.service(requireAgent(exec))
         return service.reflect(requireAgent(exec), {
+          ...(input.mode === undefined ? {} : { mode: input.mode }),
+          ...(input.query === undefined ? {} : { query: input.query }),
           ...(input.session_id === undefined ? {} : { session_id: input.session_id }),
           ...(input.limit === undefined ? {} : { limit: Number(input.limit) }),
           ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run === true }),
@@ -306,7 +316,7 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     tool({
       name: 'memory_propose',
       description:
-        'Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time.',
+        'Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time. The text is scanned for prompt-injection phrases, credential shapes and invisible characters: the response carries a risk flag for the human reviewer, but creation is never blocked.',
       parameters: objectSchema(
         {
           operation: { type: 'string', enum: ['create', 'update', 'deprecate', 'merge'], description: 'What to do with the knowledge. Use "merge" to fold several accepted entries of the same type and scope into one target entry: pass target, expected_version, merged_ids and the merged body as content.' },

@@ -46,6 +46,9 @@ export type LedgerEvent =
       type: 'proposal.created'
       taskId: string
       proposalId: string
+      /** 写入风险标记：只有命中可疑形态时才写，旧账本没有这两个字段。 */
+      riskLevel?: 'review'
+      riskSignals?: string[]
     })
   | (EventBase & {
       type: 'proposal.committed'

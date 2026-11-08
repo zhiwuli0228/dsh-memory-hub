@@ -43,16 +43,41 @@ export interface ReflectSessionSnapshot {
   events: ReflectEvent[]
 }
 
-/** 宿主 `sessionQuery` 的最小可用面：只做 list / read。 */
+/** 宿主 `sessionQuery` 的最小可用面：list / read / 可选全文检索。 */
+export interface SessionEventSearchRequest {
+  sessionId: string
+  query: string
+  limit?: number
+  cursor?: string
+  filters?: unknown[]
+}
+
+export interface SessionEventHit {
+  sessionId: string
+  seq: number
+  type: string
+  time?: number
+  surface?: string
+  snippet: string
+}
+
+export interface SessionEventSearchPage {
+  session?: ReflectSessionHeader
+  items: SessionEventHit[]
+  nextCursor?: string
+}
+
 export interface SessionQueryLike {
   listSessions(signal?: AbortSignal): Promise<ReflectSessionRecord[]>
   readSession(sessionId: string): Promise<ReflectSessionSnapshot>
+  searchEvents?(request: SessionEventSearchRequest): Promise<SessionEventSearchPage>
 }
 
 export interface SessionDigestSource {
   available: boolean
   listSessions(): Promise<ReflectSessionRecord[]>
   readSession(sessionId: string): Promise<ReflectSessionSnapshot>
+  searchEvents?(request: SessionEventSearchRequest): Promise<SessionEventSearchPage>
 }
 
 /** 包装宿主服务；任何单次读取失败都由调用方降级处理。 */
@@ -71,6 +96,26 @@ export class HostSessionDigestSource implements SessionDigestSource {
     const events = Array.isArray(snapshot?.events) ? snapshot.events : []
     return { session: snapshot.session, events }
   }
+
+  async searchEvents(request: SessionEventSearchRequest): Promise<SessionEventSearchPage> {
+    if (typeof this.query.searchEvents !== 'function') {
+      throw new Error('sessionQuery.searchEvents is not available on this host')
+    }
+    const page = await this.query.searchEvents(request)
+    const items = Array.isArray(page?.items) ? page.items : []
+    return {
+      ...(page?.session === undefined ? {} : { session: page.session }),
+      items: items.filter(
+        (item): item is SessionEventHit =>
+          item !== null
+          && typeof item === 'object'
+          && typeof item.sessionId === 'string'
+          && typeof item.seq === 'number'
+          && typeof item.snippet === 'string',
+      ),
+      ...(typeof page?.nextCursor === 'string' ? { nextCursor: page.nextCursor } : {}),
+    }
+  }
 }
 
 /** 宿主没有 `sessionQuery` 时的占位实现：只报不可用，不影响插件其他功能。 */
@@ -82,6 +127,10 @@ export class NullSessionDigestSource implements SessionDigestSource {
   }
 
   async readSession(): Promise<ReflectSessionSnapshot> {
+    throw new Error('sessionQuery service unavailable')
+  }
+
+  async searchEvents(): Promise<SessionEventSearchPage> {
     throw new Error('sessionQuery service unavailable')
   }
 }

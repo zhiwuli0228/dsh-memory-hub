@@ -80,6 +80,22 @@ policy:
 
 单个会话超过 `max_chars` 时保留头 60% + 尾 40%，中间标注「已截断」。工具返回的 `seqRange` 就是 `session:<id>#<from>-<to>` 的可用区间。
 
+## 原文取证（`mode: "search"`）
+
+digest 是压缩过的；要核对原始措辞、数字或承诺时，用 search 模式：
+
+```json
+{ "mode": "search", "query": "上传超时 90s", "session_id": "session-...", "limit": 20 }
+```
+
+- 调用宿主 `sessionQuery.searchEvents`，返回命中的原始事件：`sessionId`、`seq`、`type`、`time`、`surface`、`snippet`；
+- 不写 `reflect-state.json`、不写账本、不调用模型，属于纯只读路径；
+- `session_id` 省略时，最多扫最近 3 个本工作区已结束会话；`session_id` 不属于本工作区会报 `INVALID_INPUT`；
+- `limit` 默认 20、上限 50；返回 `hitsTruncated: true` 表示被截断；
+- 写证据时用命中事件的最小/最大 `seq` 组成 `session:<id>#<from>-<to>`，与 digest 的 `seqRange` 口径一致。
+
+宿主没有 `searchEvents`（旧版 DSH 或未启用全文索引）时返回 `available: false` 与 `reason`，digest 模式不受影响。
+
 ## 任务身份与对齐
 
 - 标题固定为 `memory-hub:reflect:<hub-id>:core:<id>` 或 `memory-hub:reflect:<hub-id>:workspace:<id>`，与蒸馏前缀不同，互不覆盖；
@@ -98,6 +114,7 @@ policy:
 | 现象 | 处理 |
 | --- | --- |
 | `memory_reflect` 返回 `available: false` | Host 未提供 `sessionQuery` 服务；升级 DSH，或改用会话内手动记录 |
+| search 模式返回 `available: false` | 该宿主没有 `searchEvents`（旧版或全文索引被禁用）；改用 digest，或升级 DSH |
 | 返回 `session-not-in-workspace`（`INVALID_INPUT`） | 指定的 `session_id` 不属于当前工作区，或不是已结束的主会话 |
 | 会话一直是 `already-reflected` | digest 未变化；删除 `records/reflect-state.json` 中对应行可强制重读 |
 | `skipped: too-short` | 会话消息数少于 `policy.reflect.min_messages`；可调低 |

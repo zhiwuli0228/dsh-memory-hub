@@ -14335,6 +14335,14 @@ function analyzeMaintenance(store, options) {
   const temporalCounts = { fresh: 0, aging: 0, stale: 0, scheduled: 0 };
   for (const record of accepted) {
     const state = temporalState(record, nowMs, temporal);
+    const lastCitedAt = options.citations.get(record.id) ?? null;
+    const basis = laterIso(record.lastVerified ?? record.updatedAt, lastCitedAt);
+    const basisAge = ageDays(basis, nowMs);
+    const recentlyCited = basisAge !== null && basisAge < temporal.aging_days;
+    if (state === "aging" && recentlyCited) {
+      temporalCounts.fresh += 1;
+      continue;
+    }
     temporalCounts[state] += 1;
     if (state === "stale") {
       issues.push({
@@ -14344,10 +14352,11 @@ function analyzeMaintenance(store, options) {
         ids: [record.id]
       });
     } else if (state === "aging") {
+      const citationNote = lastCitedAt === null ? "" : `\uFF08\u6700\u8FD1\u5F15\u7528 ${formatDay(lastCitedAt)}\uFF09`;
       issues.push({
         code: "aging",
         severity: "info",
-        message: `${record.id} \u5DF2 ${Math.floor(ageDays(record.lastVerified ?? record.updatedAt, nowMs) ?? 0)} \u5929\u672A\u786E\u8BA4\uFF1A${record.title}`,
+        message: `${record.id} \u5DF2 ${basisAge ?? 0} \u5929\u672A\u786E\u8BA4${citationNote}\uFF1A${record.title}`,
         ids: [record.id]
       });
     }
@@ -14427,16 +14436,17 @@ function analyzeMaintenance(store, options) {
     }
   }
   let uncited = 0;
+  const cited = accepted.filter((record) => options.citations.has(record.id)).length;
   for (const record of accepted) {
-    if (options.citations.has(record.id)) continue;
-    const age = ageDays(record.updatedAt, nowMs);
+    const lastCitedAt = options.citations.get(record.id) ?? null;
+    const age = ageDays(lastCitedAt ?? record.updatedAt, nowMs);
     if (age === null || age < options.staleCitationDays) continue;
     uncited += 1;
     if (uncited > 20) continue;
     issues.push({
       code: "uncited",
       severity: "info",
-      message: `${record.id} \u5DF2 ${age} \u5929\u672A\u88AB\u5F15\u7528\uFF1A${record.title}`,
+      message: lastCitedAt === null ? `${record.id} \u521B\u5EFA\u4EE5\u6765 ${age} \u5929\u4ECE\u672A\u88AB\u5F15\u7528\uFF1A${record.title}` : `${record.id} \u5DF2 ${age} \u5929\u672A\u88AB\u5F15\u7528\uFF08\u6700\u8FD1\u5F15\u7528 ${formatDay(lastCitedAt)}\uFF09\uFF1A${record.title}`,
       ids: [record.id]
     });
   }
@@ -14533,7 +14543,8 @@ function analyzeMaintenance(store, options) {
       pending: pending.length,
       accepted: accepted.length,
       proposalsExisting: store.proposals.size,
-      ...temporalCounts
+      ...temporalCounts,
+      cited
     }
   };
 }
@@ -14554,6 +14565,7 @@ function renderMaintenanceReport(input) {
     `- issues: ${input.analysis.issues.length}`,
     `- candidates: ${input.analysis.candidates.length}`,
     `- temporal: fresh ${input.analysis.totals.fresh} \xB7 aging ${input.analysis.totals.aging} \xB7 stale ${input.analysis.totals.stale} \xB7 scheduled ${input.analysis.totals.scheduled}`,
+    `- cited: ${input.analysis.totals.cited} / accepted ${input.analysis.totals.accepted}`,
     `- proposals created: ${input.created.length}`,
     `- skipped (already pending): ${input.skipped}`,
     `- max proposals: ${input.maxProposals}`,
@@ -14596,6 +14608,7 @@ function renderMaintenanceReport(input) {
     "- Proposals are pending; nothing was committed, deleted, or rewritten.",
     "- Exact duplicates become deprecate proposals; project knowledge is promoted only with an explicit reuse tag.",
     "- Expired entries are reported only: they are never deleted or rewritten automatically.",
+    "- Uncited entries are reported only: a recent citation can refresh aging, but nothing is archived automatically.",
     "- Review pending proposals in the Web panel or with memory_get, then commit intentionally.",
     ""
   );
@@ -14607,6 +14620,18 @@ function normalizeText2(value) {
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
+function laterIso(left, right) {
+  if (right === null) return left;
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (!Number.isFinite(rightMs)) return left;
+  if (!Number.isFinite(leftMs)) return right;
+  return rightMs > leftMs ? right : left;
+}
+function formatDay(value) {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : value;
+}
 function ageDays(value, nowMs) {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return null;
@@ -14617,6 +14642,106 @@ function mergeTags(existing, extra) {
 }
 function truncate2(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+
+// src/risk.ts
+var INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/gu;
+var INVISIBLE_NAMES = {
+  "\u200B": "\u96F6\u5BBD\u7A7A\u683C",
+  "\u200C": "\u96F6\u5BBD\u975E\u8FDE\u63A5\u7B26",
+  "\u200D": "\u96F6\u5BBD\u8FDE\u63A5\u7B26",
+  "\u200E": "\u4ECE\u5DE6\u5230\u53F3\u6807\u8BB0",
+  "\u200F": "\u4ECE\u53F3\u5230\u5DE6\u6807\u8BB0",
+  "\u202A": "\u5DE6\u5230\u53F3\u5D4C\u5165",
+  "\u202B": "\u53F3\u5230\u5DE6\u5D4C\u5165",
+  "\u202C": "\u65B9\u5411\u683C\u5F0F\u7ED3\u675F",
+  "\u202D": "\u5DE6\u5230\u53F3\u8986\u76D6",
+  "\u202E": "\u53F3\u5230\u5DE6\u8986\u76D6",
+  "\u2060": "\u8BCD\u8FDE\u63A5\u7B26",
+  "\u2061": "\u51FD\u6570\u5E94\u7528",
+  "\u2062": "\u4E0D\u53EF\u89C1\u4E58\u53F7",
+  "\u2063": "\u4E0D\u53EF\u89C1\u5206\u9694\u7B26",
+  "\u2064": "\u4E0D\u53EF\u89C1\u52A0\u53F7",
+  "\uFEFF": "BOM/\u96F6\u5BBD\u4E0D\u6362\u884C\u7A7A\u683C"
+};
+var INJECTION_PATTERNS = [
+  { pattern: /忽略(?:以上|之前|前面|上述|此前)?.{0,6}(?:指令|提示|规则|要求)/u, label: "\u8981\u6C42\u5FFD\u7565\u65E2\u6709\u6307\u4EE4" },
+  { pattern: /(?:无视|跳过).{0,6}(?:系统|安全|审批).{0,4}(?:指令|提示|规则)/u, label: "\u8981\u6C42\u7ED5\u8FC7\u7CFB\u7EDF/\u5BA1\u6279\u89C4\u5219" },
+  { pattern: /(?:你现在是|从现在开始你(?:是|要)|你的新(?:身份|角色)是)/u, label: "\u8BD5\u56FE\u6539\u5199\u6A21\u578B\u8EAB\u4EFD" },
+  { pattern: /(?:system\s*prompt|系统提示词?|开发者指令)/iu, label: "\u63D0\u53CA\u7CFB\u7EDF\u63D0\u793A\u8BCD" },
+  { pattern: /ignore\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|above|earlier)\s+(?:instructions?|prompts?|rules?)/i, label: "asks to ignore earlier instructions" },
+  { pattern: /disregard\s+(?:the\s+)?(?:system|previous|prior|above)/i, label: "asks to disregard system/previous context" },
+  { pattern: /you\s+are\s+now\s+(?:a|an|the|in)\b/i, label: "rewrites the model identity" },
+  { pattern: /<\|(?:im_start|im_end|system|assistant)\|>/i, label: "\u804A\u5929\u6A21\u677F\u63A7\u5236\u7B26" }
+];
+var OVERRIDE_PATTERNS = [
+  { pattern: /^\s*(?:system|assistant|developer)\s*[:：]/im, label: "\u884C\u9996\u4F2A\u9020 system/assistant \u89D2\u8272" },
+  { pattern: /^\s*<\/?(?:instructions?|system|prompt)>/im, label: "\u4F2A\u9020\u6307\u4EE4\u95ED\u5408\u6807\u7B7E" },
+  { pattern: /\[\/?(?:INST|SYS)\]|<<\/?SYS>>/i, label: "Llama \u98CE\u683C\u6307\u4EE4\u6807\u8BB0" }
+];
+var CREDENTIAL_PATTERNS = [
+  { pattern: /\bsk-[A-Za-z0-9_-]{16,}\b/, label: "OpenAI \u98CE\u683C\u5BC6\u94A5\uFF08sk-\u2026\uFF09" },
+  { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, label: "GitHub token" },
+  { pattern: /\bAKIA[0-9A-Z]{16}\b/, label: "AWS access key id" },
+  { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, label: "\u79C1\u94A5\u5757" },
+  { pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,}\b/, label: "JWT" },
+  {
+    pattern: /\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|private[_-]?token)\s*[:=]\s*\S{6,}/i,
+    label: "\u5F62\u5982 password=/token= \u7684\u51ED\u636E\u8D4B\u503C"
+  }
+];
+function clip(value, max = 60) {
+  const flat = value.replace(/\s+/gu, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}\u2026`;
+}
+function firstMatch(patterns, text) {
+  const signals = [];
+  for (const { pattern, label } of patterns) {
+    const match = pattern.exec(text);
+    if (match !== null) signals.push({ code: "prompt-injection", label, sample: clip(match[0]) });
+  }
+  return signals;
+}
+function scanInvisible(text) {
+  INVISIBLE.lastIndex = 0;
+  const chars = /* @__PURE__ */ new Set();
+  for (const match of text.matchAll(INVISIBLE)) {
+    const char = match[0];
+    chars.add(INVISIBLE_NAMES[char] ?? "\u4E0D\u53EF\u89C1\u5B57\u7B26");
+    if (chars.size >= 3) break;
+  }
+  if (chars.size === 0) return null;
+  return {
+    code: "invisible-characters",
+    label: `\u5305\u542B\u4E0D\u53EF\u89C1/\u65B9\u5411\u63A7\u5236\u5B57\u7B26\uFF08${[...chars].join("\u3001")}\uFF09`,
+    sample: `${chars.size} \u7C7B`
+  };
+}
+function assessProposalRisk(input) {
+  const text = [input.title ?? "", input.summary ?? "", input.content ?? "", ...input.sourceRefs ?? []].join("\n");
+  if (text.trim() === "") return { level: "none", signals: [] };
+  const signals = [];
+  const invisible = scanInvisible(text);
+  if (invisible !== null) signals.push(invisible);
+  for (const signal of firstMatch(INJECTION_PATTERNS, text)) signals.push(signal);
+  const credentialSignals = [];
+  for (const { pattern, label } of CREDENTIAL_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match !== null) credentialSignals.push({ code: "credential-material", label, sample: clip(match[0], 24) });
+  }
+  signals.push(...credentialSignals);
+  for (const { pattern, label } of OVERRIDE_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match !== null) signals.push({ code: "override-phrase", label, sample: clip(match[0]) });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const unique = signals.filter((signal) => {
+    const key = `${signal.code}:${signal.label}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { level: unique.length === 0 ? "none" : "review", signals: unique };
 }
 
 // src/reflect.ts
@@ -14873,6 +14998,20 @@ var HostSessionDigestSource = class {
     const events = Array.isArray(snapshot?.events) ? snapshot.events : [];
     return { session: snapshot.session, events };
   }
+  async searchEvents(request) {
+    if (typeof this.query.searchEvents !== "function") {
+      throw new Error("sessionQuery.searchEvents is not available on this host");
+    }
+    const page = await this.query.searchEvents(request);
+    const items = Array.isArray(page?.items) ? page.items : [];
+    return {
+      ...page?.session === void 0 ? {} : { session: page.session },
+      items: items.filter(
+        (item) => item !== null && typeof item === "object" && typeof item.sessionId === "string" && typeof item.seq === "number" && typeof item.snippet === "string"
+      ),
+      ...typeof page?.nextCursor === "string" ? { nextCursor: page.nextCursor } : {}
+    };
+  }
 };
 var NullSessionDigestSource = class {
   available = false;
@@ -14880,6 +15019,9 @@ var NullSessionDigestSource = class {
     return [];
   }
   async readSession() {
+    throw new Error("sessionQuery service unavailable");
+  }
+  async searchEvents() {
     throw new Error("sessionQuery service unavailable");
   }
 };
@@ -14982,7 +15124,7 @@ function buildDigest(snapshot, options) {
   const cwd = typeof snapshot.session?.cwd === "string" ? snapshot.session.cwd : "";
   const createdAt = typeof snapshot.session?.createdAt === "number" ? new Date(snapshot.session.createdAt).toISOString() : nowIso();
   const rendered = renderEntries(entries, failures);
-  const { text, truncated } = clip(rendered, options.maxChars);
+  const { text, truncated } = clip2(rendered, options.maxChars);
   return {
     status: "ok",
     digest: {
@@ -15007,7 +15149,7 @@ function renderEntries(entries, failures) {
   }
   return lines.join("\n\n");
 }
-function clip(value, maxChars) {
+function clip2(value, maxChars) {
   if (value.length <= maxChars) return { text: value, truncated: false };
   const marker = "\n\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09";
   const budget = Math.max(0, maxChars - marker.length);
@@ -15662,6 +15804,7 @@ var MemoryService = class {
   async reflect(agent, args) {
     const workspace = await this.resolveWorkspace(agent);
     const dryRun = args.dry_run === true;
+    const mode = args.mode === "search" ? "search" : "digest";
     const workspaceId = workspace.id;
     if (workspaceId === null) {
       throw new MemoryError("INVALID_STATE", "workspace is not registered in config.yaml; add it before reflecting sessions");
@@ -15670,6 +15813,7 @@ var MemoryService = class {
       return {
         available: false,
         workspaceId,
+        mode,
         reason: "sessionQuery service unavailable on this host",
         sessions: [],
         skipped: [],
@@ -15690,6 +15834,7 @@ var MemoryService = class {
       return {
         available: false,
         workspaceId,
+        mode,
         reason: `sessionQuery listSessions failed: ${error.message}`,
         sessions: [],
         skipped: [],
@@ -15706,6 +15851,75 @@ var MemoryService = class {
       if (typeof header.createdAt === "number" && header.createdAt < cutoff) return false;
       return true;
     }).sort((left, right) => (right.header.createdAt ?? 0) - (left.header.createdAt ?? 0));
+    const skipped = [];
+    if (mode === "search") {
+      const query = (args.query ?? "").trim();
+      if (query === "") {
+        throw new MemoryError("INVALID_INPUT", 'mode "search" requires a non-empty query');
+      }
+      if (typeof this.reflectSource.searchEvents !== "function") {
+        return {
+          available: false,
+          workspaceId,
+          mode,
+          reason: "sessionQuery.searchEvents unavailable on this host",
+          sessions: [],
+          skipped: [],
+          dryRun
+        };
+      }
+      const limit2 = Math.max(1, Math.min(50, Math.trunc(args.limit ?? 20)));
+      let targets = owned.slice(0, 3);
+      if (args.session_id !== void 0 && args.session_id !== "") {
+        const requested = owned.find((record) => record.header.id === args.session_id);
+        if (requested === void 0) {
+          throw new MemoryError(
+            "INVALID_INPUT",
+            `session ${args.session_id} is not an ended session owned by workspace ${workspace.id}`
+          );
+        }
+        targets = [requested];
+      }
+      const hits = [];
+      for (const record of targets) {
+        const sessionId = record.header.id;
+        const cwd = typeof record.header.cwd === "string" ? record.header.cwd : "";
+        try {
+          const page = await this.reflectSource.searchEvents({ sessionId, query, limit: limit2 });
+          for (const item of page.items) {
+            hits.push({
+              sessionId,
+              cwd,
+              seq: item.seq,
+              type: item.type,
+              time: typeof item.time === "number" ? new Date(item.time).toISOString() : null,
+              surface: typeof item.surface === "string" ? item.surface : null,
+              snippet: item.snippet
+            });
+          }
+        } catch (error) {
+          skipped.push({ sessionId, reason: `search-failed: ${error.message}` });
+        }
+      }
+      const seen = /* @__PURE__ */ new Set();
+      const unique = hits.filter((hit) => {
+        const key = `${hit.sessionId}:${hit.seq}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const capped = unique.slice(0, limit2);
+      return {
+        available: true,
+        workspaceId,
+        mode,
+        sessions: [],
+        hits: capped,
+        hitsTruncated: unique.length > capped.length,
+        skipped,
+        dryRun: true
+      };
+    }
     let selected = owned;
     if (args.session_id !== void 0 && args.session_id !== "") {
       const requested = owned.find((record) => record.header.id === args.session_id);
@@ -15719,7 +15933,6 @@ var MemoryService = class {
     }
     selected = selected.slice(0, args.session_id === void 0 ? limit : 1);
     const sessions = [];
-    const skipped = [];
     for (const record of selected) {
       const sessionId = record.header.id;
       const prior = this.reflectState?.find(sessionId);
@@ -15779,7 +15992,7 @@ var MemoryService = class {
         seqRange
       });
     }
-    return { available: true, workspaceId, sessions, skipped, dryRun };
+    return { available: true, workspaceId, mode, sessions, skipped, dryRun };
   }
   reflectConfigFor(workspaceId) {
     const core = this.hub.config.core_workspaces.find((entry) => entry.id === workspaceId);
@@ -16023,6 +16236,12 @@ var MemoryService = class {
     if (pending.length >= this.hub.config.policy.limits.max_pending_per_task) {
       throw new MemoryError("INVALID_STATE", `task already has ${pending.length} pending proposals`);
     }
+    const risk = assessProposalRisk({
+      title: args.title,
+      summary: args.summary,
+      ...args.content === void 0 ? {} : { content: args.content },
+      ...args.source_refs === void 0 ? {} : { sourceRefs: args.source_refs }
+    });
     const duplicate = pending.find(
       (proposal2) => proposal2.operation === args.operation && proposal2.type === args.type && formatScope(proposal2.scope) === formattedScope && proposal2.title === args.title.trim() && proposal2.target === (args.target ?? null)
     );
@@ -16031,7 +16250,8 @@ var MemoryService = class {
         proposalId: duplicate.id,
         pendingPath: KnowledgeStore.relativePath(owningHub.root, duplicate.path),
         core: owningCoreId,
-        scope: formattedScope
+        scope: formattedScope,
+        risk
       };
     }
     const proposal = await owningStore.propose(
@@ -16060,13 +16280,15 @@ var MemoryService = class {
     await (target === null ? this.ledger : target.ledger).append({
       type: "proposal.created",
       taskId: state.taskId,
-      proposalId: proposal.id
+      proposalId: proposal.id,
+      ...risk.level === "none" ? {} : { riskLevel: risk.level, riskSignals: risk.signals.map((signal) => signal.code) }
     });
     return {
       proposalId: proposal.id,
       pendingPath: KnowledgeStore.relativePath(owningHub.root, proposal.path),
       core: owningCoreId,
-      scope: formattedScope
+      scope: formattedScope,
+      risk
     };
   }
   async commit(agent, proposalId, core) {
@@ -16317,7 +16539,7 @@ var MemoryService = class {
         admin: workspace.admin,
         enabled: workspace.enabled
       })),
-      citations: new Set(this.citations.map((citation) => citation.knowledgeId)),
+      citations: this.citationIndex(),
       stalePendingDays,
       staleCitationDays,
       ...args.now === void 0 ? {} : { now: args.now },
@@ -16409,6 +16631,17 @@ var MemoryService = class {
       errors
     };
   }
+  /** knowledgeId → 最近一次引用时间；维护与面板都用这一份口径。 */
+  citationIndex() {
+    const index = /* @__PURE__ */ new Map();
+    for (const citation of this.citations) {
+      const prior = index.get(citation.knowledgeId);
+      if (prior === void 0 || Date.parse(citation.createdAt) > Date.parse(prior)) {
+        index.set(citation.knowledgeId, citation.createdAt);
+      }
+    }
+    return index;
+  }
   maintenanceAlreadyPending(candidate, tags) {
     if (tags.has(maintenanceToken(candidate.fingerprint))) return true;
     for (const proposal of this.store.proposals.values()) {
@@ -16423,6 +16656,7 @@ var MemoryService = class {
     return false;
   }
   overview() {
+    const citations = this.citationIndex();
     const describe = (record, core, policy = this.hub.config.policy.temporal) => ({
       id: record.id,
       type: record.type,
@@ -16436,6 +16670,7 @@ var MemoryService = class {
       validFrom: record.validFrom,
       expiresAt: record.expiresAt,
       lastVerified: record.lastVerified,
+      lastCitedAt: citations.get(record.id) ?? null,
       ...core === void 0 ? {} : { core }
     });
     const ownKnowledge = [...this.store.docs.values()].map((record) => describe(record));
@@ -16477,6 +16712,12 @@ var MemoryService = class {
         validFrom: proposal.validFrom,
         expiresAt: proposal.expiresAt,
         lastVerified: proposal.lastVerified,
+        risk: assessProposalRisk({
+          title: proposal.title,
+          summary: proposal.summary,
+          content: proposal.body,
+          sourceRefs: proposal.sourceRefs
+        }),
         temporal: temporalState(
           {
             validFrom: proposal.validFrom,
@@ -17202,16 +17443,20 @@ function createTools(host) {
     tool({
       name: "memory_reflect",
       concurrencySafe: true,
-      description: `Read a bounded digest of finished sessions owned by this workspace (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down. Read-only: it never creates or commits knowledge. Sessions are attributed by longest-prefix cwd match, so a core workspace only sees its own sessions and a sub-workspace sees its own. Returns "available: false" when the host has no sessionQuery service. Follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> \u2014 upward promotion is distillation's job.`,
+      description: `Read finished sessions owned by this workspace (attributed by longest-prefix cwd). Two modes: "digest" (default) returns a bounded summary (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down; "search" runs the host sessionQuery full-text index and returns original event hits (seq/type/time/snippet) for evidence checks, without reasoning from summaries. Read-only: it never creates or commits knowledge, and search mode never writes watermarks. Returns "available: false" when the host has no sessionQuery (or no searchEvents). For digest, follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> \u2014 upward promotion is distillation's job. For search, cite the returned seq range the same way.`,
       parameters: objectSchema({
-        session_id: { type: "string", description: "Optional exact session id (must be ended and owned by this workspace); omit to pick the most recent unreflected sessions." },
-        limit: { type: "number", description: "Number of sessions to read, 1..3; defaults to policy.reflect.max_sessions (3)." },
-        dry_run: { type: "boolean", description: "Build digests without recording them in records/reflect-state.json or the ledger." }
+        mode: { type: "string", enum: ["digest", "search"], description: "digest = bounded summary of recent sessions (default); search = original event hits from the host full-text index." },
+        query: { type: "string", description: "Required in search mode: literal text to look for inside sessions." },
+        session_id: { type: "string", description: "Optional exact session id (must be ended and owned by this workspace); in digest mode omit to pick the most recent unreflected sessions; in search mode omit to search up to 3 recent owned sessions." },
+        limit: { type: "number", description: "Digest: number of sessions, 1..3 (default policy.reflect.max_sessions). Search: max hits, 1..50 (default 20)." },
+        dry_run: { type: "boolean", description: "Digest mode only: build digests without recording them in records/reflect-state.json or the ledger." }
       }),
       async execute(args, exec) {
         const input = args;
         const service = await host.service(requireAgent(exec));
         return service.reflect(requireAgent(exec), {
+          ...input.mode === void 0 ? {} : { mode: input.mode },
+          ...input.query === void 0 ? {} : { query: input.query },
           ...input.session_id === void 0 ? {} : { session_id: input.session_id },
           ...input.limit === void 0 ? {} : { limit: Number(input.limit) },
           ...input.dry_run === void 0 ? {} : { dry_run: input.dry_run === true }
@@ -17245,7 +17490,7 @@ function createTools(host) {
     }),
     tool({
       name: "memory_propose",
-      description: "Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time.",
+      description: "Create a candidate memory entry in pending/. Candidates are not authoritative: the user must approve memory_commit before anything becomes accepted knowledge. Include concrete evidence in source_refs; for decisions, constraints, processes, and API catalogs evidence is required at commit time. The text is scanned for prompt-injection phrases, credential shapes and invisible characters: the response carries a risk flag for the human reviewer, but creation is never blocked.",
       parameters: objectSchema(
         {
           operation: { type: "string", enum: ["create", "update", "deprecate", "merge"], description: 'What to do with the knowledge. Use "merge" to fold several accepted entries of the same type and scope into one target entry: pass target, expected_version, merged_ids and the merged body as content.' },
