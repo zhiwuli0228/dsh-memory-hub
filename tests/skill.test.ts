@@ -48,6 +48,7 @@ describe('memory-hub skill', () => {
     expect(skill.content).toContain('memory_maintenance')
     expect(skill.content).toContain('scope: "core"')
     expect(skill.content).toContain('project:<当前工作区>')
+    expect(skill.content).toContain('batch:<id>')
   })
 
   it('degrades safely when the host has no skills service', () => {

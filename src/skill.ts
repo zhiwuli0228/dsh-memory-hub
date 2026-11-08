@@ -112,6 +112,17 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 
 定时回顾按工作区配置 \`reflect:\` 对齐（与 \`distill:\` 独立），每个工作区只看自己的会话——核心工作区看不到子工作区的会话。
 
+## 批量萃取（多年资料）
+
+把「一个目录的旧资料」变成「一批候选」时，按批次做，不要一个会话读几百份文档：
+
+1. **批次清单**放在工作区（不进 Hub）：\`batch.yaml\`，含 \`id\`、\`title\`、\`source_dir\`、\`scope\`、\`chunk_size\`、\`status\`。
+2. **切 chunk**：10–20 个文件或约 2 万字一个 chunk；**一个 chunk 一个会话**。失败可只重跑一个 chunk。
+3. **每个 chunk 五步**：先列「这批材料能回答哪些以后会再问的问题」→ 只抽可复用的判断（决策与理由、约束与边界、踩过的坑、可复制流程）→ \`memory_propose\`（\`scope\` 按批次配置、\`source_refs\` 用 \`file:<相对路径>\`、\`tags\` 带 \`batch:<id>\` 与 \`topic:<主题>\`）→ 写之前先 \`memory_search\` / \`memory_duplicates\` 查重 → 收尾报告「本 chunk 产出 N 条 + 覆盖了哪些问题」。
+4. **粒度**：一条知识 = 一个可复用判断。3–5 份材料支撑一条；不要按段落切、不要写整篇摘要、不要为凑数拆条。
+5. **不 commit**：候选由人按批次在面板审（单次 ≤50），\`decision\` / \`constraint\` 逐条看。
+6. **状态机**：\`draft → extracted → reviewed → distilled → archived\`；\`distilled\` 之前先合并近重复，再上推父核心。
+
 ## 工具速查
 
 | 目的 | 工具 |
