@@ -48,6 +48,13 @@
 - 维护状态、多 core 失败语义、操作手册与 ADR 已记录
 - npm `0.1.5` + GitHub Release `v0.1.5` 已发布
 
+## V0.7（规划中，依据 [memory-landscape-2026](../05-domain/memory-landscape-2026.md)）
+
+- 回顾式萃取：从会话 transcript 提取「已验证的决策/踩过的坑」，仍只产出候选
+- 去重与合并建议（面板展示旧→新 diff，人工确认后 supersede）
+- 时效字段：`valid_from` / `last_verified` / `expires_at`，过期降权不删除
+- 内部 golden set 与「有记忆/无记忆」对照指标，作为发版回归项
+
 ## V0.2（候选）
 
 - 索引落盘与增量重建，减少启动扫描

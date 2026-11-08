@@ -195,20 +195,22 @@ dsh-memory-hub/
 - [maintenance.md](../06-operations/maintenance.md) — 开启/关闭、每日检查、排障与回滚。
 - [proposal-maintenance.md](../03-openspec/proposal-maintenance.md) — 已实现的 OpenSpec 提案。
 - [COMPATIBILITY.md](../COMPATIBILITY.md) — 宿主冒烟与未验证项。
+- [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) — 2026-11 调研：ChatGPT/Claude/Qwen/OpenClaw 的记忆与萃取机制、开源记忆层、评测基准，以及由此重排的瓶颈与 P0/P1 路线。
 
 ## 下一步推荐工作
 
-1. 在真实会话中验证审批**通过**路径。
-2. 增加面板交互与视觉验收测试。
-3. 压测 5k+ 条知识索引与检索性能。
-4. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
-5. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
-6. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
-7. 观察夜间维护：第二天检查每个 core 的 `reports/latest.md` 与 `pending/`，确认候选质量；若长期没有候选，再评估是否放宽“精确重复”或增加显式复用标签。
-8. 跟踪公共目录 PR [#11187](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/11187)：等待构建检查与 1 天仓库年龄门槛通过；合并后确认 `dsh-plugin-catalog` 索引收录。机制见 [catalog-submission.md](../06-operations/catalog-submission.md)。
-8. 若需要官方「自动化任务」栏可见/可暂停，另行评估 DSH `schedule` 方案，并记录与内部定时器的取舍。
-9. 评估 `all_cores: false` 的定时器语义，必要时改为 `core_ids` 选择，而不是 fallback-only。
-10. 评估 per-core 失败重试与全局合并报告；当前保持串行和单一状态。
-11. 验证 PTC `run_code` 嵌套调用与门禁边界。
-12. 补充外部 CLI / 多进程共享 Hub 测试。
-13. 评估索引落盘与增量重建（V0.2 方向）。
+1. 读 [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) 的 P0 三项（回顾式萃取、去重合并、时效字段），据此写 OpenSpec 提案。
+2. 在真实会话中验证审批**通过**路径。
+3. 增加面板交互与视觉验收测试。
+4. 压测 5k+ 条知识索引与检索性能。
+5. 观察 `min_score` / `local_boost` 上线后的预检命中与引用比例；若模型仍不读，再评估“高分命中未 `memory_get` 时拦截首次变更工具”的行为门禁。
+6. 观察 `memory-hub` skill 是否被模型主动加载；若 catalog 可见但加载率低，再考虑在预检包尾加入一行 skill 提示，而不是自动注入全文。
+7. 给每个子工作区补一条本地 `project:<id>` 基线知识，验证 local-first 排序。
+8. 观察夜间维护：第二天检查每个 core 的 `reports/latest.md` 与 `pending/`，确认候选质量；若长期没有候选，再评估是否放宽“精确重复”或增加显式复用标签。
+9. 跟踪公共目录 PR [#11187](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/11187)：等待构建检查与 1 天仓库年龄门槛通过；合并后确认 `dsh-plugin-catalog` 索引收录。机制见 [catalog-submission.md](../06-operations/catalog-submission.md)。
+10. 若需要官方「自动化任务」栏可见/可暂停，另行评估 DSH `schedule` 方案，并记录与内部定时器的取舍。
+11. 评估 `all_cores: false` 的定时器语义，必要时改为 `core_ids` 选择，而不是 fallback-only。
+12. 评估 per-core 失败重试与全局合并报告；当前保持串行和单一状态。
+13. 验证 PTC `run_code` 嵌套调用与门禁边界。
+14. 补充外部 CLI / 多进程共享 Hub 测试。
+15. 评估索引落盘与增量重建（V0.2 方向）。
