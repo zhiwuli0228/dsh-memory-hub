@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.3.0
+// dsh-memory-hub 0.4.0
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13241,7 +13241,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.3.0",
+  version: "0.4.0",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -15606,6 +15606,7 @@ var pluginConfigSchema = external_exports.object({
 var AGENT_CONTEXT_NAME = "memory:pack";
 var AGENT_CONTEXT_ORDER = 130;
 var MAX_ANCESTOR_DEPTH = 8;
+var MAX_REVIEW_BATCH = 50;
 var MemoryRuntime = class {
   ctx;
   config;
@@ -16342,22 +16343,51 @@ var MemoryRuntime = class {
             return;
           }
           const body = await readJsonBody(request);
-          const id = typeof body.id === "string" ? body.id.trim() : "";
           const action = typeof body.action === "string" ? body.action : "";
-          if (id === "") {
+          if (action !== "approve" && action !== "reject") {
+            sendJson(response, 400, { error: "invalid-action", message: "action must be approve or reject" }, method);
+            return;
+          }
+          const rawIds = Array.isArray(body.ids) ? body.ids.filter((value) => typeof value === "string") : typeof body.id === "string" ? [body.id] : [];
+          const ids = [...new Set(rawIds.map((value) => value.trim()).filter((value) => value !== ""))];
+          if (ids.length === 0) {
             sendJson(response, 400, { error: "missing-id" }, method);
             return;
           }
-          if (action === "approve") {
-            sendJson(response, 200, { ok: true, action, ...await pack.service.approveProposal(id) }, method);
+          if (ids.length > MAX_REVIEW_BATCH) {
+            sendJson(response, 400, { error: "batch-too-large", message: `at most ${MAX_REVIEW_BATCH} proposals per request` }, method);
             return;
           }
-          if (action === "reject") {
-            const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : void 0;
-            sendJson(response, 200, { ok: true, action, ...await pack.service.rejectProposal(id, reason) }, method);
-            return;
+          const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : void 0;
+          const results = [];
+          for (const id of ids) {
+            try {
+              if (action === "approve") {
+                const result = await pack.service.approveProposal(id);
+                results.push({ id, ok: true, action, knowledgeId: result.knowledgeId, version: result.version });
+              } else {
+                const result = await pack.service.rejectProposal(id, reason);
+                results.push({ id, ok: true, action, status: result.status });
+              }
+            } catch (error) {
+              results.push({ id, ok: false, message: error instanceof Error ? error.message : String(error) });
+            }
           }
-          sendJson(response, 400, { error: "invalid-action", message: "action must be approve or reject" }, method);
+          const failed = results.filter((result) => result.ok !== true).length;
+          const firstFailure = results.find((result) => result.ok !== true);
+          sendJson(
+            response,
+            failed === ids.length ? 409 : 200,
+            {
+              ok: failed === 0,
+              action,
+              approved: results.length - failed,
+              failed,
+              ...firstFailure === void 0 ? {} : { message: firstFailure.message },
+              results
+            },
+            method
+          );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           sendJson(response, 409, { error: "review-failed", message }, method);

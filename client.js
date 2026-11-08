@@ -90,6 +90,13 @@
     'pending.confirmApprove': '确认批准候选 {id}？批准后立即成为权威知识。',
     'pending.confirmReject': '确认拒绝候选 {id}？候选将归档为 rejected。',
     'pending.reviewDisabled': '面板审核已被 policy.panel.review 关闭，请使用会话内 memory_commit 审批。',
+    'pending.selectAll': '全选',
+    'pending.selected': '已选 {count} 条',
+    'pending.batchApprove': '批准选中',
+    'pending.batchReject': '拒绝选中',
+    'pending.batchConfirmApprove': '确认批准选中的 {count} 条候选？批准后立即成为权威知识。',
+    'pending.batchConfirmReject': '确认拒绝选中的 {count} 条候选？候选将归档为 rejected。',
+    'pending.batchResult': '批量完成：成功 {ok} 条，失败 {failed} 条',
     'activity.empty': '还没有任务记录',
     'activity.task': '任务',
     'activity.session': '会话',
@@ -230,6 +237,13 @@
     'pending.confirmApprove': 'Approve proposal {id}? It becomes authoritative knowledge immediately.',
     'pending.confirmReject': 'Reject proposal {id}? The candidate will be archived as rejected.',
     'pending.reviewDisabled': 'Panel review is disabled by policy.panel.review; use memory_commit approval in a session.',
+    'pending.selectAll': 'Select all',
+    'pending.selected': '{count} selected',
+    'pending.batchApprove': 'Approve selected',
+    'pending.batchReject': 'Reject selected',
+    'pending.batchConfirmApprove': 'Approve the {count} selected proposals? They become authoritative knowledge immediately.',
+    'pending.batchConfirmReject': 'Reject the {count} selected proposals? They will be archived as rejected.',
+    'pending.batchResult': 'Batch done: {ok} succeeded, {failed} failed',
     'activity.empty': 'No task records yet',
     'activity.task': 'Task',
     'activity.session': 'Session',
@@ -378,6 +392,9 @@
 .dmh-form{display:flex;flex-direction:column;gap:10px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);border-radius:11px;padding:12px 14px}
 .dmh-form-row{display:flex;gap:8px;flex-wrap:wrap}
 .dmh-form-actions{display:flex;justify-content:flex-end;gap:8px}
+.dmh-batch-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 4px}
+.dmh-batch-all{display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.dmh-batch-all input{cursor:pointer}
 .dmh-form-checks{display:flex;gap:12px;flex-wrap:wrap}
 .dmh-check{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
 .dmh-check input{cursor:pointer}
@@ -691,22 +708,65 @@
       const policy = props.data.policy || {};
       const reviewEnabled = !(policy.panel && policy.panel.review === false);
       const [busy, setBusy] = useState(null);
+      const [selected, setSelected] = useState([]);
       const [message, setMessage] = useState(null);
+      const pendingIds = pending.map((proposal) => proposal.id);
+      // 刷新后列表可能已变化：只保留仍然存在的候选，避免把已处理的 ID 再提交一次。
+      const selectedIds = selected.filter((id) => pendingIds.includes(id));
+      const allSelected = pendingIds.length > 0 && selectedIds.length === pendingIds.length;
+
+      const toggle = (id) => {
+        setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+      };
+      const toggleAll = () => {
+        setSelected(allSelected ? [] : pendingIds);
+      };
+
+      const post = async (ids, action) => {
+        const url = props.hubCore ? `${API_PENDING}?core=${encodeURIComponent(props.hubCore)}` : API_PENDING;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-dmh-review': '1' },
+          body: JSON.stringify({ ids, action }),
+        });
+        const data = await response.json();
+        if (!response.ok && !Array.isArray(data.results)) {
+          throw new Error(data.message || `HTTP ${response.status}`);
+        }
+        return data;
+      };
 
       const review = async (proposal, action) => {
         const confirmText = action === 'approve' ? t('pending.confirmApprove') : t('pending.confirmReject');
         if (!window.confirm(confirmText.replace('{id}', proposal.id))) return;
         setBusy(proposal.id);
         try {
-          const url = props.hubCore ? `${API_PENDING}?core=${encodeURIComponent(props.hubCore)}` : API_PENDING;
-          const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-dmh-review': '1' },
-            body: JSON.stringify({ id: proposal.id, action }),
-          });
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+          const data = await post([proposal.id], action);
+          if (data.ok !== true) throw new Error(data.message || t('config.error'));
           setMessage({ text: action === 'approve' ? t('pending.approved') : t('pending.rejected'), isError: false });
+          if (typeof props.onReviewed === 'function') await props.onReviewed();
+        } catch (error) {
+          setMessage({ text: error.message || t('config.error'), isError: true });
+        } finally {
+          setBusy(null);
+        }
+      };
+
+      const reviewBatch = async (action) => {
+        if (selectedIds.length === 0) return;
+        const confirmText = (action === 'approve' ? t('pending.batchConfirmApprove') : t('pending.batchConfirmReject'))
+          .replace('{count}', String(selectedIds.length));
+        if (!window.confirm(confirmText)) return;
+        setBusy('batch');
+        try {
+          const data = await post(selectedIds, action);
+          const failed = Number(data.failed) || 0;
+          const ok = Number(data.approved) || 0;
+          setMessage({
+            text: t('pending.batchResult').replace('{ok}', String(ok)).replace('{failed}', String(failed)),
+            isError: failed > 0 && ok === 0,
+          });
+          setSelected([]);
           if (typeof props.onReviewed === 'function') await props.onReviewed();
         } catch (error) {
           setMessage({ text: error.message || t('config.error'), isError: true });
@@ -722,9 +782,39 @@
         message
           ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text)
           : h('div', { className: 'dmh-banner' }, reviewEnabled ? t('pending.hint') : t('pending.reviewDisabled')),
+        h('div', { className: 'dmh-batch-bar' },
+          h('label', { className: 'dmh-batch-all' },
+            h('input', {
+              type: 'checkbox',
+              checked: allSelected,
+              disabled: !reviewEnabled,
+              onChange: toggleAll,
+              'aria-label': t('pending.selectAll'),
+            }),
+            t('pending.selectAll')),
+          h('span', { className: 'dmh-section-hint' }, t('pending.selected').replace('{count}', String(selectedIds.length))),
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            disabled: !reviewEnabled || busy !== null || selectedIds.length === 0,
+            onClick: () => reviewBatch('reject'),
+          }, t('pending.batchReject')),
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            disabled: !reviewEnabled || busy !== null || selectedIds.length === 0,
+            onClick: () => reviewBatch('approve'),
+          }, t('pending.batchApprove'))),
         h('div', { className: 'dmh-list' }, pending.map((proposal) =>
           h('div', { key: proposal.id, className: 'dmh-card' },
             h('div', { className: 'dmh-row-top' },
+              h('input', {
+                type: 'checkbox',
+                checked: selectedIds.includes(proposal.id),
+                disabled: !reviewEnabled,
+                onChange: () => toggle(proposal.id),
+                'aria-label': proposal.id,
+              }),
               h('span', { className: 'dmh-row-id' }, proposal.id),
               h(Tag, { tone: 'warn' }, proposal.operation),
               h(Tag, null, proposal.type),
@@ -736,13 +826,13 @@
               h('button', {
                 type: 'button',
                 className: 'dmh-btn',
-                disabled: !reviewEnabled || busy === proposal.id,
+                disabled: !reviewEnabled || busy !== null,
                 onClick: () => review(proposal, 'reject'),
               }, t('pending.reject')),
               h('button', {
                 type: 'button',
                 className: 'dmh-btn',
-                disabled: !reviewEnabled || busy === proposal.id,
+                disabled: !reviewEnabled || busy !== null,
                 onClick: () => review(proposal, 'approve'),
               }, t('pending.approve')))))));
     }

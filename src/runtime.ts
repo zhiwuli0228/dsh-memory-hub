@@ -48,6 +48,9 @@ interface ServicePack {
 /** 金字塔链的最大层级数（父 + 祖父 + …，不含自身），防环上限。 */
 const MAX_ANCESTOR_DEPTH = 8
 
+/** 面板批量审核单次最多处理的候选数，避免一次请求长时间占用。 */
+const MAX_REVIEW_BATCH = 50
+
 export class MemoryRuntime implements ToolHost {
   private readonly ctx: Context
   private readonly config: { root?: string; readOnly?: boolean }
@@ -875,22 +878,55 @@ export class MemoryRuntime implements ToolHost {
             return
           }
           const body = (await readJsonBody(request)) as Record<string, unknown>
-          const id = typeof body.id === 'string' ? body.id.trim() : ''
           const action = typeof body.action === 'string' ? body.action : ''
-          if (id === '') {
+          if (action !== 'approve' && action !== 'reject') {
+            sendJson(response, 400, { error: 'invalid-action', message: 'action must be approve or reject' }, method)
+            return
+          }
+          const rawIds = Array.isArray(body.ids)
+            ? body.ids.filter((value): value is string => typeof value === 'string')
+            : typeof body.id === 'string'
+              ? [body.id]
+              : []
+          const ids = [...new Set(rawIds.map((value) => value.trim()).filter((value) => value !== ''))]
+          if (ids.length === 0) {
             sendJson(response, 400, { error: 'missing-id' }, method)
             return
           }
-          if (action === 'approve') {
-            sendJson(response, 200, { ok: true, action, ...(await pack.service.approveProposal(id)) }, method)
+          if (ids.length > MAX_REVIEW_BATCH) {
+            sendJson(response, 400, { error: 'batch-too-large', message: `at most ${MAX_REVIEW_BATCH} proposals per request` }, method)
             return
           }
-          if (action === 'reject') {
-            const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined
-            sendJson(response, 200, { ok: true, action, ...(await pack.service.rejectProposal(id, reason)) }, method)
-            return
+          const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined
+          const results: Array<Record<string, unknown>> = []
+          for (const id of ids) {
+            try {
+              if (action === 'approve') {
+                const result = await pack.service.approveProposal(id)
+                results.push({ id, ok: true, action, knowledgeId: result.knowledgeId, version: result.version })
+              } else {
+                const result = await pack.service.rejectProposal(id, reason)
+                results.push({ id, ok: true, action, status: result.status })
+              }
+            } catch (error) {
+              results.push({ id, ok: false, message: error instanceof Error ? error.message : String(error) })
+            }
           }
-          sendJson(response, 400, { error: 'invalid-action', message: 'action must be approve or reject' }, method)
+          const failed = results.filter((result) => result.ok !== true).length
+          const firstFailure = results.find((result) => result.ok !== true)
+          sendJson(
+            response,
+            failed === ids.length ? 409 : 200,
+            {
+              ok: failed === 0,
+              action,
+              approved: results.length - failed,
+              failed,
+              ...(firstFailure === undefined ? {} : { message: firstFailure.message }),
+              results,
+            },
+            method,
+          )
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           sendJson(response, 409, { error: 'review-failed', message }, method)

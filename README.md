@@ -232,7 +232,7 @@ git push origin v0.1.5
 - 未验证 PTC `run_code` 嵌套调用、外部 CLI、多进程共享 Hub。
 - 上下文注入按"每个任务一份包"设计；长会话的累积效应尚未做规模测量。
 - Web 面板的客户端模块已在本机运行中热加载（`client.advertised: true`，`sidebar.panellist` 与 `main` 均 active）；点击后的完整视觉布局尚未在本会话中截图确认。
-- 面板「待审批」可人工点击批准/拒绝（`panel:human`，`policy.panel.review` 可关闭）；提交的候选仍需人工审核，模型不能自批。
+- 面板「待审批」可人工点击批准/拒绝，支持勾选批量（`panel:human`，`policy.panel.review` 可关闭）；提交的候选仍需人工审核，模型不能自批。
 - 夜间维护依赖 Host 运行；Host 关闭时不会执行，下一次启动且当天未跑过会补跑一次。
 - 多 core 维护串行执行，总耗时是各 core 之和；一个 core 失败当天不重试。
 - 维护不出现在官方「自动化任务」栏，不能在那里暂停/编辑/立即运行；控制入口是 `config.yaml`。

@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.3.0 已发布：**面板人工审核**——「待审批」列表可直接批准/拒绝，不再需要为了审批单开一个会话。批准走 `panel:human` 账本（`policy.panel.review` 可关闭），请求只接受回环 + `x-dmh-review` 头 + 同源 Origin。V0.2.0 的按需读取优化（`memory_get` 默认摘要、`memory_search` `detail: "ids"`）保持不变。npm 包 `dsh-memory-hub@0.3.0` 与 GitHub Release `v0.3.0` 已发布（run `42388099026`，publishTimestamp `1794066609`）。
+V0.4.0 开发中：**面板批量审核**——「待审批」支持勾选/全选后一次批准或拒绝多条候选；端点接受 `ids[]`（单次最多 50 条）并返回逐条结果，部分失败不影响其他条目。V0.3.0 的单条审核、`panel:human` 账本与回环安全校验保持不变。
 
-当前工作树为 **V0.3.0（已发布）**：在 V0.2.0 的按需读取之上，加入面板人工审核与 `proposal.rejected` 账本事件。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.4.0（待发布）**：在 V0.3.0 的面板审核之上加入批量操作。发布后 npm 包 `dsh-memory-hub@0.4.0` 与 GitHub Release `v0.4.0` 同步；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
@@ -27,6 +27,7 @@ V0.3.0 已发布：**面板人工审核**——「待审批」列表可直接批
 - [x] 面板任务行显示预检命中数与引用数，暴露“命中但未引用”的断点
 - [x] 候选创建（`memory_propose`）与提交审批（`memory_commit`）
 - [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
+- [x] 面板批量审核（V0.4.0）：勾选/全选后批量批准或拒绝；端点 `POST /api/pending` 接受 `ids[]`（最多 50 条），返回逐条 `results` 与 `approved/failed`，部分失败不阻塞其他条目
 - [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
@@ -86,7 +87,7 @@ V0.3.0 已发布：**面板人工审核**——「待审批」列表可直接批
 - Markdown / YAML / JSONL 是唯一权威数据格式。
 - 默认不使用向量数据库。
 - `memory_commit` 在会话内必须经过 DSH 原生人工审批；面板「待审批」由人点击批准/拒绝，账本记为 `panel:human`；模型不可自批。
-- Web 面板路由只允许回环请求；除人工审核外不提供写入端点。
+- Web 面板路由只允许回环请求；除人工审核（单条/批量）外不提供写入端点。
 - 每根一把写锁：第二个写者只让该根降级为只读，不跨根级联；显式 `readOnly: true` 才是全局只读。
 - Windows 原生路径语义。
 

@@ -10,7 +10,7 @@
 
 本文是 `dsh-memory-hub` 的唯一权威设计。它回答四件事：**记什么、怎么查、什么时候信、怎么不闯祸**。实现位于 `src/` 与 `client.js`，构建产物为 `dist/index.js`；验证状态见 [COMPATIBILITY.md](COMPATIBILITY.md)。
 
-> V0.1.1 在 V0.1.0 之上增加 Web 面板（能力总览、知识浏览、待审批、活动与策略）。V0.3.0 起面板「待审批」提供人工点击的批准/拒绝（账本 `approvalRef` 记为 `panel:human`，受 `policy.panel.review` 控制），模型仍不能自批；原生 DSH 审批在会话内继续可用。
+> V0.1.1 在 V0.1.0 之上增加 Web 面板（能力总览、知识浏览、待审批、活动与策略）。V0.3.0 起面板「待审批」提供人工点击的批准/拒绝（账本 `approvalRef` 记为 `panel:human`，受 `policy.panel.review` 控制），V0.4.0 起支持勾选批量（单次最多 50 条）；模型仍不能自批，原生 DSH 审批在会话内继续可用。
 
 `E:\009workspace\dsh\dsh-memory-hub\docs` 下的参考设计包与 `code\dsh-memory-evolve` 只作为需求与风险清单使用。本文不复刻参考代码的模块、UI、技能系统或同步机制；与参考材料的取舍见 [§18](#18-与参考材料的关系)。
 
@@ -377,7 +377,7 @@ tests/
 | --- | --- |
 | `session.append` / 自定义会话事件 | 插件记录仅限 `packages/experimental/`；本插件不满足条件，强行写会破坏会话格式承诺 |
 | `ctx.storage` / profile 存储 | 数据应在用户可见、可备份的普通目录，而不是 profile 内部状态 |
-| Web Client / Slot | V0.1.0 不依赖；V0.1.1 的面板通过 `sidebar.panellist` + `main` 注册；V0.3.0 起「待审批」支持人工点击批准/拒绝（`panel:human`），不走 Host 业务回合 |
+| Web Client / Slot | V0.1.0 不依赖；V0.1.1 的面板通过 `sidebar.panellist` + `main` 注册；V0.3.0 起「待审批」支持人工点击批准/拒绝（`panel:human`），V0.4.0 起支持勾选批量，不走 Host 业务回合 |
 | MCP server 形态 | 工具在 Host 内注册更直接；MCP 桥接留到需要跨客户端复用时评估 |
 
 ---

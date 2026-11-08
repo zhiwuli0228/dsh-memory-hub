@@ -309,7 +309,8 @@ describe('plugin entry', () => {
     const approved = await call({ 'x-dmh-review': '1', origin: 'http://127.0.0.1:54935' }, { id: proposal.proposalId, action: 'approve' })
     expect(approved.status).toBe(200)
     expect(approved.json.ok).toBe(true)
-    expect(String(approved.json.knowledgeId)).toMatch(/^DEC-/)
+    const approvedResults = approved.json.results as Array<Record<string, unknown>>
+    expect(String(approvedResults[0]?.knowledgeId)).toMatch(/^DEC-/)
     const ledger = await readFile(join(root, 'records', 'ledger.jsonl'), 'utf8')
     expect(ledger).toContain('panel:human')
     expect(ledger).toContain(proposal.proposalId)
@@ -325,11 +326,62 @@ describe('plugin entry', () => {
     }, agent)) as { proposalId: string }
     const rejected = await call({ 'x-dmh-review': '1' }, { id: second.proposalId, action: 'reject', reason: '不相关' })
     expect(rejected.status).toBe(200)
-    expect(rejected.json.status).toBe('rejected')
+    const rejectedResults = rejected.json.results as Array<Record<string, unknown>>
+    expect(rejectedResults[0]?.status).toBe('rejected')
     expect((await readFile(join(root, 'records', 'ledger.jsonl'), 'utf8'))).toContain('proposal.rejected')
 
     const missing = await call({ 'x-dmh-review': '1' }, { id: 'PRO-999999', action: 'approve' })
     expect(missing.status).toBe(409)
+
+    // 批量批准：一次请求处理多条候选，返回逐条结果。
+    const batch = []
+    for (const title of ['批量候选一', '批量候选二', '批量候选三']) {
+      batch.push((await invoke('memory_propose', host, {
+        operation: 'create',
+        type: 'knowledge',
+        scope: 'global',
+        title,
+        summary: `${title}的摘要。`,
+        content: `## 结论\n\n${title}。\n`,
+        source_refs: ['note:batch'],
+      }, agent)) as { proposalId: string })
+    }
+    const batchIds = batch.map((item) => item.proposalId)
+    const batchApproved = await call({ 'x-dmh-review': '1' }, { ids: batchIds, action: 'approve' })
+    expect(batchApproved.status).toBe(200)
+    expect(batchApproved.json.ok).toBe(true)
+    expect(batchApproved.json.approved).toBe(3)
+    expect(batchApproved.json.failed).toBe(0)
+    const batchResults = batchApproved.json.results as Array<Record<string, unknown>>
+    expect(batchResults.map((result) => result.id)).toEqual(batchIds)
+    for (const result of batchResults) expect(String(result.knowledgeId)).toMatch(/^[A-Z]+-\d+$/)
+    const batchLedger = (await readFile(join(root, 'records', 'ledger.jsonl'), 'utf8'))
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as { type: string; approvalRef?: string })
+      .filter((event) => event.type === 'proposal.committed' && event.approvalRef === 'panel:human')
+    expect(batchLedger.length).toBeGreaterThanOrEqual(4)
+
+    const tooMany = await call(
+      { 'x-dmh-review': '1' },
+      { ids: Array.from({ length: 51 }, (_, index) => `PRO-${index}`), action: 'approve' },
+    )
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.json.error).toBe('batch-too-large')
+
+    const fourth = (await invoke('memory_propose', host, {
+      operation: 'create',
+      type: 'knowledge',
+      scope: 'global',
+      title: '批量候选四',
+      summary: '部分成功的批量审核。',
+      content: '## 结论\n\n批量候选四。\n',
+      source_refs: ['note:batch'],
+    }, agent)) as { proposalId: string }
+    const mixed = await call({ 'x-dmh-review': '1' }, { ids: [fourth.proposalId, 'PRO-999999'], action: 'approve' })
+    expect(mixed.status).toBe(200)
+    expect(mixed.json.approved).toBe(1)
+    expect(mixed.json.failed).toBe(1)
 
     for (const dispose of host.disposers.reverse()) {
       await dispose()
