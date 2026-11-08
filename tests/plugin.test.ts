@@ -945,6 +945,70 @@ core_workspaces:
     await rm(configRoot, { recursive: true, force: true })
     await rm(coreRoot, { recursive: true, force: true })
   })
+
+  it('serves a filtered session list for the distill session picker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-sessions-'))
+    const host = createFakeHost(root)
+    const originalGet = host.ctx.get.bind(host.ctx)
+    host.ctx.get = (name: string): unknown => {
+      if (name !== 'sessionController') return originalGet(name)
+      return {
+        list: async () => ({
+          items: [
+            { sessionId: 'session-old', cwd: 'E:/work/alpha', updatedAt: 10, blank: false, projections: { values: { title: '旧会话' } } },
+            { sessionId: 'session-new', cwd: 'E:/work/beta', updatedAt: 30, blank: true, projections: { values: {} } },
+            { sessionId: 'session-child', updatedAt: 40, origin: 'subagent' },
+            { sessionId: '' },
+            'not-a-record',
+          ],
+        }),
+      }
+    }
+    apply(host.ctx, { root })
+    await invoke('memory_status', host, {}, makeAgent(host))
+
+    const route = host.webServer?.routes.get('/dsh-memory-hub/api/sessions')
+    expect(route).toBeDefined()
+    const state = { status: 0, text: '', writableEnded: false }
+    const response = {
+      get writableEnded() {
+        return state.writableEnded
+      },
+      writeHead(status: number) {
+        state.status = status
+        return response
+      },
+      end(text?: string) {
+        state.text = text ?? ''
+        state.writableEnded = true
+        return response
+      },
+    }
+    const request = {
+      method: 'GET',
+      url: '/dsh-memory-hub/api/sessions',
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: {},
+    }
+    await route!(request, response)
+
+    expect(state.status).toBe(200)
+    const payload = JSON.parse(state.text) as {
+      unavailable: boolean
+      items: Array<Record<string, unknown>>
+    }
+    expect(payload.unavailable).toBe(false)
+    // 按 updatedAt 倒序；委派会话、空 id 与非对象行都被过滤。
+    expect(payload.items.map((item) => item.sessionId)).toEqual(['session-new', 'session-old'])
+    expect(payload.items[0]).toMatchObject({ cwd: 'E:/work/beta', blank: true, title: null })
+    expect(payload.items[1]).toMatchObject({ cwd: 'E:/work/alpha', title: '旧会话', blank: false })
+    expect(state.text).not.toContain('subagent')
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(root, { recursive: true, force: true })
+  })
 })
 
 function createDirectoryHost(configRoot: string, directories: Map<string, string>): FakeHost {

@@ -38,6 +38,30 @@ const pluginConfigSchema = z.object({
   readOnly: z.boolean().optional(),
 }).passthrough()
 
+/** 面板“指定会话”下拉用的最小会话信息。 */
+interface SessionOption {
+  sessionId: string
+  cwd: string | null
+  title: string | null
+  updatedAt: number | null
+  blank: boolean
+}
+
+interface SessionOptionPayload {
+  /** Host 没有 sessionController（或读取失败）时为 true，面板退回手填。 */
+  unavailable: boolean
+  items: SessionOption[]
+}
+
+const SESSION_OPTIONS_CACHE_MS = 5000
+const SESSION_OPTIONS_LIMIT = 200
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
 const AGENT_CONTEXT_NAME = 'memory:pack'
 const AGENT_CONTEXT_ORDER = 130
 
@@ -77,6 +101,7 @@ export class MemoryRuntime implements ToolHost {
   private distillReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
   private distillRetryTimer: NodeJS.Timeout | null = null
   private distillRetryCount = 0
+  private sessionOptionsCache: { at: number; payload: SessionOptionPayload } | null = null
   private readonly ready: Promise<void>
   private resolveReady: (() => void) | null = null
 
@@ -860,7 +885,7 @@ export class MemoryRuntime implements ToolHost {
       this.ctx.inject(['webServer'], (scope) => {
         const server = scope.get('webServer') as WebServerService | undefined
         if (server === undefined || typeof server.register !== 'function') return
-        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge', '/dsh-memory-hub/api/config', '/dsh-memory-hub/api/hubs', '/dsh-memory-hub/api/pending']) {
+        for (const path of ['/dsh-memory-hub/api/overview', '/dsh-memory-hub/api/knowledge', '/dsh-memory-hub/api/config', '/dsh-memory-hub/api/hubs', '/dsh-memory-hub/api/pending', '/dsh-memory-hub/api/sessions']) {
           try {
             scope.effect(() =>
               server.register({
@@ -877,6 +902,55 @@ export class MemoryRuntime implements ToolHost {
     } catch (error) {
       this.ctx.logger.warn(`dsh-memory-hub: web server injection failed: ${(error as Error).message}`)
     }
+  }
+
+  /**
+   * 只读会话清单，供面板“指定会话”下拉使用。会话正文不返回，只给 id、cwd、
+   * 标题与更新时间；委派会话（subagent）不能作为投递目标，直接过滤掉。
+   */
+  private async listSessionOptions(): Promise<SessionOptionPayload> {
+    const now = Date.now()
+    if (this.sessionOptionsCache !== null && now - this.sessionOptionsCache.at < SESSION_OPTIONS_CACHE_MS) {
+      return this.sessionOptionsCache.payload
+    }
+    let payload: SessionOptionPayload = { unavailable: true, items: [] }
+    try {
+      const controller = this.ctx.get('sessionController') as
+        | {
+            list?: (
+              request: Record<string, never>,
+              signal: AbortSignal,
+            ) => Promise<{ items?: unknown }>
+          }
+        | undefined
+      if (typeof controller?.list === 'function') {
+        const result = await controller.list({}, AbortSignal.timeout(4000))
+        const rows = Array.isArray(result?.items) ? result.items : []
+        const items: SessionOption[] = []
+        for (const row of rows) {
+          const record = asRecord(row)
+          if (record === null) continue
+          const sessionId = typeof record.sessionId === 'string' ? record.sessionId : ''
+          if (sessionId === '') continue
+          if (record.origin === 'subagent') continue
+          const projections = asRecord(record.projections)
+          const values = asRecord(projections?.values)
+          items.push({
+            sessionId,
+            cwd: typeof record.cwd === 'string' && record.cwd !== '' ? record.cwd : null,
+            title: typeof values?.title === 'string' && values.title !== '' ? values.title : null,
+            updatedAt: typeof record.updatedAt === 'number' ? record.updatedAt : null,
+            blank: record.blank === true,
+          })
+        }
+        items.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        payload = { unavailable: false, items: items.slice(0, SESSION_OPTIONS_LIMIT) }
+      }
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot list sessions: ${(error as Error).message}`)
+    }
+    this.sessionOptionsCache = { at: now, payload }
+    return payload
   }
 
   private handleHttp = async (request: HttpRequestLike, response: HttpResponseLike): Promise<void> => {
@@ -933,6 +1007,15 @@ export class MemoryRuntime implements ToolHost {
         } catch (error) {
           sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
         }
+        return
+      }
+      if (url.pathname === '/dsh-memory-hub/api/sessions') {
+        if (method !== 'GET' && method !== 'HEAD') {
+          sendJson(response, 405, { error: 'method-not-allowed' }, method)
+          return
+        }
+        const payload = await this.listSessionOptions()
+        sendJson(response, 200, payload, method)
         return
       }
       if (url.pathname === '/dsh-memory-hub/api/hubs') {

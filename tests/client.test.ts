@@ -182,6 +182,8 @@ describe('client bundle', () => {
     expect(configHtml).toContain('dmh-distill-row')
     expect(configHtml).toContain('待注册')
     expect(configHtml).toContain('1/2 个工作区已启用')
+    // “指定会话”用 datalist 提供本机会话候选，同时仍可手填。
+    expect(configHtml).toContain('dmh-session-options')
 
     const pendingHtml = renderToStaticMarkup(
       React.createElement(main?.component as React.ComponentType<{ initialData: unknown; initialTab: string }>, {

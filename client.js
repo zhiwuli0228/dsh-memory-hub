@@ -16,6 +16,7 @@
   const API_CONFIG = '/dsh-memory-hub/api/config';
   const API_HUBS = '/dsh-memory-hub/api/hubs';
   const API_PENDING = '/dsh-memory-hub/api/pending';
+  const API_SESSIONS = '/dsh-memory-hub/api/sessions';
 
   const ZH = {
     title: '记忆中枢',
@@ -178,6 +179,10 @@
     'config.distillSummary': '{on}/{total} 个工作区已启用',
     'config.distillDirty': '有未保存修改',
     'config.distillErrors': '{n} 个注册失败',
+    'config.distillSessionPick': '选择或粘贴会话 ID',
+    'config.distillSessionManual': '手动输入会话 ID',
+    'config.distillSessionsUnavailable': '会话列表不可用，请手动粘贴会话 ID',
+    'config.distillBlankSession': '空会话',
     'config.coreShort': '核心',
     'config.subShort': '子工作区',
     'config.emptyId': '标识不能为空',
@@ -345,6 +350,10 @@
     'config.distillSummary': '{on}/{total} workspaces enabled',
     'config.distillDirty': 'unsaved changes',
     'config.distillErrors': '{n} failed',
+    'config.distillSessionPick': 'Pick or paste a session ID',
+    'config.distillSessionManual': 'Paste a session ID',
+    'config.distillSessionsUnavailable': 'Session list unavailable; paste the ID manually',
+    'config.distillBlankSession': 'blank session',
     'config.coreShort': 'core',
     'config.subShort': 'sub-workspace',
     'config.emptyId': 'Id is required',
@@ -469,6 +478,16 @@
 .dmh-distill-errors{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--dsw-alias-state-error-primary)}
 @media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-config-body{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}.dmh-hub-select{max-width:none}.dmh-distill-head{display:none}.dmh-distill-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px}.dmh-distill-name{grid-column:1/-1}.dmh-distill-label{display:block}.dmh-distill-foot{flex-wrap:wrap}}
 `;
+
+  function sessionOptionLabel(entry, blankLabel) {
+    const shortId = String(entry.sessionId || '').replace(/^session-/, '').slice(0, 8);
+    const tail = entry.cwd ? String(entry.cwd).split(/[\\/]/).filter(Boolean).pop() : '';
+    const parts = [];
+    if (entry.title) parts.push(entry.title);
+    parts.push(shortId + (tail ? ` · ${tail}` : ''));
+    if (entry.blank && blankLabel) parts.push(blankLabel);
+    return parts.join(' · ');
+  }
 
   function formatTime(value) {
     if (typeof value !== 'string' || value === '') return '—';
@@ -1029,6 +1048,7 @@
       const selectedSubs = useMemo(() => workspaces.filter((w) => w.core_id === activeCore), [workspaces, activeCore]);
       const unassigned = useMemo(() => workspaces.filter((w) => !w.core_id), [workspaces]);
       const [distillEdits, setDistillEdits] = useState({});
+      const [sessionOptions, setSessionOptions] = useState({ items: [], unavailable: false, phase: 'loading' });
       const distillDefaults = { enabled: false, time: '03:30', target: 'new', session_id: '', agent_preset: '', max_proposals: 5 };
       const distillValue = (key, distill) => distillEdits[key] || { ...distillDefaults, ...(distill || {}) };
       const editDistill = (key, distill, patch) => setDistillEdits((current) => ({
@@ -1040,6 +1060,30 @@
         ...coreWorkspaces.map((core) => ({ key: `core:${core.id}`, kind: 'core', id: core.id, root: core.root, distill: core.distill })),
         ...workspaces.map((workspace) => ({ key: `workspace:${workspace.id}`, kind: 'workspace', id: workspace.id, root: workspace.root, distill: workspace.distill })),
       ];
+
+      // 会话清单只用于“指定会话”下拉候选；读不到就退回手填，不影响其它配置。
+      useEffect(() => {
+        let cancelled = false;
+        fetch(API_SESSIONS, { cache: 'no-store' })
+          .then((response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+          })
+          .then((payload) => {
+            if (cancelled) return;
+            setSessionOptions({
+              items: Array.isArray(payload.items) ? payload.items : [],
+              unavailable: payload.unavailable === true,
+              phase: 'ready',
+            });
+          })
+          .catch(() => {
+            if (!cancelled) setSessionOptions({ items: [], unavailable: true, phase: 'ready' });
+          });
+        return () => {
+          cancelled = true;
+        };
+      }, []);
 
       useEffect(() => {
         if (selectedCore !== '' && !coreWorkspaces.some((core) => core.id === selectedCore)) {
@@ -1307,7 +1351,10 @@
             value.target === 'session'
               ? h('input', {
                   className: 'dmh-input dmh-distill-input dmh-mono',
-                  placeholder: 'session-…',
+                  list: 'dmh-session-options',
+                  placeholder: sessionOptions.unavailable
+                    ? t('config.distillSessionManual')
+                    : t('config.distillSessionPick'),
                   value: value.session_id || '',
                   disabled,
                   onChange: (event) => editDistill(row.key, row.distill, { session_id: event.target.value }),
@@ -1338,6 +1385,9 @@
         t('config.distillSummary').replace('{on}', String(distillEnabledCount)).replace('{total}', String(distillRows.length)),
         distillDirty ? t('config.distillDirty') : '',
         distillFailures.length > 0 ? t('config.distillErrors').replace('{n}', String(distillFailures.length)) : '',
+        sessionOptions.unavailable && sessionOptions.phase === 'ready' && distillRows.some((row) => distillValue(row.key, row.distill).target === 'session')
+          ? t('config.distillSessionsUnavailable')
+          : '',
       ].filter(Boolean).join(' · ');
 
       const distillSection = h('section', { className: 'dmh-section' },
@@ -1348,6 +1398,12 @@
         distillRows.length === 0
           ? h(Empty, { title: t('config.distillTitle'), hint: t('config.distillHint') })
           : h('div', { className: 'dmh-distill' },
+              h('datalist', { id: 'dmh-session-options' },
+                sessionOptions.items.map((entry) => h('option', {
+                  key: entry.sessionId,
+                  value: entry.sessionId,
+                  label: sessionOptionLabel(entry, t('config.distillBlankSession')),
+                }))),
               h('div', { className: 'dmh-distill-head' },
                 h('span', null, t('config.distillColWorkspace')),
                 h('span', null, t('config.distillOn')),

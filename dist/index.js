@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.5.3
+// dsh-memory-hub 0.6.0
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -13269,7 +13269,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.5.3",
+  version: "0.6.0",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, per-workspace scheduled distillation, and a Web panel with human review.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -15888,6 +15888,11 @@ var pluginConfigSchema = external_exports.object({
   root: external_exports.string().optional(),
   readOnly: external_exports.boolean().optional()
 }).passthrough();
+var SESSION_OPTIONS_CACHE_MS = 5e3;
+var SESSION_OPTIONS_LIMIT = 200;
+function asRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
+}
 var AGENT_CONTEXT_NAME = "memory:pack";
 var AGENT_CONTEXT_ORDER = 130;
 var MAX_ANCESTOR_DEPTH = 8;
@@ -15911,6 +15916,7 @@ var MemoryRuntime = class {
   distillReport = null;
   distillRetryTimer = null;
   distillRetryCount = 0;
+  sessionOptionsCache = null;
   ready;
   resolveReady = null;
   constructor(ctx, config) {
@@ -16594,7 +16600,7 @@ var MemoryRuntime = class {
       this.ctx.inject(["webServer"], (scope) => {
         const server = scope.get("webServer");
         if (server === void 0 || typeof server.register !== "function") return;
-        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge", "/dsh-memory-hub/api/config", "/dsh-memory-hub/api/hubs", "/dsh-memory-hub/api/pending"]) {
+        for (const path of ["/dsh-memory-hub/api/overview", "/dsh-memory-hub/api/knowledge", "/dsh-memory-hub/api/config", "/dsh-memory-hub/api/hubs", "/dsh-memory-hub/api/pending", "/dsh-memory-hub/api/sessions"]) {
           try {
             scope.effect(
               () => server.register({
@@ -16611,6 +16617,47 @@ var MemoryRuntime = class {
     } catch (error) {
       this.ctx.logger.warn(`dsh-memory-hub: web server injection failed: ${error.message}`);
     }
+  }
+  /**
+   * 只读会话清单，供面板“指定会话”下拉使用。会话正文不返回，只给 id、cwd、
+   * 标题与更新时间；委派会话（subagent）不能作为投递目标，直接过滤掉。
+   */
+  async listSessionOptions() {
+    const now = Date.now();
+    if (this.sessionOptionsCache !== null && now - this.sessionOptionsCache.at < SESSION_OPTIONS_CACHE_MS) {
+      return this.sessionOptionsCache.payload;
+    }
+    let payload = { unavailable: true, items: [] };
+    try {
+      const controller = this.ctx.get("sessionController");
+      if (typeof controller?.list === "function") {
+        const result = await controller.list({}, AbortSignal.timeout(4e3));
+        const rows = Array.isArray(result?.items) ? result.items : [];
+        const items = [];
+        for (const row of rows) {
+          const record = asRecord(row);
+          if (record === null) continue;
+          const sessionId = typeof record.sessionId === "string" ? record.sessionId : "";
+          if (sessionId === "") continue;
+          if (record.origin === "subagent") continue;
+          const projections = asRecord(record.projections);
+          const values = asRecord(projections?.values);
+          items.push({
+            sessionId,
+            cwd: typeof record.cwd === "string" && record.cwd !== "" ? record.cwd : null,
+            title: typeof values?.title === "string" && values.title !== "" ? values.title : null,
+            updatedAt: typeof record.updatedAt === "number" ? record.updatedAt : null,
+            blank: record.blank === true
+          });
+        }
+        items.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+        payload = { unavailable: false, items: items.slice(0, SESSION_OPTIONS_LIMIT) };
+      }
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot list sessions: ${error.message}`);
+    }
+    this.sessionOptionsCache = { at: now, payload };
+    return payload;
   }
   handleHttp = async (request, response) => {
     const method = typeof request.method === "string" ? request.method : "GET";
@@ -16666,6 +16713,15 @@ var MemoryRuntime = class {
         } catch (error) {
           sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
         }
+        return;
+      }
+      if (url.pathname === "/dsh-memory-hub/api/sessions") {
+        if (method !== "GET" && method !== "HEAD") {
+          sendJson(response, 405, { error: "method-not-allowed" }, method);
+          return;
+        }
+        const payload = await this.listSessionOptions();
+        sendJson(response, 200, payload, method);
         return;
       }
       if (url.pathname === "/dsh-memory-hub/api/hubs") {
