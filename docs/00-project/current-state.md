@@ -105,6 +105,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] P0 引用生命周期：维护报告与 aging 参考最近一次 `memory_cite`（`knowledgeId → lastCitedAt`），`uncited` 区分「从未引用 / 最近引用 N 天前」，totals 增加 `cited`；`/api/overview` 知识行带 `lastCitedAt`；归档仍需人批准的 deprecate 候选
 - [x] P0 写入风险标记：`src/risk.ts` 扫描注入短语、凭据形态、零宽/方向控制符、角色伪造；`memory_propose` 返回 `risk`、账本记 `riskLevel/riskSignals`、面板候选卡片显示「需确认」；**只标记，不阻断、不改写**
 - [x] 137 个 vitest 测试（18 个文件）
+- [x] 升级/收编文档对齐 0.6.0：[upgrade-guide.md](../06-operations/upgrade-guide.md) 覆盖 link/CLI/市场迁移三条免卸载路径，并新增「老版本收编兼容矩阵」（format 闸门、账本容错、时效默认、序列回填、索引自动）与收编清单
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
