@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.4.0 开发中：**面板批量审核**——「待审批」支持勾选/全选后一次批准或拒绝多条候选；端点接受 `ids[]`（单次最多 50 条）并返回逐条结果，部分失败不影响其他条目。V0.3.0 的单条审核、`panel:human` 账本与回环安全校验保持不变。
+V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全选后一次批准或拒绝多条候选；端点接受 `ids[]`（单次最多 50 条）并返回逐条结果，部分失败不影响其他条目。V0.3.0 的单条审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.4.0` 与 GitHub Release `v0.4.0` 已发布（run `42434724294`，publishTimestamp `1794072916`）。
 
-当前工作树为 **V0.4.0（待发布）**：在 V0.3.0 的面板审核之上加入批量操作。发布后 npm 包 `dsh-memory-hub@0.4.0` 与 GitHub Release `v0.4.0` 同步；升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.4.0（已发布）**：在 V0.3.0 的面板审核之上加入批量操作。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
