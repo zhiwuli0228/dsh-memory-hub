@@ -102,6 +102,16 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 
 不要用多条 \`supersedes\` 手工拼合并：那样没有「谁被并进了谁」的单点记录，也容易漏正文细节。
 
+## 回顾式萃取
+
+会话结束时没来得及记下的结论，用 \`memory_reflect\` 补：
+
+1. \`memory_reflect({ session_id?, limit?, dry_run? })\` 只读返回本工作区名下已结束会话的 digest（用户诉求、助手最终结论、失败的工具调用），并记录 \`records/reflect-state.json\` 水位；同一 digest 不会重复返回。
+2. 从 digest 里挑仍成立、且 \`memory_search\` 查重后没有覆盖的结论，用 \`memory_propose\` 写 \`scope: "project:<本工作区>"\`，\`source_refs\` 用 \`session:<会话ID>#<起始序号>-<结束序号>\`，\`tags\` 加 \`reflection\`。
+3. 只写本工作区，不写上级或 \`global\`；向上晋升交给定时蒸馏。候选仍由人工批准，不要 \`memory_commit\`。
+
+定时回顾按工作区配置 \`reflect:\` 对齐（与 \`distill:\` 独立），每个工作区只看自己的会话——核心工作区看不到子工作区的会话。
+
 ## 工具速查
 
 | 目的 | 工具 |
@@ -116,6 +126,7 @@ DSH Memory Hub 是文件原生的长期记忆。预检包只是**候选索引**�
 | 结束任务 | \`memory_close_task\` |
 | 项目知识晋升 | \`memory_consolidate\` |
 | 近重复检查 | \`memory_duplicates\` |
+| 回顾已结束会话 | \`memory_reflect\` |
 | 夜间巡检 / 生成维护提案 | \`memory_maintenance\` |
 
 ## 反模式

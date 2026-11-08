@@ -84,6 +84,17 @@ export type LedgerEvent =
       skipped: number
     })
   | (EventBase & {
+      type: 'reflect.read'
+      sessionId: string
+      workspaceId: string
+      /** 被回顾的原始事件数。 */
+      events: number
+      /** digest 字符数。 */
+      chars: number
+      /** 本次回顾之后由模型创建的候选数；读取时为 0。 */
+      proposals: number
+    })
+  | (EventBase & {
       type: 'knowledge.merged'
       /** 合并后保留的 target id。 */
       target: string

@@ -164,9 +164,10 @@ describe('plugin entry', () => {
 
     const host = createFakeHost(root)
     apply(host.ctx, { root })
-    expect(host.tools.size).toBe(11)
+    expect(host.tools.size).toBe(12)
     expect(host.tools.has('memory_maintenance')).toBe(true)
     expect(host.tools.has('memory_duplicates')).toBe(true)
+    expect(host.tools.has('memory_reflect')).toBe(true)
     expect(host.skills.get('memory-hub')?.source).toBe('runtime')
     expect(host.listeners.get('agent/pre-step')?.length).toBe(1)
 
@@ -836,6 +837,11 @@ core_workspaces:
       time: '04:15'
       target: new
       max_proposals: 4
+    reflect:
+      enabled: true
+      time: '04:45'
+      max_candidates: 3
+      lookback_days: 14
 `
     await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
 
@@ -872,13 +878,19 @@ core_workspaces:
     apply(host.ctx, { root: configRoot })
     await invoke('memory_status', host, {}, makeAgent(host))
 
-    expect(created).toHaveLength(1)
+    expect(created).toHaveLength(2)
     expect(created[0]?.title).toBe('memory-hub:distill:primary:core:core-a')
     expect(created[0]?.timing).toEqual({ kind: 'daily', daily: { time: '04:15:00', time_zone: expect.any(String) } })
     expect(created[0]?.target).toEqual({ kind: 'new', create: { cwd: resolve(coreRoot) } })
     expect(String(created[0]?.prompt)).toContain('不要调用 memory_commit')
     expect(String(created[0]?.prompt)).toContain('memory_close_task')
-    expect(schedule.items).toHaveLength(1)
+    // 回顾任务与蒸馏任务并列注册、标题前缀不同，提示词锁定本工作区作用域。
+    expect(created[1]?.title).toBe('memory-hub:reflect:primary:core:core-a')
+    expect(created[1]?.timing).toEqual({ kind: 'daily', daily: { time: '04:45:00', time_zone: expect.any(String) } })
+    expect(String(created[1]?.prompt)).toContain('memory_reflect')
+    expect(String(created[1]?.prompt)).toContain('project:core-a')
+    expect(String(created[1]?.prompt)).toContain('最近 14 天')
+    expect(schedule.items).toHaveLength(2)
 
     for (const dispose of host.disposers.reverse()) {
       await dispose()

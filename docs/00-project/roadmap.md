@@ -52,14 +52,14 @@
 
 三项 P0 已有提案，尚未实现：
 
-- 回顾式萃取：从会话记录提取「已验证的决策/踩过的坑」，仍只产出候选 — [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)
+- 回顾式萃取：从会话记录提取「已验证的决策/踩过的坑」，仍只产出候选 — [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)（**已实现，V0.7 WIP**）
 - 去重与合并：近重复检测 + `merge` 提案 + 面板旧→新 diff，人工确认后 supersede — [proposal-dedupe-merge](../03-openspec/proposal-dedupe-merge.md)（**已实现，V0.7 WIP**）
 - 时效字段：`valid_from` / `last_verified` / `expires_at`，过期降权不删除 — [proposal-temporal-fields](../03-openspec/proposal-temporal-fields.md)（**已实现，V0.7 WIP**）
 - 内部 golden set 与「有记忆/无记忆」对照指标，作为发版回归项（尚未写提案）
 
 建议顺序：**时效字段 → 去重合并 → 回顾式萃取**。前两项都改 frontmatter 与提交路径，放在一起做只需一次格式评审；回顾式萃取独立，可并行。
 
-2026-11-08 评审结论（三份提案状态改为 Accepted，待实现）：
+2026-11-08 评审结论（三份提案状态改为 Accepted，已实现 V0.7 WIP）：
 
 - 时效：`aging_days` 取 **90 天**（不是 180）。
 - 去重合并：采用独立 `operation: 'merge'`，不复用 `update` + 多条 `supersedes`。

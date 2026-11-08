@@ -40,6 +40,16 @@ import type {
   WritebackAssessment,
 } from './types.js'
 import type { AgentLike, Context, PreToolDecision, ToolRunContext, WorkingDirectoryService } from './host.js'
+import {
+  buildDigest,
+  digestHash,
+  ownerWorkspaceOf,
+  reflectRoots,
+  renderDigest,
+  type ReflectSessionRecord,
+  type SessionDigestSource,
+  type ReflectStateFile,
+} from './reflect.js'
 
 export const PLUGIN_VERSION = packageJson.version
 
@@ -152,6 +162,10 @@ interface RuntimeOptions {
   workspaces?: WorkspaceConfig[]
   /** 本 pack 对应的核心 id（fallback 为 null）。 */
   coreId?: string | null
+  /** 回顾式萃取的会话来源；宿主没有 sessionQuery 时传 Null 或省略。 */
+  reflectSource?: SessionDigestSource
+  /** 已回顾水位（`records/reflect-state.json`）。 */
+  reflectState?: ReflectStateFile
 }
 
 /** 上级核心 pack 的读写接口（跨 Hub 金字塔分级蒸馏用）。 */
@@ -175,6 +189,8 @@ export class MemoryService {
   private readonly tasks: Map<string, TaskRecord>
   private readonly citationKeys = new Set<string>()
   private readonly citations: CitationRecord[]
+  private readonly reflectSource: SessionDigestSource | null
+  private readonly reflectState: ReflectStateFile | null
 
   constructor(options: RuntimeOptions) {
     this.ctx = options.ctx
@@ -183,6 +199,8 @@ export class MemoryService {
     this.ledger = options.ledger
     this.customWorkspaces = options.workspaces
     this.coreId = options.coreId ?? null
+    this.reflectSource = options.reflectSource ?? null
+    this.reflectState = options.reflectState ?? null
     this.tasks = options.ledgerState.tasks
     this.citations = options.ledgerState.citations
     for (const citation of this.citations) {
@@ -680,6 +698,181 @@ export class MemoryService {
     const target = proposal.target === null ? undefined : this.store.docs.get(proposal.target)
     const diff = lineDiff(target?.body ?? '', proposal.body, PANEL_DIFF_LINES)
     return { merged, diff: diff.lines, truncated: diff.truncated }
+  }
+
+  /**
+   * 回顾式萃取：把本工作区名下已结束会话压成 digest，供模型据此 `memory_propose`。
+   * 只读会话与账本/水位；不写任何知识文件，也不调用模型。
+   */
+  async reflect(agent: AgentLike, args: { session_id?: string; limit?: number; dry_run?: boolean }): Promise<{
+    available: boolean
+    workspaceId: string
+    reason?: string
+    sessions: Array<{
+      sessionId: string
+      cwd: string
+      createdAt: string
+      chars: number
+      truncated: boolean
+      digest: string
+      digestHash: string
+      seqRange: { from: number; to: number } | null
+    }>
+    skipped: Array<{ sessionId: string; reason: string }>
+    dryRun: boolean
+  }> {
+    const workspace = await this.resolveWorkspace(agent)
+    const dryRun = args.dry_run === true
+    const workspaceId = workspace.id
+    if (workspaceId === null) {
+      throw new MemoryError('INVALID_STATE', 'workspace is not registered in config.yaml; add it before reflecting sessions')
+    }
+    if (this.reflectSource === null || !this.reflectSource.available) {
+      return {
+        available: false,
+        workspaceId,
+        reason: 'sessionQuery service unavailable on this host',
+        sessions: [],
+        skipped: [],
+        dryRun,
+      }
+    }
+    const policy = this.hub.config.policy.reflect
+    const reflect = this.reflectConfigFor(workspaceId)
+    const lookbackDays = reflect.lookback_days
+    const limit = Math.max(1, Math.min(3, args.limit ?? policy.max_sessions))
+    const roots = reflectRoots(this.hub.config)
+    const cutoff = Date.now() - lookbackDays * 86_400_000
+    // 水位文件是派生物：每次读取前刷新一遍，避免多进程/手工删除后仍按旧状态去重。
+    if (this.reflectState !== null) await this.reflectState.load()
+
+    let records: ReflectSessionRecord[]
+    try {
+      records = await this.reflectSource.listSessions()
+    } catch (error) {
+      return {
+        available: false,
+        workspaceId,
+        reason: `sessionQuery listSessions failed: ${(error as Error).message}`,
+        sessions: [],
+        skipped: [],
+        dryRun,
+      }
+    }
+
+    const owned = records
+      .filter((record) => {
+        const header = record.header
+        if (header === undefined || typeof header.id !== 'string') return false
+        if (header.origin === 'subagent' || (header.delegationDepth ?? 0) > 0) return false
+        if (typeof header.parentSession === 'string' && header.parentSession !== '') return false
+        const owner = ownerWorkspaceOf(header.cwd, roots)
+        if (owner === null || owner.workspaceId !== workspace.id) return false
+        if (typeof header.createdAt === 'number' && header.createdAt < cutoff) return false
+        return true
+      })
+      .sort((left, right) => (right.header.createdAt ?? 0) - (left.header.createdAt ?? 0))
+
+    let selected = owned
+    if (args.session_id !== undefined && args.session_id !== '') {
+      const requested = owned.find((record) => record.header.id === args.session_id)
+      if (requested === undefined) {
+        throw new MemoryError(
+          'INVALID_INPUT',
+          `session ${args.session_id} is not an ended session owned by workspace ${workspace.id}`,
+        )
+      }
+      selected = [requested]
+    }
+    selected = selected.slice(0, args.session_id === undefined ? limit : 1)
+
+    const sessions: Array<{
+      sessionId: string
+      cwd: string
+      createdAt: string
+      chars: number
+      truncated: boolean
+      digest: string
+      digestHash: string
+      seqRange: { from: number; to: number } | null
+    }> = []
+    const skipped: Array<{ sessionId: string; reason: string }> = []
+
+    for (const record of selected) {
+      const sessionId = record.header.id
+      const prior = this.reflectState?.find(sessionId)
+      let snapshot
+      try {
+        snapshot = await this.reflectSource.readSession(sessionId)
+      } catch (error) {
+        skipped.push({ sessionId, reason: `read-failed: ${(error as Error).message}` })
+        continue
+      }
+      const result = buildDigest(snapshot, {
+        workspaceId,
+        maxChars: policy.max_chars,
+        minMessages: policy.min_messages,
+      })
+      if (result.status === 'too-short') {
+        skipped.push({ sessionId, reason: `too-short (${result.messages} messages)` })
+        continue
+      }
+      if (result.status === 'empty') {
+        skipped.push({ sessionId, reason: 'empty' })
+        continue
+      }
+      const digest = result.digest
+      const hash = digestHash(digest)
+      if (prior !== undefined && prior.digestHash === hash) {
+        skipped.push({ sessionId, reason: 'already-reflected' })
+        continue
+      }
+      const seqs = snapshot.events
+        .map((event) => event.seq)
+        .filter((seq): seq is number => typeof seq === 'number')
+      const seqRange = seqs.length === 0 ? null : { from: Math.min(...seqs), to: Math.max(...seqs) }
+      if (!dryRun) {
+        await this.reflectState?.mark({
+          sessionId,
+          workspaceId,
+          reflectedAt: nowIso(),
+          digestHash: hash,
+          proposals: [],
+        })
+        await this.ledger.append({
+          type: 'reflect.read',
+          sessionId,
+          workspaceId,
+          events: snapshot.events.length,
+          chars: digest.chars,
+          proposals: 0,
+        })
+      }
+      sessions.push({
+        sessionId,
+        cwd: digest.cwd,
+        createdAt: digest.createdAt,
+        chars: digest.chars,
+        truncated: digest.truncated,
+        digest: renderDigest(digest),
+        digestHash: hash,
+        seqRange,
+      })
+    }
+
+    return { available: true, workspaceId, sessions, skipped, dryRun }
+  }
+
+  private reflectConfigFor(workspaceId: string) {
+    const core = this.hub.config.core_workspaces.find((entry) => entry.id === workspaceId)
+    const workspace = this.activeWorkspaces.find((entry) => entry.id === workspaceId)
+    return core?.reflect ?? workspace?.reflect ?? {
+      enabled: false,
+      time: '04:30',
+      target: 'new' as const,
+      max_candidates: 5,
+      lookback_days: 30,
+    }
   }
 
   /**
@@ -1771,6 +1964,10 @@ export class MemoryService {
           unknown_tools: this.hub.config.policy.gate.unknown_tools,
         },
         maintenance: this.hub.config.policy.maintenance,
+      },
+      reflect: {
+        available: this.reflectSource !== null && this.reflectSource.available,
+        tracked: this.reflectState?.entries().length ?? 0,
       },
     }
   }

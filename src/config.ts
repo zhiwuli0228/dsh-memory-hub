@@ -41,11 +41,26 @@ const distillSchema = z.object({
   max_proposals: z.number().int().min(1).max(20).default(5),
 }).default({})
 
+/**
+ * 每个工作区的定时回顾（retrospective extraction）。与 distill 并列、互不影响：
+ * 回顾只读本工作区名下已结束的会话，产出 L1（`project:<self>`）候选；上行晋升仍由 distill 负责。
+ */
+const reflectSchema = z.object({
+  enabled: z.boolean().default(false),
+  time: z.string().regex(DISTILL_TIME_PATTERN, 'reflect time must be HH:mm').default('04:30'),
+  target: z.enum(['new', 'session']).default('new'),
+  session_id: z.string().nullable().optional(),
+  agent_preset: z.string().min(1).nullable().optional(),
+  max_candidates: z.number().int().min(1).max(20).default(5),
+  lookback_days: z.number().int().min(1).max(365).default(30),
+}).default({})
+
 const coreWorkspaceSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'core workspace id must be a slug (letters, digits, dot, underscore, dash)'),
   name: z.string().min(1).optional(),
   root: z.string().min(1).optional(),
   distill: distillSchema.optional(),
+  reflect: reflectSchema.optional(),
 })
 
 const workspaceSchema = z.object({
@@ -56,6 +71,7 @@ const workspaceSchema = z.object({
   admin: z.boolean().default(false),
   enabled: z.boolean().default(true),
   distill: distillSchema.optional(),
+  reflect: reflectSchema.optional(),
 })
 
 const preflightSchema = z.object({
@@ -113,6 +129,13 @@ const dedupeSchema = z.object({
   max_pairs: z.number().int().min(1).max(100).default(20),
 }).default({})
 
+/** 回顾式萃取的全局上限：digest 字符数、单次会话数、过短会话的判定。 */
+const reflectPolicySchema = z.object({
+  max_chars: z.number().int().min(500).max(40_000).default(8000),
+  max_sessions: z.number().int().min(1).max(10).default(3),
+  min_messages: z.number().int().min(1).max(50).default(4),
+}).default({})
+
 export const configSchema = z.object({
   version: z.literal(1).default(1),
   hub: z.object({ id: z.string().min(1).default('primary') }).default({}),
@@ -142,6 +165,7 @@ export const configSchema = z.object({
     maintenance: maintenanceSchema,
     temporal: temporalSchema,
     dedupe: dedupeSchema,
+    reflect: reflectPolicySchema,
   }).default({}),
   consolidation: z.object({
     mode: z.literal('manual').default('manual'),
@@ -155,6 +179,7 @@ export const configSchema = z.object({
 
 export type CoreWorkspaceConfig = z.infer<typeof coreWorkspaceSchema>
 export type WorkspaceConfig = z.infer<typeof workspaceSchema>
+export type ReflectConfig = z.infer<typeof reflectSchema>
 export type MemoryConfig = z.infer<typeof configSchema>
 
 export const DEFAULT_CONFIG_YAML = `# dsh-memory-hub configuration
@@ -182,6 +207,11 @@ core_workspaces: []
 #      time: '03:30'
 #      target: new          # new | session
 #      max_proposals: 5
+#    reflect:
+#      enabled: false       # retrospective extraction over this workspace's finished sessions
+#      time: '04:30'
+#      max_candidates: 5
+#      lookback_days: 30
 
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
@@ -198,6 +228,9 @@ workspaces: []
 #      time: '04:00'
 #      target: session
 #      session_id: session-xxxx
+#    reflect:
+#      enabled: false
+#      time: '04:35'
 
 policy:
   approval:
@@ -239,6 +272,10 @@ policy:
   dedupe:
     threshold: 0.72         # combined similarity above which a pair is reported as near-duplicate
     max_pairs: 20           # cap on reported pairs per scan
+  reflect:
+    max_chars: 8000         # digest size cap per session (user asks + assistant conclusions + failed tools)
+    max_sessions: 3         # sessions per memory_reflect call
+    min_messages: 4         # shorter sessions are skipped as too-short
 
 consolidation:
   mode: manual

@@ -256,6 +256,27 @@ export function createTools(host: ToolHost): ToolDefinition[] {
     }),
 
     tool({
+      name: 'memory_reflect',
+      concurrencySafe: true,
+      description:
+        'Read a bounded digest of finished sessions owned by this workspace (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down. Read-only: it never creates or commits knowledge. Sessions are attributed by longest-prefix cwd match, so a core workspace only sees its own sessions and a sub-workspace sees its own. Returns "available: false" when the host has no sessionQuery service. Follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> — upward promotion is distillation\'s job.',
+      parameters: objectSchema({
+        session_id: { type: 'string', description: 'Optional exact session id (must be ended and owned by this workspace); omit to pick the most recent unreflected sessions.' },
+        limit: { type: 'number', description: 'Number of sessions to read, 1..3; defaults to policy.reflect.max_sessions (3).' },
+        dry_run: { type: 'boolean', description: 'Build digests without recording them in records/reflect-state.json or the ledger.' },
+      }),
+      async execute(args, exec) {
+        const input = args as { session_id?: string; limit?: number; dry_run?: boolean }
+        const service = await host.service(requireAgent(exec))
+        return service.reflect(requireAgent(exec), {
+          ...(input.session_id === undefined ? {} : { session_id: input.session_id }),
+          ...(input.limit === undefined ? {} : { limit: Number(input.limit) }),
+          ...(input.dry_run === undefined ? {} : { dry_run: input.dry_run === true }),
+        })
+      },
+    }),
+
+    tool({
       name: 'memory_cite',
       description:
         'Record that a memory entry actually influenced the current task. Search hits are not citations; call this only after using the entry. The same entry/version is deduplicated per task. In a dual-role workspace pass core to cite the copy in a specific hub (defaults to the current own core first).',

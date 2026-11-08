@@ -11596,11 +11596,21 @@ var distillSchema = external_exports.object({
   agent_preset: external_exports.string().min(1).nullable().optional(),
   max_proposals: external_exports.number().int().min(1).max(20).default(5)
 }).default({});
+var reflectSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  time: external_exports.string().regex(DISTILL_TIME_PATTERN, "reflect time must be HH:mm").default("04:30"),
+  target: external_exports.enum(["new", "session"]).default("new"),
+  session_id: external_exports.string().nullable().optional(),
+  agent_preset: external_exports.string().min(1).nullable().optional(),
+  max_candidates: external_exports.number().int().min(1).max(20).default(5),
+  lookback_days: external_exports.number().int().min(1).max(365).default(30)
+}).default({});
 var coreWorkspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "core workspace id must be a slug (letters, digits, dot, underscore, dash)"),
   name: external_exports.string().min(1).optional(),
   root: external_exports.string().min(1).optional(),
-  distill: distillSchema.optional()
+  distill: distillSchema.optional(),
+  reflect: reflectSchema.optional()
 });
 var workspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "workspace id must be a slug (letters, digits, dot, underscore, dash)"),
@@ -11609,7 +11619,8 @@ var workspaceSchema = external_exports.object({
   domains: external_exports.array(external_exports.string().min(1)).default([]),
   admin: external_exports.boolean().default(false),
   enabled: external_exports.boolean().default(true),
-  distill: distillSchema.optional()
+  distill: distillSchema.optional(),
+  reflect: reflectSchema.optional()
 });
 var preflightSchema = external_exports.object({
   mode: external_exports.enum(["per-turn", "off"]).default("per-turn"),
@@ -11652,6 +11663,11 @@ var dedupeSchema = external_exports.object({
   threshold: external_exports.number().min(0.5).max(1).default(0.72),
   max_pairs: external_exports.number().int().min(1).max(100).default(20)
 }).default({});
+var reflectPolicySchema = external_exports.object({
+  max_chars: external_exports.number().int().min(500).max(4e4).default(8e3),
+  max_sessions: external_exports.number().int().min(1).max(10).default(3),
+  min_messages: external_exports.number().int().min(1).max(50).default(4)
+}).default({});
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
@@ -11680,7 +11696,8 @@ var configSchema = external_exports.object({
     limits: limitsSchema,
     maintenance: maintenanceSchema,
     temporal: temporalSchema,
-    dedupe: dedupeSchema
+    dedupe: dedupeSchema,
+    reflect: reflectPolicySchema
   }).default({}),
   consolidation: external_exports.object({
     mode: external_exports.literal("manual").default("manual"),
@@ -11716,6 +11733,11 @@ core_workspaces: []
 #      time: '03:30'
 #      target: new          # new | session
 #      max_proposals: 5
+#    reflect:
+#      enabled: false       # retrospective extraction over this workspace's finished sessions
+#      time: '04:30'
+#      max_candidates: 5
+#      lookback_days: 30
 
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
@@ -11732,6 +11754,9 @@ workspaces: []
 #      time: '04:00'
 #      target: session
 #      session_id: session-xxxx
+#    reflect:
+#      enabled: false
+#      time: '04:35'
 
 policy:
   approval:
@@ -11773,6 +11798,10 @@ policy:
   dedupe:
     threshold: 0.72         # combined similarity above which a pair is reported as near-duplicate
     max_pairs: 20           # cap on reported pairs per scan
+  reflect:
+    max_chars: 8000         # digest size cap per session (user asks + assistant conclusions + failed tools)
+    max_sessions: 3         # sessions per memory_reflect call
+    min_messages: 4         # shorter sessions are skipped as too-short
 
 consolidation:
   mode: manual
@@ -13542,7 +13571,7 @@ function applyEvent(state, event) {
 }
 
 // src/service.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 import { realpath } from "node:fs/promises";
 
 // package.json
@@ -14039,6 +14068,571 @@ function truncate2(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 
+// src/reflect.ts
+import { createHash as createHash2 } from "node:crypto";
+import { readFile as readFile5, writeFile as writeFile3 } from "node:fs/promises";
+
+// src/distill.ts
+import { resolve as resolve2 } from "node:path";
+var DISTILL_TITLE_PREFIX = "memory-hub:distill:";
+function localTimeZone() {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone === "" ? "UTC" : zone;
+  } catch {
+    return "UTC";
+  }
+}
+function hostDailyTime(time) {
+  return time.length === 5 ? `${time}:00` : time;
+}
+function taskTimeMatches(entry, task) {
+  if (task.time === void 0) return true;
+  const normalized = task.time.length > 5 ? task.time.slice(0, 5) : task.time;
+  return normalized === entry.time;
+}
+function parentCoreOf(config, coreId) {
+  const dualRole = config.workspaces.find((workspace) => workspace.id === coreId);
+  const parent = dualRole?.core_id;
+  if (parent === null || parent === void 0 || parent === "" || parent === coreId) return void 0;
+  return parent;
+}
+function workspaceRoot(entry) {
+  const trimmed = entry.root?.trim();
+  if (trimmed === void 0 || trimmed === "") return null;
+  return resolve2(expandHome(trimmed));
+}
+function distillPrompt(options) {
+  const scope = options.parentCoreId !== void 0 ? `project:${options.parentCoreId}` : "global";
+  const upward = options.parentCoreId !== void 0 ? `\u84B8\u998F\u5230\u4E0A\u7EA7\u6838\u5FC3 ${options.parentCoreId} \u7684 L2\uFF08scope: "${scope}"\uFF09` : '\u664B\u5347\u4E3A global \u5019\u9009\uFF08scope: "global"\uFF09';
+  const proposeStep = options.parentCoreId !== void 0 ? `   - \u7528 memory_propose \u63D0\u4EA4\uFF1Aoperation: "create"\uFF0Ctype \u6CBF\u7528\u539F\u7C7B\u578B
+   - scope: "${scope}"
+   - title / summary / content \u5199\u6210\u53BB\u6389\u9879\u76EE\u79C1\u6709\u7684\u84B8\u998F\u7248
+   - source_refs: ["knowledge:<\u539FID>@<\u7248\u672C>"]
+   - tags \u8FFD\u52A0 "distilled"` : `   - \u7528 memory_consolidate \u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u6761\u76EE\u664B\u5347\u4E3A global \u5019\u9009\uFF08type \u8FC7\u6EE4\uFF1Adecision / constraint / process / api-catalog / playbooks\uFF09`;
+  return [
+    `[\u8BB0\u5FC6\u84B8\u998F] \u5DE5\u4F5C\u533A ${options.workspaceKind === "core" ? "\u6838\u5FC3" : "\u5B50\u5DE5\u4F5C\u533A"} ${options.workspaceId}\uFF08${options.root}\uFF09\u5F00\u59CB\u4E00\u6B21\u5B9A\u65F6\u84B8\u998F\u3002`,
+    "",
+    `\u76EE\u6807\uFF1A\u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u7684 L1 \u77E5\u8BC6${upward}\uFF0C\u4F9B\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002`,
+    "",
+    "\u6B65\u9AA4\uFF08\u53EA\u505A\u8FD9\u4E9B\uFF0C\u4E0D\u8981\u6269\u5C55\u4EFB\u52A1\uFF09\uFF1A",
+    '1. \u82E5\u5F53\u524D\u6CA1\u6709\u6253\u5F00\u7684\u8BB0\u5FC6\u4EFB\u52A1\uFF0C\u5148\u8C03\u7528 memory_preflight\uFF0Cquery \u7528 "\u8BB0\u5FC6\u84B8\u998F"\u3002',
+    `2. \u7528 memory_search \u8BFB\u53D6\u672C\u5DE5\u4F5C\u533A\u77E5\u8BC6\uFF08query "\u8BB0\u5FC6\u84B8\u998F"\uFF0Cscope "project:${options.workspaceId}"\uFF1B\u5FC5\u8981\u65F6 memory_get \u8BFB\u6B63\u6587\uFF09\u3002`,
+    `3. \u6700\u591A\u6311 ${options.maxProposals} \u6761\u5BF9\u4E0A\u7EA7\u6709\u590D\u7528\u4EF7\u503C\u7684\u6761\u76EE\uFF08decision / constraint / process / api-catalog / playbooks\uFF09\uFF0C\u63D0\u4EA4\u5019\u9009\uFF1A`,
+    proposeStep,
+    "4. \u4E0D\u8981\u8C03\u7528 memory_commit\uFF1B\u5019\u9009\u7559\u7ED9\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002",
+    "5. \u6700\u540E\u8C03\u7528 memory_close_task \u8BB0\u5F55\u672C\u6B21\u84B8\u998F\uFF08assessment: proposed \u6216 no_new_knowledge\uFF09\u3002"
+  ].join("\n");
+}
+function desiredDistillSchedules(config, hubId) {
+  const timeZone = localTimeZone();
+  const entries = [];
+  for (const core of config.core_workspaces) {
+    const distill = core.distill;
+    if (distill === void 0 || distill.enabled !== true) continue;
+    const root = workspaceRoot(core);
+    if (root === null) continue;
+    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
+    if (target === null) continue;
+    entries.push({
+      key: `core:${core.id}`,
+      title: `${DISTILL_TITLE_PREFIX}${hubId}:core:${core.id}`,
+      workspaceId: core.id,
+      workspaceKind: "core",
+      root,
+      time: distill.time,
+      timeZone,
+      target,
+      prompt: distillPrompt({
+        workspaceId: core.id,
+        workspaceKind: "core",
+        root,
+        maxProposals: distill.max_proposals,
+        parentCoreId: parentCoreOf(config, core.id)
+      })
+    });
+  }
+  for (const workspace of config.workspaces) {
+    const distill = workspace.distill;
+    if (distill === void 0 || distill.enabled !== true) continue;
+    if (workspace.enabled === false) continue;
+    const root = workspaceRoot(workspace);
+    if (root === null) continue;
+    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
+    if (target === null) continue;
+    const parentCoreId = workspace.core_id !== null && workspace.core_id !== void 0 && workspace.core_id !== "" ? parentCoreOf(config, workspace.core_id) : void 0;
+    entries.push({
+      key: `workspace:${workspace.id}`,
+      title: `${DISTILL_TITLE_PREFIX}${hubId}:workspace:${workspace.id}`,
+      workspaceId: workspace.id,
+      workspaceKind: "workspace",
+      root,
+      time: distill.time,
+      timeZone,
+      target,
+      prompt: distillPrompt({
+        workspaceId: workspace.id,
+        workspaceKind: "workspace",
+        root,
+        maxProposals: distill.max_proposals,
+        parentCoreId
+      })
+    });
+  }
+  return entries;
+}
+function buildTarget(kind, root, sessionId, agentPreset) {
+  if (kind === "session") {
+    const trimmed = sessionId?.trim() ?? "";
+    if (trimmed === "") return null;
+    return { kind: "session", sessionId: trimmed };
+  }
+  const preset = agentPreset?.trim() ?? "";
+  return {
+    kind: "new",
+    create: { cwd: root, ...preset === "" ? {} : { agentPreset: preset } }
+  };
+}
+function targetMatches(entry, task) {
+  const target = task.target;
+  if (target === void 0 || target.kind !== entry.target.kind) return false;
+  if (entry.target.kind === "session") {
+    return target.sessionId === entry.target.sessionId;
+  }
+  return (target.create?.cwd ?? "") === entry.target.create.cwd;
+}
+function taskMatches(entry, task) {
+  if (task.status !== void 0 && task.status !== "active") return false;
+  if (task.kind !== void 0 && task.kind !== "daily") return false;
+  if (!taskTimeMatches(entry, task)) return false;
+  return targetMatches(entry, task);
+}
+async function listTasks(service) {
+  const items = [];
+  const limit = 100;
+  for (let offset = 0; offset < 1e3; offset += limit) {
+    const page = await service.list({ limit, offset });
+    const pageItems = Array.isArray(page?.items) ? page.items : [];
+    items.push(...pageItems);
+    const total = typeof page?.total === "number" ? page.total : items.length;
+    if (pageItems.length < limit || items.length >= total) break;
+  }
+  return items;
+}
+async function reconcileDistillSchedules(service, config, hubId) {
+  return reconcileScheduleEntries(service, desiredDistillSchedules(config, hubId), `${DISTILL_TITLE_PREFIX}${hubId}:`);
+}
+async function reconcileScheduleEntries(service, desired, prefix) {
+  const existing = (await listTasks(service)).filter((task) => typeof task.title === "string" && task.title.startsWith(prefix));
+  const byTitle = new Map(existing.map((task) => [task.title, task]));
+  const matched = /* @__PURE__ */ new Set();
+  const entries = [];
+  for (const entry of desired) {
+    const base = {
+      key: entry.key,
+      title: entry.title,
+      workspaceId: entry.workspaceId,
+      workspaceKind: entry.workspaceKind,
+      root: entry.root,
+      time: entry.time,
+      target: entry.target.kind,
+      ...entry.target.kind === "session" ? { sessionId: entry.target.sessionId } : {}
+    };
+    const task = byTitle.get(entry.title);
+    try {
+      if (task === void 0) {
+        const created = await service.create({
+          title: entry.title,
+          prompt: entry.prompt,
+          timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
+          target: entry.target
+        });
+        entries.push({ ...base, taskId: created.id, action: "created" });
+      } else {
+        matched.add(entry.title);
+        if (taskMatches(entry, task)) {
+          entries.push({ ...base, taskId: task.id, action: "kept" });
+        } else {
+          await service.edit({
+            id: task.id,
+            action: "update",
+            patch: {
+              timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
+              target: entry.target,
+              prompt: entry.prompt,
+              active: true
+            }
+          });
+          entries.push({ ...base, taskId: task.id, action: "updated" });
+        }
+      }
+    } catch (error) {
+      entries.push({ ...base, action: "error", error: error.message });
+    }
+  }
+  let removed = 0;
+  for (const task of existing) {
+    if (matched.has(task.title)) continue;
+    if (desired.some((entry) => entry.title === task.title)) continue;
+    try {
+      await service.edit({ id: task.id, action: "delete" });
+      removed += 1;
+      entries.push({
+        key: task.title.slice(prefix.length),
+        title: task.title,
+        workspaceId: task.title.slice(prefix.length),
+        workspaceKind: "core",
+        root: "",
+        time: task.time ?? "",
+        target: "new",
+        taskId: task.id,
+        action: "removed"
+      });
+    } catch (error) {
+      entries.push({
+        key: task.title.slice(prefix.length),
+        title: task.title,
+        workspaceId: task.title.slice(prefix.length),
+        workspaceKind: "core",
+        root: "",
+        time: task.time ?? "",
+        target: "new",
+        taskId: task.id,
+        action: "error",
+        error: error.message
+      });
+    }
+  }
+  return { entries, removed };
+}
+
+// src/reflect.ts
+var REFLECT_TITLE_PREFIX = "memory-hub:reflect:";
+var HostSessionDigestSource = class {
+  constructor(query) {
+    this.query = query;
+  }
+  available = true;
+  async listSessions() {
+    const records = await this.query.listSessions();
+    return Array.isArray(records) ? records : [];
+  }
+  async readSession(sessionId) {
+    const snapshot = await this.query.readSession(sessionId);
+    const events = Array.isArray(snapshot?.events) ? snapshot.events : [];
+    return { session: snapshot.session, events };
+  }
+};
+var NullSessionDigestSource = class {
+  available = false;
+  async listSessions() {
+    return [];
+  }
+  async readSession() {
+    throw new Error("sessionQuery service unavailable");
+  }
+};
+function reflectRoots(config) {
+  const roots = [];
+  for (const core of config.core_workspaces) {
+    const root = workspaceRoot2(core);
+    if (root !== null) roots.push({ workspaceId: core.id, kind: "core", root });
+  }
+  for (const workspace of config.workspaces) {
+    if (workspace.enabled === false) continue;
+    const root = workspaceRoot2(workspace);
+    if (root !== null) roots.push({ workspaceId: workspace.id, kind: "workspace", root });
+  }
+  return roots;
+}
+function workspaceRoot2(entry) {
+  const trimmed = entry.root?.trim();
+  if (trimmed === void 0 || trimmed === "") return null;
+  return expandHome(trimmed);
+}
+function normalizePath(value) {
+  const unified = value.replace(/\\/g, "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? unified.toLowerCase() : unified;
+}
+function ownerWorkspaceOf(cwd, roots) {
+  if (cwd === void 0 || cwd.trim() === "") return null;
+  const normalized = normalizePath(cwd.trim());
+  let best = null;
+  let bestLength = -1;
+  for (const root of roots) {
+    const candidate = normalizePath(root.root);
+    if (candidate === "") continue;
+    if (normalized !== candidate && !normalized.startsWith(`${candidate}/`)) continue;
+    if (candidate.length > bestLength) {
+      best = root;
+      bestLength = candidate.length;
+    }
+  }
+  return best;
+}
+var MAX_ENTRY_CHARS = 1500;
+function buildDigest(snapshot, options) {
+  const entries = [];
+  const failures = [];
+  const callNames = /* @__PURE__ */ new Map();
+  let pendingAssistant = null;
+  let messageCount = 0;
+  const flushAssistant = () => {
+    if (pendingAssistant === null) return;
+    const text2 = pendingAssistant.trim();
+    pendingAssistant = null;
+    if (text2 === "") return;
+    entries.push({ role: "assistant", text: truncate3(text2, MAX_ENTRY_CHARS) });
+    messageCount += 1;
+  };
+  for (const event of snapshot.events) {
+    if (event === null || typeof event !== "object") continue;
+    const data = event.data;
+    if (data === void 0 || data === null) continue;
+    if (event.type === "user/message") {
+      const text2 = messageText(data).trim();
+      if (text2 === "") continue;
+      flushAssistant();
+      entries.push({ role: "user", text: truncate3(text2, MAX_ENTRY_CHARS) });
+      messageCount += 1;
+      continue;
+    }
+    if (event.type === "assistant/message") {
+      const message = data.message;
+      const text2 = message === void 0 ? "" : messageText(message).trim();
+      if (text2 !== "") pendingAssistant = text2;
+      continue;
+    }
+    if (event.type === "turn/end") {
+      flushAssistant();
+      continue;
+    }
+    if (event.type === "tool/call") {
+      const callId = typeof data.callId === "string" ? data.callId : null;
+      const name2 = typeof data.name === "string" ? data.name : "tool";
+      if (callId !== null) callNames.set(callId, name2);
+      continue;
+    }
+    if (event.type === "tool/result") {
+      const error = data.error;
+      if (error === void 0 || error === null) continue;
+      const message = data.message;
+      const callId = typeof message?.toolCallId === "string" ? message.toolCallId : null;
+      const name2 = callId === null ? "tool" : callNames.get(callId) ?? "tool";
+      const code = typeof error.code === "string" ? error.code : "error";
+      const reason = typeof error.reason === "string" ? error.reason : "";
+      const label = typeof error.name === "string" ? error.name : code;
+      failures.push({ name: name2, error: truncate3(reason === "" ? label : `${label}: ${reason}`, 200) });
+    }
+  }
+  flushAssistant();
+  if (entries.length === 0 && failures.length === 0) return { status: "empty" };
+  if (messageCount < options.minMessages) return { status: "too-short", messages: messageCount };
+  const cwd = typeof snapshot.session?.cwd === "string" ? snapshot.session.cwd : "";
+  const createdAt = typeof snapshot.session?.createdAt === "number" ? new Date(snapshot.session.createdAt).toISOString() : nowIso();
+  const rendered = renderEntries(entries, failures);
+  const { text, truncated } = clip(rendered, options.maxChars);
+  return {
+    status: "ok",
+    digest: {
+      sessionId: snapshot.session?.id ?? "",
+      workspaceId: options.workspaceId,
+      cwd,
+      createdAt,
+      entries,
+      failures,
+      chars: text.length,
+      truncated
+    }
+  };
+}
+function renderEntries(entries, failures) {
+  const lines = [];
+  for (const entry of entries) {
+    lines.push(entry.role === "user" ? `\u7528\u6237\uFF1A${entry.text}` : `\u52A9\u624B\uFF1A${entry.text}`);
+  }
+  for (const failure of failures) {
+    lines.push(`\u5931\u8D25\u5DE5\u5177\uFF1A${failure.name} \u2014 ${failure.error}`);
+  }
+  return lines.join("\n\n");
+}
+function clip(value, maxChars) {
+  if (value.length <= maxChars) return { text: value, truncated: false };
+  const marker = "\n\n\u2026\uFF08\u5DF2\u622A\u65AD\uFF09";
+  const budget = Math.max(0, maxChars - marker.length);
+  const head = Math.floor(budget * 0.6);
+  const tail = budget - head;
+  return { text: `${value.slice(0, head)}${marker}${value.slice(value.length - tail)}`, truncated: true };
+}
+function messageText(message) {
+  const blocks = message.blocks;
+  if (Array.isArray(blocks)) {
+    return blocks.map((block) => block !== null && typeof block === "object" && block.type === "text" ? String(block.text ?? "") : "").filter((text) => text !== "").join("\n");
+  }
+  const content = message.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((block) => {
+      if (typeof block === "string") return block;
+      if (block === null || typeof block !== "object") return "";
+      const typed = block;
+      return typed.type === "text" ? String(typed.text ?? "") : "";
+    }).filter((text) => text !== "").join("\n");
+  }
+  return "";
+}
+function truncate3(value, max) {
+  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
+}
+function digestHash(digest) {
+  const stable = JSON.stringify({
+    sessionId: digest.sessionId,
+    entries: digest.entries,
+    failures: digest.failures
+  });
+  return createHash2("sha256").update(stable).digest("hex");
+}
+function renderDigest(digest) {
+  const lines = [
+    `## \u4F1A\u8BDD ${digest.sessionId}`,
+    `- \u5DE5\u4F5C\u533A\uFF1A${digest.workspaceId}`,
+    `- cwd\uFF1A${digest.cwd === "" ? "\uFF08\u672A\u77E5\uFF09" : digest.cwd}`,
+    `- \u5F00\u59CB\u4E8E\uFF1A${digest.createdAt}`,
+    `- \u5B57\u7B26\u6570\uFF1A${digest.chars}${digest.truncated ? "\uFF08\u5DF2\u622A\u65AD\uFF09" : ""}`,
+    "",
+    "### \u7528\u6237\u8BC9\u6C42\u4E0E\u52A9\u624B\u7ED3\u8BBA",
+    ""
+  ];
+  for (const entry of digest.entries) {
+    lines.push(entry.role === "user" ? `**\u7528\u6237**\uFF1A${entry.text}` : `**\u52A9\u624B**\uFF1A${entry.text}`);
+    lines.push("");
+  }
+  if (digest.failures.length > 0) {
+    lines.push("### \u5931\u8D25\u7684\u5DE5\u5177\u8C03\u7528");
+    lines.push("");
+    for (const failure of digest.failures) lines.push(`- \`${failure.name}\`\uFF1A${failure.error}`);
+    lines.push("");
+  }
+  return lines.join("\n").trim();
+}
+var ReflectStateFile = class {
+  constructor(file, limit = 200) {
+    this.file = file;
+    this.limit = limit;
+  }
+  state = { v: 1, sessions: [] };
+  loaded = false;
+  async load() {
+    try {
+      const raw = await readFile5(this.file, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object" && Array.isArray(parsed.sessions)) {
+        this.state = {
+          v: 1,
+          sessions: parsed.sessions.filter((entry) => entry !== null && typeof entry === "object" && typeof entry.sessionId === "string" && typeof entry.digestHash === "string")
+        };
+      }
+    } catch {
+      this.state = { v: 1, sessions: [] };
+    }
+    this.loaded = true;
+  }
+  entries() {
+    return this.state.sessions;
+  }
+  find(sessionId) {
+    return this.state.sessions.find((entry) => entry.sessionId === sessionId);
+  }
+  async mark(entry) {
+    if (!this.loaded) await this.load();
+    this.state.sessions = [entry, ...this.state.sessions.filter((item) => item.sessionId !== entry.sessionId)].slice(0, this.limit);
+    await writeFile3(this.file, `${JSON.stringify(this.state, null, 2)}
+`, "utf8");
+  }
+};
+function reflectPrompt(options) {
+  return [
+    `[\u8BB0\u5FC6\u56DE\u987E] \u5DE5\u4F5C\u533A ${options.workspaceKind === "core" ? "\u6838\u5FC3" : "\u5B50\u5DE5\u4F5C\u533A"} ${options.workspaceId}\uFF08${options.root}\uFF09\u5F00\u59CB\u4E00\u6B21\u5B9A\u65F6\u56DE\u987E\u3002`,
+    "",
+    `\u76EE\u6807\uFF1A\u56DE\u987E\u672C\u5DE5\u4F5C\u533A\u6700\u8FD1 ${options.lookbackDays} \u5929\u5185\u5DF2\u7ED3\u675F\u7684\u4F1A\u8BDD\uFF0C\u628A\u5F53\u65F6\u88AB\u9A8C\u8BC1\u8FC7\u3001\u4F46\u6CA1\u8BB0\u4E0B\u6765\u7684\u7ED3\u8BBA\u8865\u6210\u5019\u9009\uFF08\u6700\u591A ${options.maxCandidates} \u6761\uFF09\uFF0C\u4F9B\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002`,
+    "",
+    "\u6B65\u9AA4\uFF08\u53EA\u505A\u8FD9\u4E9B\uFF0C\u4E0D\u8981\u6269\u5C55\u4EFB\u52A1\uFF09\uFF1A",
+    '1. \u82E5\u5F53\u524D\u6CA1\u6709\u6253\u5F00\u7684\u8BB0\u5FC6\u4EFB\u52A1\uFF0C\u5148\u8C03\u7528 memory_preflight\uFF0Cquery \u7528 "\u8BB0\u5FC6\u56DE\u987E"\u3002',
+    "2. \u8C03\u7528 memory_reflect\uFF08\u4E0D\u4F20 session_id\uFF09\uFF0C\u8BFB\u53D6\u672C\u5DE5\u4F5C\u533A\u540D\u4E0B\u6700\u8FD1\u53EF\u56DE\u987E\u7684\u4F1A\u8BDD digest\u3002",
+    "3. \u4ECE digest \u91CC\u6311\u51FA\u4ECD\u7136\u6210\u7ACB\u3001\u4E14\u6CA1\u6709\u88AB\u73B0\u6709\u77E5\u8BC6\u8986\u76D6\u7684\u7ED3\u8BBA\uFF08\u505A\u8FC7\u7684\u53D6\u820D\u3001\u8E29\u8FC7\u7684\u5751\u3001\u9A8C\u8BC1\u8FC7\u7684\u547D\u4EE4/\u63A5\u53E3\uFF09\u3002\u5148\u7528 memory_search \u67E5\u91CD\uFF0C\u91CD\u590D\u7684\u4E0D\u8981\u63D0\u3002",
+    `4. \u6700\u591A\u63D0\u4EA4 ${options.maxCandidates} \u6761\u5019\u9009\uFF1A`,
+    '   - \u7528 memory_propose \u63D0\u4EA4\uFF1Aoperation: "create"',
+    `   - scope: "project:${options.workspaceId}"\uFF08\u53EA\u5199\u672C\u5DE5\u4F5C\u533A\uFF0C\u4E0D\u8981\u5199\u4E0A\u7EA7\u6216 global\uFF09`,
+    '   - source_refs: ["session:<\u4F1A\u8BDDID>#<\u8D77\u59CB\u5E8F\u53F7>-<\u7ED3\u675F\u5E8F\u53F7>"]\uFF08\u7528 memory_reflect \u8FD4\u56DE\u7684\u4F1A\u8BDD ID \u4E0E\u533A\u95F4\uFF09',
+    '   - tags \u8FFD\u52A0 "reflection"',
+    "5. \u4E0D\u8981\u8C03\u7528 memory_commit\uFF1B\u5019\u9009\u7559\u7ED9\u4EBA\u5DE5\u5BA1\u6279\u3002\u5411\u4E0A\u664B\u5347\u662F\u84B8\u998F\u4EFB\u52A1\u7684\u804C\u8D23\uFF0C\u4E0D\u8981\u5728\u8FD9\u91CC\u505A\u3002",
+    "6. \u6700\u540E\u8C03\u7528 memory_close_task \u8BB0\u5F55\u672C\u6B21\u56DE\u987E\uFF08assessment: proposed \u6216 no_new_knowledge\uFF09\u3002"
+  ].join("\n");
+}
+function desiredReflectSchedules(config, hubId) {
+  const timeZone = localTimeZone2();
+  const entries = [];
+  for (const core of config.core_workspaces) {
+    const reflect = core.reflect;
+    if (reflect === void 0 || reflect.enabled !== true) continue;
+    const root = workspaceRoot2(core);
+    if (root === null) continue;
+    const target = buildTarget2(reflect.target, root, reflect.session_id, reflect.agent_preset);
+    if (target === null) continue;
+    entries.push(entryOf(core.id, "core", root, reflect, target, timeZone, hubId));
+  }
+  for (const workspace of config.workspaces) {
+    const reflect = workspace.reflect;
+    if (reflect === void 0 || reflect.enabled !== true) continue;
+    if (workspace.enabled === false) continue;
+    const root = workspaceRoot2(workspace);
+    if (root === null) continue;
+    const target = buildTarget2(reflect.target, root, reflect.session_id, reflect.agent_preset);
+    if (target === null) continue;
+    entries.push(entryOf(workspace.id, "workspace", root, reflect, target, timeZone, hubId));
+  }
+  return entries;
+}
+function entryOf(workspaceId, workspaceKind, root, reflect, target, timeZone, hubId) {
+  return {
+    key: `${workspaceKind}:${workspaceId}`,
+    title: `${REFLECT_TITLE_PREFIX}${hubId}:${workspaceKind}:${workspaceId}`,
+    workspaceId,
+    workspaceKind,
+    root,
+    time: reflect.time,
+    timeZone,
+    target,
+    prompt: reflectPrompt({
+      workspaceId,
+      workspaceKind,
+      root,
+      maxCandidates: reflect.max_candidates,
+      lookbackDays: reflect.lookback_days
+    })
+  };
+}
+function buildTarget2(kind, root, sessionId, agentPreset) {
+  if (kind === "session") {
+    const trimmed = sessionId?.trim() ?? "";
+    if (trimmed === "") return null;
+    return { kind: "session", sessionId: trimmed };
+  }
+  const preset = agentPreset?.trim() ?? "";
+  return { kind: "new", create: { cwd: root, ...preset === "" ? {} : { agentPreset: preset } } };
+}
+async function reconcileReflectSchedules(service, config, hubId) {
+  return reconcileScheduleEntries(service, desiredReflectSchedules(config, hubId), `${REFLECT_TITLE_PREFIX}${hubId}:`);
+}
+function localTimeZone2() {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone === "" ? "UTC" : zone;
+  } catch {
+    return "UTC";
+  }
+}
+
 // src/service.ts
 var PLUGIN_VERSION = package_default.version;
 var SCHEDULED_STATES = /* @__PURE__ */ new Set(["scheduled"]);
@@ -14057,6 +14651,8 @@ var MemoryService = class {
   tasks;
   citationKeys = /* @__PURE__ */ new Set();
   citations;
+  reflectSource;
+  reflectState;
   constructor(options) {
     this.ctx = options.ctx;
     this.hub = options.hub;
@@ -14064,6 +14660,8 @@ var MemoryService = class {
     this.ledger = options.ledger;
     this.customWorkspaces = options.workspaces;
     this.coreId = options.coreId ?? null;
+    this.reflectSource = options.reflectSource ?? null;
+    this.reflectState = options.reflectState ?? null;
     this.tasks = options.ledgerState.tasks;
     this.citations = options.ledgerState.citations;
     for (const citation of this.citations) {
@@ -14504,6 +15102,143 @@ var MemoryService = class {
     const target = proposal.target === null ? void 0 : this.store.docs.get(proposal.target);
     const diff = lineDiff(target?.body ?? "", proposal.body, PANEL_DIFF_LINES);
     return { merged, diff: diff.lines, truncated: diff.truncated };
+  }
+  /**
+   * 回顾式萃取：把本工作区名下已结束会话压成 digest，供模型据此 `memory_propose`。
+   * 只读会话与账本/水位；不写任何知识文件，也不调用模型。
+   */
+  async reflect(agent, args) {
+    const workspace = await this.resolveWorkspace(agent);
+    const dryRun = args.dry_run === true;
+    const workspaceId = workspace.id;
+    if (workspaceId === null) {
+      throw new MemoryError("INVALID_STATE", "workspace is not registered in config.yaml; add it before reflecting sessions");
+    }
+    if (this.reflectSource === null || !this.reflectSource.available) {
+      return {
+        available: false,
+        workspaceId,
+        reason: "sessionQuery service unavailable on this host",
+        sessions: [],
+        skipped: [],
+        dryRun
+      };
+    }
+    const policy = this.hub.config.policy.reflect;
+    const reflect = this.reflectConfigFor(workspaceId);
+    const lookbackDays = reflect.lookback_days;
+    const limit = Math.max(1, Math.min(3, args.limit ?? policy.max_sessions));
+    const roots = reflectRoots(this.hub.config);
+    const cutoff = Date.now() - lookbackDays * 864e5;
+    if (this.reflectState !== null) await this.reflectState.load();
+    let records;
+    try {
+      records = await this.reflectSource.listSessions();
+    } catch (error) {
+      return {
+        available: false,
+        workspaceId,
+        reason: `sessionQuery listSessions failed: ${error.message}`,
+        sessions: [],
+        skipped: [],
+        dryRun
+      };
+    }
+    const owned = records.filter((record) => {
+      const header = record.header;
+      if (header === void 0 || typeof header.id !== "string") return false;
+      if (header.origin === "subagent" || (header.delegationDepth ?? 0) > 0) return false;
+      if (typeof header.parentSession === "string" && header.parentSession !== "") return false;
+      const owner = ownerWorkspaceOf(header.cwd, roots);
+      if (owner === null || owner.workspaceId !== workspace.id) return false;
+      if (typeof header.createdAt === "number" && header.createdAt < cutoff) return false;
+      return true;
+    }).sort((left, right) => (right.header.createdAt ?? 0) - (left.header.createdAt ?? 0));
+    let selected = owned;
+    if (args.session_id !== void 0 && args.session_id !== "") {
+      const requested = owned.find((record) => record.header.id === args.session_id);
+      if (requested === void 0) {
+        throw new MemoryError(
+          "INVALID_INPUT",
+          `session ${args.session_id} is not an ended session owned by workspace ${workspace.id}`
+        );
+      }
+      selected = [requested];
+    }
+    selected = selected.slice(0, args.session_id === void 0 ? limit : 1);
+    const sessions = [];
+    const skipped = [];
+    for (const record of selected) {
+      const sessionId = record.header.id;
+      const prior = this.reflectState?.find(sessionId);
+      let snapshot;
+      try {
+        snapshot = await this.reflectSource.readSession(sessionId);
+      } catch (error) {
+        skipped.push({ sessionId, reason: `read-failed: ${error.message}` });
+        continue;
+      }
+      const result = buildDigest(snapshot, {
+        workspaceId,
+        maxChars: policy.max_chars,
+        minMessages: policy.min_messages
+      });
+      if (result.status === "too-short") {
+        skipped.push({ sessionId, reason: `too-short (${result.messages} messages)` });
+        continue;
+      }
+      if (result.status === "empty") {
+        skipped.push({ sessionId, reason: "empty" });
+        continue;
+      }
+      const digest = result.digest;
+      const hash = digestHash(digest);
+      if (prior !== void 0 && prior.digestHash === hash) {
+        skipped.push({ sessionId, reason: "already-reflected" });
+        continue;
+      }
+      const seqs = snapshot.events.map((event) => event.seq).filter((seq) => typeof seq === "number");
+      const seqRange = seqs.length === 0 ? null : { from: Math.min(...seqs), to: Math.max(...seqs) };
+      if (!dryRun) {
+        await this.reflectState?.mark({
+          sessionId,
+          workspaceId,
+          reflectedAt: nowIso(),
+          digestHash: hash,
+          proposals: []
+        });
+        await this.ledger.append({
+          type: "reflect.read",
+          sessionId,
+          workspaceId,
+          events: snapshot.events.length,
+          chars: digest.chars,
+          proposals: 0
+        });
+      }
+      sessions.push({
+        sessionId,
+        cwd: digest.cwd,
+        createdAt: digest.createdAt,
+        chars: digest.chars,
+        truncated: digest.truncated,
+        digest: renderDigest(digest),
+        digestHash: hash,
+        seqRange
+      });
+    }
+    return { available: true, workspaceId, sessions, skipped, dryRun };
+  }
+  reflectConfigFor(workspaceId) {
+    const core = this.hub.config.core_workspaces.find((entry) => entry.id === workspaceId);
+    const workspace = this.activeWorkspaces.find((entry) => entry.id === workspaceId);
+    return core?.reflect ?? workspace?.reflect ?? {
+      enabled: false,
+      time: "04:30",
+      target: "new",
+      max_candidates: 5,
+      lookback_days: 30
+    };
   }
   /**
    * 金字塔回退检索：本层（自己的 Hub）有 ≥1 个合格命中即返回、不再上溯；
@@ -15407,6 +16142,10 @@ var MemoryService = class {
           unknown_tools: this.hub.config.policy.gate.unknown_tools
         },
         maintenance: this.hub.config.policy.maintenance
+      },
+      reflect: {
+        available: this.reflectSource !== null && this.reflectSource.available,
+        tracked: this.reflectState?.entries().length ?? 0
       }
     };
   }
@@ -15516,7 +16255,7 @@ var MemoryService = class {
     for (const hit of hits) {
       const source = hit.core !== void 0 && hit.core !== null && hit.core !== this.coreId ? ` \xB7 core:${hit.core}` : "";
       const freshness = hit.temporal === "stale" ? " \xB7 \u5DF2\u8FC7\u671F\uFF0C\u9700\u590D\u6838" : hit.temporal === "aging" ? " \xB7 \u957F\u671F\u672A\u786E\u8BA4" : "";
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate3(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`;
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate4(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`;
       const candidate = [...lines, line, ...footer].join("\n");
       if (this.estimateTokens(candidate) > budget && included > 0) break;
       lines.push(line);
@@ -15573,9 +16312,9 @@ function citationKey(taskId, knowledgeId, version) {
   return `${taskId}|${knowledgeId}|${version}`;
 }
 function hashIntent(intent) {
-  return `sha256:${createHash2("sha256").update(intent).digest("hex").slice(0, 16)}`;
+  return `sha256:${createHash3("sha256").update(intent).digest("hex").slice(0, 16)}`;
 }
-function truncate3(value, max) {
+function truncate4(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 var PANEL_DIFF_LINES = 200;
@@ -15643,13 +16382,13 @@ function bodyHeadings(body) {
 function pickDigest(body, cap) {
   const sections = splitBodySections(body);
   const preferred = sections.find((section) => section.title !== null && /结论|conclusion|summary|要点/i.test(section.title)) ?? sections.find((section) => section.title !== null);
-  if (preferred === void 0) return truncate3(body.trim(), cap);
+  if (preferred === void 0) return truncate4(body.trim(), cap);
   const parts = [];
   const intro = sections.find((section) => section.title === null && section.text !== "");
   if (intro !== void 0) parts.push(intro.text);
   parts.push(preferred.text === "" ? `## ${preferred.title}` : `## ${preferred.title}
 ${preferred.text}`);
-  return truncate3(parts.join("\n\n"), cap);
+  return truncate4(parts.join("\n\n"), cap);
 }
 function pickSection(body, name2) {
   const wanted = name2.trim().toLowerCase();
@@ -15684,239 +16423,6 @@ function localTimeKey(date) {
 }
 function maintenanceDue(time, date) {
   return localTimeKey(date) >= time;
-}
-
-// src/distill.ts
-import { resolve as resolve2 } from "node:path";
-var DISTILL_TITLE_PREFIX = "memory-hub:distill:";
-function localTimeZone() {
-  try {
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return zone === "" ? "UTC" : zone;
-  } catch {
-    return "UTC";
-  }
-}
-function hostDailyTime(time) {
-  return time.length === 5 ? `${time}:00` : time;
-}
-function taskTimeMatches(entry, task) {
-  if (task.time === void 0) return true;
-  const normalized = task.time.length > 5 ? task.time.slice(0, 5) : task.time;
-  return normalized === entry.time;
-}
-function parentCoreOf(config, coreId) {
-  const dualRole = config.workspaces.find((workspace) => workspace.id === coreId);
-  const parent = dualRole?.core_id;
-  if (parent === null || parent === void 0 || parent === "" || parent === coreId) return void 0;
-  return parent;
-}
-function workspaceRoot(entry) {
-  const trimmed = entry.root?.trim();
-  if (trimmed === void 0 || trimmed === "") return null;
-  return resolve2(expandHome(trimmed));
-}
-function distillPrompt(options) {
-  const scope = options.parentCoreId !== void 0 ? `project:${options.parentCoreId}` : "global";
-  const upward = options.parentCoreId !== void 0 ? `\u84B8\u998F\u5230\u4E0A\u7EA7\u6838\u5FC3 ${options.parentCoreId} \u7684 L2\uFF08scope: "${scope}"\uFF09` : '\u664B\u5347\u4E3A global \u5019\u9009\uFF08scope: "global"\uFF09';
-  const proposeStep = options.parentCoreId !== void 0 ? `   - \u7528 memory_propose \u63D0\u4EA4\uFF1Aoperation: "create"\uFF0Ctype \u6CBF\u7528\u539F\u7C7B\u578B
-   - scope: "${scope}"
-   - title / summary / content \u5199\u6210\u53BB\u6389\u9879\u76EE\u79C1\u6709\u7684\u84B8\u998F\u7248
-   - source_refs: ["knowledge:<\u539FID>@<\u7248\u672C>"]
-   - tags \u8FFD\u52A0 "distilled"` : `   - \u7528 memory_consolidate \u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u6761\u76EE\u664B\u5347\u4E3A global \u5019\u9009\uFF08type \u8FC7\u6EE4\uFF1Adecision / constraint / process / api-catalog / playbooks\uFF09`;
-  return [
-    `[\u8BB0\u5FC6\u84B8\u998F] \u5DE5\u4F5C\u533A ${options.workspaceKind === "core" ? "\u6838\u5FC3" : "\u5B50\u5DE5\u4F5C\u533A"} ${options.workspaceId}\uFF08${options.root}\uFF09\u5F00\u59CB\u4E00\u6B21\u5B9A\u65F6\u84B8\u998F\u3002`,
-    "",
-    `\u76EE\u6807\uFF1A\u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u7684 L1 \u77E5\u8BC6${upward}\uFF0C\u4F9B\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002`,
-    "",
-    "\u6B65\u9AA4\uFF08\u53EA\u505A\u8FD9\u4E9B\uFF0C\u4E0D\u8981\u6269\u5C55\u4EFB\u52A1\uFF09\uFF1A",
-    '1. \u82E5\u5F53\u524D\u6CA1\u6709\u6253\u5F00\u7684\u8BB0\u5FC6\u4EFB\u52A1\uFF0C\u5148\u8C03\u7528 memory_preflight\uFF0Cquery \u7528 "\u8BB0\u5FC6\u84B8\u998F"\u3002',
-    `2. \u7528 memory_search \u8BFB\u53D6\u672C\u5DE5\u4F5C\u533A\u77E5\u8BC6\uFF08query "\u8BB0\u5FC6\u84B8\u998F"\uFF0Cscope "project:${options.workspaceId}"\uFF1B\u5FC5\u8981\u65F6 memory_get \u8BFB\u6B63\u6587\uFF09\u3002`,
-    `3. \u6700\u591A\u6311 ${options.maxProposals} \u6761\u5BF9\u4E0A\u7EA7\u6709\u590D\u7528\u4EF7\u503C\u7684\u6761\u76EE\uFF08decision / constraint / process / api-catalog / playbooks\uFF09\uFF0C\u63D0\u4EA4\u5019\u9009\uFF1A`,
-    proposeStep,
-    "4. \u4E0D\u8981\u8C03\u7528 memory_commit\uFF1B\u5019\u9009\u7559\u7ED9\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002",
-    "5. \u6700\u540E\u8C03\u7528 memory_close_task \u8BB0\u5F55\u672C\u6B21\u84B8\u998F\uFF08assessment: proposed \u6216 no_new_knowledge\uFF09\u3002"
-  ].join("\n");
-}
-function desiredDistillSchedules(config, hubId) {
-  const timeZone = localTimeZone();
-  const entries = [];
-  for (const core of config.core_workspaces) {
-    const distill = core.distill;
-    if (distill === void 0 || distill.enabled !== true) continue;
-    const root = workspaceRoot(core);
-    if (root === null) continue;
-    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
-    if (target === null) continue;
-    entries.push({
-      key: `core:${core.id}`,
-      title: `${DISTILL_TITLE_PREFIX}${hubId}:core:${core.id}`,
-      workspaceId: core.id,
-      workspaceKind: "core",
-      root,
-      time: distill.time,
-      timeZone,
-      target,
-      prompt: distillPrompt({
-        workspaceId: core.id,
-        workspaceKind: "core",
-        root,
-        maxProposals: distill.max_proposals,
-        parentCoreId: parentCoreOf(config, core.id)
-      })
-    });
-  }
-  for (const workspace of config.workspaces) {
-    const distill = workspace.distill;
-    if (distill === void 0 || distill.enabled !== true) continue;
-    if (workspace.enabled === false) continue;
-    const root = workspaceRoot(workspace);
-    if (root === null) continue;
-    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
-    if (target === null) continue;
-    const parentCoreId = workspace.core_id !== null && workspace.core_id !== void 0 && workspace.core_id !== "" ? parentCoreOf(config, workspace.core_id) : void 0;
-    entries.push({
-      key: `workspace:${workspace.id}`,
-      title: `${DISTILL_TITLE_PREFIX}${hubId}:workspace:${workspace.id}`,
-      workspaceId: workspace.id,
-      workspaceKind: "workspace",
-      root,
-      time: distill.time,
-      timeZone,
-      target,
-      prompt: distillPrompt({
-        workspaceId: workspace.id,
-        workspaceKind: "workspace",
-        root,
-        maxProposals: distill.max_proposals,
-        parentCoreId
-      })
-    });
-  }
-  return entries;
-}
-function buildTarget(kind, root, sessionId, agentPreset) {
-  if (kind === "session") {
-    const trimmed = sessionId?.trim() ?? "";
-    if (trimmed === "") return null;
-    return { kind: "session", sessionId: trimmed };
-  }
-  const preset = agentPreset?.trim() ?? "";
-  return {
-    kind: "new",
-    create: { cwd: root, ...preset === "" ? {} : { agentPreset: preset } }
-  };
-}
-function targetMatches(entry, task) {
-  const target = task.target;
-  if (target === void 0 || target.kind !== entry.target.kind) return false;
-  if (entry.target.kind === "session") {
-    return target.sessionId === entry.target.sessionId;
-  }
-  return (target.create?.cwd ?? "") === entry.target.create.cwd;
-}
-function taskMatches(entry, task) {
-  if (task.status !== void 0 && task.status !== "active") return false;
-  if (task.kind !== void 0 && task.kind !== "daily") return false;
-  if (!taskTimeMatches(entry, task)) return false;
-  return targetMatches(entry, task);
-}
-async function listTasks(service) {
-  const items = [];
-  const limit = 100;
-  for (let offset = 0; offset < 1e3; offset += limit) {
-    const page = await service.list({ limit, offset });
-    const pageItems = Array.isArray(page?.items) ? page.items : [];
-    items.push(...pageItems);
-    const total = typeof page?.total === "number" ? page.total : items.length;
-    if (pageItems.length < limit || items.length >= total) break;
-  }
-  return items;
-}
-async function reconcileDistillSchedules(service, config, hubId) {
-  const desired = desiredDistillSchedules(config, hubId);
-  const prefix = `${DISTILL_TITLE_PREFIX}${hubId}:`;
-  const existing = (await listTasks(service)).filter((task) => typeof task.title === "string" && task.title.startsWith(prefix));
-  const byTitle = new Map(existing.map((task) => [task.title, task]));
-  const matched = /* @__PURE__ */ new Set();
-  const entries = [];
-  for (const entry of desired) {
-    const base = {
-      key: entry.key,
-      title: entry.title,
-      workspaceId: entry.workspaceId,
-      workspaceKind: entry.workspaceKind,
-      root: entry.root,
-      time: entry.time,
-      target: entry.target.kind,
-      ...entry.target.kind === "session" ? { sessionId: entry.target.sessionId } : {}
-    };
-    const task = byTitle.get(entry.title);
-    try {
-      if (task === void 0) {
-        const created = await service.create({
-          title: entry.title,
-          prompt: entry.prompt,
-          timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
-          target: entry.target
-        });
-        entries.push({ ...base, taskId: created.id, action: "created" });
-      } else {
-        matched.add(entry.title);
-        if (taskMatches(entry, task)) {
-          entries.push({ ...base, taskId: task.id, action: "kept" });
-        } else {
-          await service.edit({
-            id: task.id,
-            action: "update",
-            patch: {
-              timing: { kind: "daily", daily: { time: hostDailyTime(entry.time), time_zone: entry.timeZone } },
-              target: entry.target,
-              prompt: entry.prompt,
-              active: true
-            }
-          });
-          entries.push({ ...base, taskId: task.id, action: "updated" });
-        }
-      }
-    } catch (error) {
-      entries.push({ ...base, action: "error", error: error.message });
-    }
-  }
-  let removed = 0;
-  for (const task of existing) {
-    if (matched.has(task.title)) continue;
-    if (desired.some((entry) => entry.title === task.title)) continue;
-    try {
-      await service.edit({ id: task.id, action: "delete" });
-      removed += 1;
-      entries.push({
-        key: task.title.slice(prefix.length),
-        title: task.title,
-        workspaceId: task.title.slice(prefix.length),
-        workspaceKind: "core",
-        root: "",
-        time: task.time ?? "",
-        target: "new",
-        taskId: task.id,
-        action: "removed"
-      });
-    } catch (error) {
-      entries.push({
-        key: task.title.slice(prefix.length),
-        title: task.title,
-        workspaceId: task.title.slice(prefix.length),
-        workspaceKind: "core",
-        root: "",
-        time: task.time ?? "",
-        target: "new",
-        taskId: task.id,
-        action: "error",
-        error: error.message
-      });
-    }
-  }
-  return { entries, removed };
 }
 
 // src/tools.ts
@@ -16119,6 +16625,25 @@ function createTools(host) {
           ...input.scope === void 0 ? {} : { scope: input.scope },
           ...input.threshold === void 0 ? {} : { threshold: Number(input.threshold) },
           ...input.limit === void 0 ? {} : { limit: Number(input.limit) }
+        });
+      }
+    }),
+    tool({
+      name: "memory_reflect",
+      concurrencySafe: true,
+      description: `Read a bounded digest of finished sessions owned by this workspace (user asks, assistant final replies, failed tool calls) so you can propose what was learned but never written down. Read-only: it never creates or commits knowledge. Sessions are attributed by longest-prefix cwd match, so a core workspace only sees its own sessions and a sub-workspace sees its own. Returns "available: false" when the host has no sessionQuery service. Follow with memory_propose using source_refs ["session:<id>#<from>-<to>"] and tag "reflection"; scope stays project:<self> \u2014 upward promotion is distillation's job.`,
+      parameters: objectSchema({
+        session_id: { type: "string", description: "Optional exact session id (must be ended and owned by this workspace); omit to pick the most recent unreflected sessions." },
+        limit: { type: "number", description: "Number of sessions to read, 1..3; defaults to policy.reflect.max_sessions (3)." },
+        dry_run: { type: "boolean", description: "Build digests without recording them in records/reflect-state.json or the ledger." }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        const service = await host.service(requireAgent(exec));
+        return service.reflect(requireAgent(exec), {
+          ...input.session_id === void 0 ? {} : { session_id: input.session_id },
+          ...input.limit === void 0 ? {} : { limit: Number(input.limit) },
+          ...input.dry_run === void 0 ? {} : { dry_run: input.dry_run === true }
         });
       }
     }),
@@ -16425,6 +16950,16 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 
 \u4E0D\u8981\u7528\u591A\u6761 \`supersedes\` \u624B\u5DE5\u62FC\u5408\u5E76\uFF1A\u90A3\u6837\u6CA1\u6709\u300C\u8C01\u88AB\u5E76\u8FDB\u4E86\u8C01\u300D\u7684\u5355\u70B9\u8BB0\u5F55\uFF0C\u4E5F\u5BB9\u6613\u6F0F\u6B63\u6587\u7EC6\u8282\u3002
 
+## \u56DE\u987E\u5F0F\u8403\u53D6
+
+\u4F1A\u8BDD\u7ED3\u675F\u65F6\u6CA1\u6765\u5F97\u53CA\u8BB0\u4E0B\u7684\u7ED3\u8BBA\uFF0C\u7528 \`memory_reflect\` \u8865\uFF1A
+
+1. \`memory_reflect({ session_id?, limit?, dry_run? })\` \u53EA\u8BFB\u8FD4\u56DE\u672C\u5DE5\u4F5C\u533A\u540D\u4E0B\u5DF2\u7ED3\u675F\u4F1A\u8BDD\u7684 digest\uFF08\u7528\u6237\u8BC9\u6C42\u3001\u52A9\u624B\u6700\u7EC8\u7ED3\u8BBA\u3001\u5931\u8D25\u7684\u5DE5\u5177\u8C03\u7528\uFF09\uFF0C\u5E76\u8BB0\u5F55 \`records/reflect-state.json\` \u6C34\u4F4D\uFF1B\u540C\u4E00 digest \u4E0D\u4F1A\u91CD\u590D\u8FD4\u56DE\u3002
+2. \u4ECE digest \u91CC\u6311\u4ECD\u6210\u7ACB\u3001\u4E14 \`memory_search\` \u67E5\u91CD\u540E\u6CA1\u6709\u8986\u76D6\u7684\u7ED3\u8BBA\uFF0C\u7528 \`memory_propose\` \u5199 \`scope: "project:<\u672C\u5DE5\u4F5C\u533A>"\`\uFF0C\`source_refs\` \u7528 \`session:<\u4F1A\u8BDDID>#<\u8D77\u59CB\u5E8F\u53F7>-<\u7ED3\u675F\u5E8F\u53F7>\`\uFF0C\`tags\` \u52A0 \`reflection\`\u3002
+3. \u53EA\u5199\u672C\u5DE5\u4F5C\u533A\uFF0C\u4E0D\u5199\u4E0A\u7EA7\u6216 \`global\`\uFF1B\u5411\u4E0A\u664B\u5347\u4EA4\u7ED9\u5B9A\u65F6\u84B8\u998F\u3002\u5019\u9009\u4ECD\u7531\u4EBA\u5DE5\u6279\u51C6\uFF0C\u4E0D\u8981 \`memory_commit\`\u3002
+
+\u5B9A\u65F6\u56DE\u987E\u6309\u5DE5\u4F5C\u533A\u914D\u7F6E \`reflect:\` \u5BF9\u9F50\uFF08\u4E0E \`distill:\` \u72EC\u7ACB\uFF09\uFF0C\u6BCF\u4E2A\u5DE5\u4F5C\u533A\u53EA\u770B\u81EA\u5DF1\u7684\u4F1A\u8BDD\u2014\u2014\u6838\u5FC3\u5DE5\u4F5C\u533A\u770B\u4E0D\u5230\u5B50\u5DE5\u4F5C\u533A\u7684\u4F1A\u8BDD\u3002
+
 ## \u5DE5\u5177\u901F\u67E5
 
 | \u76EE\u7684 | \u5DE5\u5177 |
@@ -16439,6 +16974,7 @@ DSH Memory Hub \u662F\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u300
 | \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
 | \u9879\u76EE\u77E5\u8BC6\u664B\u5347 | \`memory_consolidate\` |
 | \u8FD1\u91CD\u590D\u68C0\u67E5 | \`memory_duplicates\` |
+| \u56DE\u987E\u5DF2\u7ED3\u675F\u4F1A\u8BDD | \`memory_reflect\` |
 | \u591C\u95F4\u5DE1\u68C0 / \u751F\u6210\u7EF4\u62A4\u63D0\u6848 | \`memory_maintenance\` |
 
 ## \u53CD\u6A21\u5F0F
@@ -16495,6 +17031,7 @@ var MemoryRuntime = class {
   maintenanceRunning = false;
   maintenanceLastDate = null;
   distillReport = null;
+  reflectReport = null;
   distillRetryTimer = null;
   distillRetryCount = 0;
   sessionOptionsCache = null;
@@ -16706,9 +17243,16 @@ var MemoryRuntime = class {
         removed: 0,
         error: "schedule service unavailable; distill schedules were not registered"
       };
+      this.reflectReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: [],
+        removed: 0,
+        error: "schedule service unavailable; reflect schedules were not registered"
+      };
       this.scheduleDistillRetry(true);
       return;
     }
+    let transient = false;
     try {
       const report = await reconcileDistillSchedules(service, this.configHub.config, this.configHub.config.hub.id);
       this.distillReport = {
@@ -16723,10 +17267,9 @@ var MemoryRuntime = class {
           `dsh-memory-hub: distill schedules reconciled (${changed} change(s), ${report.removed} removed)`
         );
       }
-      const pending = report.entries.filter(
+      transient = report.entries.some(
         (entry) => entry.action === "error" && DISTILL_TRANSIENT_ERROR.test(entry.error ?? "")
-      ).length;
-      this.scheduleDistillRetry(pending > 0);
+      );
     } catch (error) {
       this.distillReport = {
         at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -16735,8 +17278,36 @@ var MemoryRuntime = class {
         error: error.message
       };
       this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${error.message}`);
-      this.scheduleDistillRetry(true);
+      transient = true;
     }
+    try {
+      const report = await reconcileReflectSchedules(service, this.configHub.config, this.configHub.config.hub.id);
+      this.reflectReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: report.entries,
+        removed: report.removed,
+        error: null
+      };
+      const changed = report.entries.filter((entry) => entry.action !== "kept").length;
+      if (changed > 0) {
+        this.ctx.logger.info(
+          `dsh-memory-hub: reflect schedules reconciled (${changed} change(s), ${report.removed} removed)`
+        );
+      }
+      if (report.entries.some(
+        (entry) => entry.action === "error" && DISTILL_TRANSIENT_ERROR.test(entry.error ?? "")
+      )) transient = true;
+    } catch (error) {
+      this.reflectReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: [],
+        removed: 0,
+        error: error.message
+      };
+      this.ctx.logger.warn(`dsh-memory-hub: reflect schedule reconciliation failed: ${error.message}`);
+      transient = true;
+    }
+    this.scheduleDistillRetry(transient);
   }
   /** 有限次退避重试，只针对“服务尚未就绪”这类可自愈错误。 */
   scheduleDistillRetry(retry) {
@@ -16864,6 +17435,9 @@ var MemoryRuntime = class {
     const ledgerState = await ledger.load({ repair: !hub.readOnly });
     const store = new KnowledgeStore(hub, ledger);
     await store.load();
+    const query = this.sessionQueryService();
+    const reflectState = new ReflectStateFile(join5(hub.root, "records", "reflect-state.json"));
+    if (!hub.readOnly) await reflectState.load();
     const service = new MemoryService({
       ctx: this.ctx,
       hub,
@@ -16871,9 +17445,22 @@ var MemoryRuntime = class {
       ledger,
       ledgerState,
       workspaces,
-      coreId
+      coreId,
+      reflectSource: query === null ? new NullSessionDigestSource() : new HostSessionDigestSource(query),
+      reflectState
     });
     return { hub, store, ledger, service, workspaces, coreId, ancestorIds };
+  }
+  /** Host `sessionQuery` 服务（可选）：回顾式萃取用；缺失时工具返回 unavailable。 */
+  sessionQueryService() {
+    try {
+      const service = this.ctx.get("sessionQuery");
+      if (service === void 0 || service === null) return null;
+      if (typeof service.listSessions !== "function" || typeof service.readSession !== "function") return null;
+      return service;
+    } catch {
+      return null;
+    }
   }
   /** 双角色声明：workspaces[] 里存在 id === coreId 且 core_id 指向另一个核心的条目 → 最近的父核心。 */
   dualRoleParent(config, coreId) {
@@ -17317,7 +17904,7 @@ var MemoryRuntime = class {
         if (method === "GET" || method === "HEAD") {
           try {
             if (this.fallback === null) throw new Error("not initialized");
-            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport }, method);
+            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport, reflect: this.reflectReport }, method);
           } catch (error) {
             sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
           }
@@ -17329,7 +17916,7 @@ var MemoryRuntime = class {
             const body = await readJsonBody(request);
             const payload = await this.fallback.service.updateConfig(body);
             await this.reconcileDistill();
-            sendJson(response, 200, { ...payload, distill: this.distillReport }, method);
+            sendJson(response, 200, { ...payload, distill: this.distillReport, reflect: this.reflectReport }, method);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             sendJson(response, 400, { error: "invalid-config", message }, method);

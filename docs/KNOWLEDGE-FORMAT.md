@@ -203,6 +203,8 @@ source_refs:
   - url:https://example.com/rfc/xxxx
 ```
 
+回顾式萃取（`memory_reflect`）返回的 `seqRange` 就是可填的区间：把 `session:<会话ID>#<from>-<to>` 直接写进候选的 `source_refs`，即可让人在审批时回到原始会话核对。`<from>` / `<to>` 是事件序号，不是时间戳。
+
 ## 6. 手工编辑与校验
 
 插件在启动、watcher 变更、`memory_status` 时校验文件。常见错误与处理：

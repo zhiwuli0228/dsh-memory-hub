@@ -173,6 +173,9 @@ describe('client bundle', () => {
     )
     expect(dataHtml).toContain('DEC-000001')
     expect(dataHtml).toContain('memory_search')
+    // 能力页覆盖新增的只读工具：近重复检查与回顾式萃取。
+    expect(dataHtml).toContain('memory_duplicates')
+    expect(dataHtml).toContain('memory_reflect')
     expect(dataHtml).toContain('backend')
     expect(dataHtml).toContain('1')
 

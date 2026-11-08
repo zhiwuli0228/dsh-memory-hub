@@ -19,6 +19,9 @@ export interface DistillScheduleEntry {
   prompt: string
 }
 
+/** 定时任务条目的通用形状：蒸馏与回顾共用同一套对齐逻辑。 */
+export type ScheduleEntry = DistillScheduleEntry
+
 export type DistillTarget =
   | { kind: 'new'; create: { cwd: string; agentPreset?: string } }
   | { kind: 'session'; sessionId: string }
@@ -90,7 +93,7 @@ function hostDailyTime(time: string): string {
   return time.length === 5 ? `${time}:00` : time
 }
 
-function taskTimeMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): boolean {
+function taskTimeMatches(entry: ScheduleEntry, task: DistillScheduleTask): boolean {
   if (task.time === undefined) return true
   const normalized = task.time.length > 5 ? task.time.slice(0, 5) : task.time
   return normalized === entry.time
@@ -228,7 +231,7 @@ function buildTarget(
   }
 }
 
-function targetMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): boolean {
+function targetMatches(entry: ScheduleEntry, task: DistillScheduleTask): boolean {
   const target = task.target
   if (target === undefined || target.kind !== entry.target.kind) return false
   if (entry.target.kind === 'session') {
@@ -237,7 +240,7 @@ function targetMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): 
   return (target.create?.cwd ?? '') === entry.target.create.cwd
 }
 
-function taskMatches(entry: DistillScheduleEntry, task: DistillScheduleTask): boolean {
+function taskMatches(entry: ScheduleEntry, task: DistillScheduleTask): boolean {
   if (task.status !== undefined && task.status !== 'active') return false
   if (task.kind !== undefined && task.kind !== 'daily') return false
   if (!taskTimeMatches(entry, task)) return false
@@ -266,8 +269,15 @@ export async function reconcileDistillSchedules(
   config: MemoryConfig,
   hubId: string,
 ): Promise<DistillReconcileReport> {
-  const desired = desiredDistillSchedules(config, hubId)
-  const prefix = `${DISTILL_TITLE_PREFIX}${hubId}:`
+  return reconcileScheduleEntries(service, desiredDistillSchedules(config, hubId), `${DISTILL_TITLE_PREFIX}${hubId}:`)
+}
+
+/** 通用对齐实现：按标题前缀认领任务，其余任务不动。 */
+export async function reconcileScheduleEntries(
+  service: DistillScheduleService,
+  desired: ScheduleEntry[],
+  prefix: string,
+): Promise<DistillReconcileReport> {
   const existing = (await listTasks(service)).filter((task) => typeof task.title === 'string' && task.title.startsWith(prefix))
   const byTitle = new Map(existing.map((task) => [task.title, task]))
   const matched = new Set<string>()

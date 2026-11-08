@@ -6,6 +6,7 @@ import { Hub } from '../src/hub.js'
 import { Ledger } from '../src/ledger.js'
 import { MemoryService } from '../src/service.js'
 import { KnowledgeStore } from '../src/store.js'
+import { ReflectStateFile, type SessionDigestSource } from '../src/reflect.js'
 import type { KnowledgeType, Scope } from '../src/types.js'
 
 export interface Harness {
@@ -42,7 +43,7 @@ export interface SeedInput {
 
 export async function createHarness(
   workspaces?: WorkspaceConfig[],
-  options: { root?: string; hub?: Hub } = {},
+  options: { root?: string; hub?: Hub; reflectSource?: SessionDigestSource } = {},
 ): Promise<Harness> {
   const root = options.root ?? await mkdtemp(join(tmpdir(), 'dsh-memory-hub-test-'))
   const hub = options.hub ?? await Hub.open({ root, lock: false })
@@ -82,7 +83,16 @@ export async function createHarness(
     },
   }
 
-  const service = new MemoryService({ ctx, hub, store, ledger, ledgerState, workspaces })
+  const service = new MemoryService({
+    ctx,
+    hub,
+    store,
+    ledger,
+    ledgerState,
+    workspaces,
+    ...(options.reflectSource === undefined ? {} : { reflectSource: options.reflectSource }),
+    reflectState: new ReflectStateFile(join(root, 'records', 'reflect-state.json')),
+  })
   const agent: AgentLike = {
     id: 'session-test',
     ctx,

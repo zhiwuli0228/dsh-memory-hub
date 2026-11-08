@@ -9,6 +9,13 @@ import { MemoryError } from './errors.js'
 import { MemoryService, PLUGIN_VERSION, type ParentPack } from './service.js'
 import { localDateKey, maintenanceDue } from './maintenance-schedule.js'
 import { reconcileDistillSchedules, type DistillReconcileReport, type DistillScheduleService } from './distill.js'
+import {
+  HostSessionDigestSource,
+  NullSessionDigestSource,
+  ReflectStateFile,
+  reconcileReflectSchedules,
+  type SessionQueryLike,
+} from './reflect.js'
 import { createTools, type MaintenanceToolArgs, type ToolHost } from './tools.js'
 import { registerMemorySkill } from './skill.js'
 import type { MemoryConfig, WorkspaceConfig } from './config.js'
@@ -99,6 +106,7 @@ export class MemoryRuntime implements ToolHost {
   private maintenanceRunning = false
   private maintenanceLastDate: string | null = null
   private distillReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
+  private reflectReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
   private distillRetryTimer: NodeJS.Timeout | null = null
   private distillRetryCount = 0
   private sessionOptionsCache: { at: number; payload: SessionOptionPayload } | null = null
@@ -341,9 +349,16 @@ export class MemoryRuntime implements ToolHost {
         removed: 0,
         error: 'schedule service unavailable; distill schedules were not registered',
       }
+      this.reflectReport = {
+        at: new Date().toISOString(),
+        entries: [],
+        removed: 0,
+        error: 'schedule service unavailable; reflect schedules were not registered',
+      }
       this.scheduleDistillRetry(true)
       return
     }
+    let transient = false
     try {
       const report = await reconcileDistillSchedules(service, this.configHub.config, this.configHub.config.hub.id)
       this.distillReport = {
@@ -360,10 +375,9 @@ export class MemoryRuntime implements ToolHost {
       }
       // Host 的 session-controller 可能比 schedule 晚就绪；此时新建会话被拒绝，
       // 稍后重试即可，不需要用户改配置或重启。
-      const pending = report.entries.filter(
+      transient = report.entries.some(
         (entry) => entry.action === 'error' && DISTILL_TRANSIENT_ERROR.test(entry.error ?? ''),
-      ).length
-      this.scheduleDistillRetry(pending > 0)
+      )
     } catch (error) {
       this.distillReport = {
         at: new Date().toISOString(),
@@ -372,8 +386,37 @@ export class MemoryRuntime implements ToolHost {
         error: (error as Error).message,
       }
       this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${(error as Error).message}`)
-      this.scheduleDistillRetry(true)
+      transient = true
     }
+
+    try {
+      const report = await reconcileReflectSchedules(service, this.configHub.config, this.configHub.config.hub.id)
+      this.reflectReport = {
+        at: new Date().toISOString(),
+        entries: report.entries,
+        removed: report.removed,
+        error: null,
+      }
+      const changed = report.entries.filter((entry) => entry.action !== 'kept').length
+      if (changed > 0) {
+        this.ctx.logger.info(
+          `dsh-memory-hub: reflect schedules reconciled (${changed} change(s), ${report.removed} removed)`,
+        )
+      }
+      if (report.entries.some(
+        (entry) => entry.action === 'error' && DISTILL_TRANSIENT_ERROR.test(entry.error ?? ''),
+      )) transient = true
+    } catch (error) {
+      this.reflectReport = {
+        at: new Date().toISOString(),
+        entries: [],
+        removed: 0,
+        error: (error as Error).message,
+      }
+      this.ctx.logger.warn(`dsh-memory-hub: reflect schedule reconciliation failed: ${(error as Error).message}`)
+      transient = true
+    }
+    this.scheduleDistillRetry(transient)
   }
 
   /** 有限次退避重试，只针对“服务尚未就绪”这类可自愈错误。 */
@@ -522,6 +565,10 @@ export class MemoryRuntime implements ToolHost {
     const ledgerState = await ledger.load({ repair: !hub.readOnly })
     const store = new KnowledgeStore(hub, ledger)
     await store.load()
+    // 回顾式萃取依赖宿主 sessionQuery；缺失或形状不符时降级为不可用，不影响其他工具。
+    const query = this.sessionQueryService()
+    const reflectState = new ReflectStateFile(join(hub.root, 'records', 'reflect-state.json'))
+    if (!hub.readOnly) await reflectState.load()
     const service = new MemoryService({
       ctx: this.ctx,
       hub,
@@ -530,8 +577,22 @@ export class MemoryRuntime implements ToolHost {
       ledgerState,
       workspaces,
       coreId,
+      reflectSource: query === null ? new NullSessionDigestSource() : new HostSessionDigestSource(query),
+      reflectState,
     })
     return { hub, store, ledger, service, workspaces, coreId, ancestorIds }
+  }
+
+  /** Host `sessionQuery` 服务（可选）：回顾式萃取用；缺失时工具返回 unavailable。 */
+  private sessionQueryService(): SessionQueryLike | null {
+    try {
+      const service = this.ctx.get('sessionQuery') as Partial<SessionQueryLike> | undefined
+      if (service === undefined || service === null) return null
+      if (typeof service.listSessions !== 'function' || typeof service.readSession !== 'function') return null
+      return service as SessionQueryLike
+    } catch {
+      return null
+    }
   }
 
   /** 双角色声明：workspaces[] 里存在 id === coreId 且 core_id 指向另一个核心的条目 → 最近的父核心。 */
@@ -1030,7 +1091,7 @@ export class MemoryRuntime implements ToolHost {
         if (method === 'GET' || method === 'HEAD') {
           try {
             if (this.fallback === null) throw new Error('not initialized')
-            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport }, method)
+            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport, reflect: this.reflectReport }, method)
           } catch (error) {
             sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
           }
@@ -1042,7 +1103,7 @@ export class MemoryRuntime implements ToolHost {
             const body = await readJsonBody(request)
             const payload = await this.fallback.service.updateConfig(body as { core_workspaces?: unknown; workspaces?: unknown })
             await this.reconcileDistill()
-            sendJson(response, 200, { ...payload, distill: this.distillReport }, method)
+            sendJson(response, 200, { ...payload, distill: this.distillReport, reflect: this.reflectReport }, method)
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             sendJson(response, 400, { error: 'invalid-config', message }, method)

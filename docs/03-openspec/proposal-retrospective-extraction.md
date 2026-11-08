@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted（2026-11-08 评审确认：参考金字塔蒸馏、走定时任务、覆盖核心与子工作区；待实现）
+Implemented（V0.7 WIP，2026-11-08）。实现注记：为降低学习成本，`memory_reflect` 不依赖 `reflect.enabled`——`enabled: false` 只控制定时任务，手动回顾始终可用；越权会话返回 `INVALID_INPUT`（`session ... is not an ended session owned by workspace ...`）。定时任务落在 `src/reflect.ts`，与 `distill.ts` 共用 `reconcileScheduleEntries`，未单独新建 `reflect-schedule.ts`。
 
 ## 1. Problem
 

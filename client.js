@@ -68,6 +68,8 @@
     'cap.close': '关闭任务并给出回写评估：proposed / no_new_knowledge / needs_evidence / deferred。',
     'cap.consolidate': '管理员手动把项目知识晋升为 global 候选；幂等、不覆盖下游。',
     'cap.maintenance': '确定性巡检所有 core / 子工作区，写报告并按需生成 pending 提案；不自动提交、不删除。',
+    'cap.duplicates': '只读扫描近重复（同类型、同作用域），给出保留项与相似度；合并要另写 operation: merge 的候选等人工批准。',
+    'cap.reflect': '只读回顾本工作区名下已结束的会话，返回 digest 供模型补写候选；不调用模型、不自动创建候选。',
     'knowledge.search': '搜索标题、摘要、ID…',
     'knowledge.allTypes': '全部类型',
     'knowledge.allStatuses': '全部状态',
@@ -253,6 +255,8 @@
     'cap.close': 'Close the task with an assessment: proposed / no_new_knowledge / needs_evidence / deferred.',
     'cap.consolidate': 'Admin-only promotion of project knowledge into global candidates; idempotent and non-destructive.',
     'cap.maintenance': 'Deterministic scan of every core / sub-workspace; writes reports and optional pending proposals without committing or deleting.',
+    'cap.duplicates': 'Read-only near-duplicate scan (same type and scope) with keeper suggestions; merging needs a separate operation: merge proposal approved by a human.',
+    'cap.reflect': 'Read-only digest of finished sessions owned by this workspace so the model can propose what was missed; never calls a model or auto-creates candidates.',
     'knowledge.search': 'Search title, summary, id…',
     'knowledge.allTypes': 'All types',
     'knowledge.allStatuses': 'All statuses',
@@ -390,6 +394,8 @@
     { name: 'memory_commit', key: 'cap.commit' },
     { name: 'memory_close_task', key: 'cap.close' },
     { name: 'memory_consolidate', key: 'cap.consolidate' },
+    { name: 'memory_duplicates', key: 'cap.duplicates' },
+    { name: 'memory_reflect', key: 'cap.reflect' },
     { name: 'memory_maintenance', key: 'cap.maintenance' },
   ];
 

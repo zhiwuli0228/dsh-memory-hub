@@ -10,12 +10,13 @@ V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 
 当前工作树为 **V0.6.0（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-V0.7 正在实现三项已 Accepted 的 P0 提案（顺序：时效字段 → 去重合并 → 回顾式萃取）。**前两项已完成实现与测试，尚未发布**：时效字段（`valid_from` / `expires_at` / `last_verified`、派生 `fresh/aging/stale/scheduled`、确定性降权、预检时效门、面板标签）；去重合并（只读 `memory_duplicates`、`operation: "merge"` + `merged_ids`、`superseded_by` 反向指针、`knowledge.merged` 账本、面板 diff）。`format` 仍为 1，老文件零迁移。
+V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）**均已完成实现与测试，尚未发布**：时效字段（`valid_from` / `expires_at` / `last_verified`、派生 `fresh/aging/stale/scheduled`、确定性降权、预检时效门、面板标签）；去重合并（只读 `memory_duplicates`、`operation: "merge"` + `merged_ids`、`superseded_by` 反向指针、`knowledge.merged` 账本、面板 diff）；回顾式萃取（`memory_reflect` digest、按工作区定时回顾、`records/reflect-state.json` 去重水位）。`format` 仍为 1，老文件零迁移。
 
 ## 已实现
 
 - [x] Cordis 插件入口 `src/index.ts`（`apply` / `inject`）
 - [x] 10 个模型工具注册与 schema（`memory_search`, `memory_get`, `memory_status`, `memory_preflight`, `memory_cite`, `memory_propose`, `memory_commit`, `memory_close_task`, `memory_consolidate`, `memory_maintenance`）
+- [x] 12 个模型工具注册与 schema（在 10 个基础工具上新增 `memory_duplicates`、`memory_reflect`）
 - [x] 本地优先存储：Markdown + YAML + JSONL，无强制数据库
 - [x] CJK unigram/bigram 分词 + 内存倒排索引 + BM25-lite 检索
 - [x] 每个用户回合第一步自动预检；幂等键 `(sessionId, turn)`
@@ -89,7 +90,12 @@ V0.7 正在实现三项已 Accepted 的 P0 提案（顺序：时效字段 → �
 - [x] `operation: "merge"` 提案：`merged_ids`（1..10，同类型同作用域、不含 target、不重复、未合并过）；提交 target +1 并合并正文与 `related`/`source_refs`，被合并项 `superseded` + `superseded_by`，各自写 `history/`，账本 `knowledge.merged`
 - [x] 面板 merge 卡片：显示被合并条目与 target 旧正文 → 合并稿的行级 diff（上限 200 行，超出提示截断），仍只读、批准走既有审核端点
 - [x] 设计决策：[ADR-0008](../01-architecture/decisions/ADR-0008-merge-operation.md)（独立 merge 操作）
-- [x] 106 个 vitest 测试（14 个文件）
+- [x] 回顾式萃取（V0.7 WIP，按 [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)）：`src/reflect.ts` 的 `SessionDigestSource` / `HostSessionDigestSource` / `NullSessionDigestSource`、最长前缀会话归属 `ownerWorkspaceOf`、digest 只保留用户消息 + 每轮助手最终文本 + 失败工具（`policy.reflect.max_chars` 默认 8000，头 60% + 尾 40% 截断）
+- [x] `memory_reflect`（`session_id?` / `limit?` / `dry_run?`）：只读本工作区名下已结束的主会话（排除委派会话与 root 外会话），返回 digest 与 `seqRange`；`min_messages` 不足 `too-short`，digest 未变 `already-reflected`；`dry_run` 不写水位与账本
+- [x] 回顾水位：`records/reflect-state.json`（`sessionId` / `workspaceId` / `reflectedAt` / `digestHash`，上限 200 条），账本追加 `reflect.read`；无宿主 `sessionQuery` 时返回 `available: false` 并跳过定时任务
+- [x] 按工作区定时回顾：`reflect:`（`enabled` 默认 false / `time` 04:30 / `target` / `max_candidates` / `lookback_days`）与 `policy.reflect.*`（`max_chars` / `max_sessions` / `min_messages`）；标题 `memory-hub:reflect:<hub>:core|workspace:<id>`，与蒸馏共用 `reconcileScheduleEntries`，启动/热更新/保存后对齐并沿用瞬时错误重试
+- [x] 面板「能力」页补充 `memory_duplicates` 与 `memory_reflect` 说明（中英双语）；操作文档 [reflection.md](../06-operations/reflection.md)
+- [x] 116 个 vitest 测试（16 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance
@@ -121,6 +127,8 @@ V0.7 正在实现三项已 Accepted 的 P0 提案（顺序：时效字段 → �
 - 面板审核已在假 Host 的 HTTP 路由上验证（头/Origin/批准/拒绝/账本）；桌面端真实点击路径尚未人工确认。
 - 近重复检测**不再跨作用域提示**（以前只按类型过滤，core 与 project 各一份同名条目也会出现在维护报告里）；现在只在同类型同作用域内比较，跨作用域应走蒸馏/晋升。这是有意的行为变化，不是检测退化。
 - merge 首版不做 supersede 链传递：A 合并 B、C 后，B 以前 `supersedes` 的 D 仍需人工判断是否有效。
+- 回顾式萃取的 digest 依赖宿主 `sessionQuery` 的事件形状（`user/message`、`assistant/message`、`tool/result`）：单元测试用假 source 覆盖，尚未在真实 Desktop Host 上核对真实 JSONL 的 `data` 结构；形状不符时会退化为空 digest（`skipped: empty`）而不是报错。
+- 定时回顾按工作区各一条任务，工作区多时任务数量线性增长；默认 `enabled: false`，需要显式开启。
 - 回环 HTTP 无法从技术上区分“人点击”和“本机脚本调用”；面板审核适合单人本机使用，不要在本机运行不可信脚本时把它当作唯一防线。
 - jsDelivr 的 `@main` 分支缓存可能长时间滞后：本次 `site/index.json` 更新后，`@main` 仍返回 0.2.0（多次 purge 未刷新），而 commit-pinned URL（`@8a2dabe`）已返回 0.3.0；市场索引最长约 12h 后才会自动刷新。
 - 门禁的宿主级拒绝未在真实会话中强制触发，由单元测试覆盖。
@@ -211,11 +219,11 @@ dsh-memory-hub/
 - [memory-landscape-2026.md](../05-domain/memory-landscape-2026.md) — 2026-11 调研：ChatGPT/Claude/Qwen/OpenClaw 的记忆与萃取机制、开源记忆层、评测基准，以及由此重排的瓶颈与 P0/P1 路线。
 - [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
-- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；未实现）。
+- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
 
 ## 下一步推荐工作
 
-1. 继续 V0.7：实现 [回顾式萃取](../03-openspec/proposal-retrospective-extraction.md)（定时任务 + 核心/子工作区各一条）。
+1. 发布 V0.7（三项 P0 已实现）：升版本、跑 `npm run check`、桌面端冒烟（时效标签、merge diff、回顾任务）。
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
 4. 压测 5k+ 条知识索引与检索性能。
