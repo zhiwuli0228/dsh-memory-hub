@@ -12197,6 +12197,7 @@ var appliesToSchema = external_exports.object({
   branches: external_exports.array(external_exports.string()).default([]),
   versions: external_exports.array(external_exports.string()).default([])
 }).default({ branches: [], versions: [] });
+var CURRENT_FORMAT = 1;
 var knowledgeFrontmatterBase = external_exports.object({
   id: external_exports.string().regex(KNOWLEDGE_ID_PATTERN),
   type: external_exports.enum(KNOWLEDGE_TYPES),
@@ -12218,7 +12219,7 @@ var knowledgeFrontmatterBase = external_exports.object({
   created_at: timestampSchema,
   updated_at: timestampSchema,
   deprecated_reason: external_exports.string().max(500).optional(),
-  format: external_exports.number().int().default(1)
+  format: external_exports.number().int().positive().default(CURRENT_FORMAT)
 }).passthrough();
 var FUTURE_TOLERANCE_MS = 5 * 6e4;
 var knowledgeFrontmatterSchema = knowledgeFrontmatterBase.superRefine((value, ctx) => {
@@ -12322,6 +12323,12 @@ function parseKnowledgeFile(raw, path) {
     throw new MemoryError("INVALID_INPUT", `${path}: invalid knowledge frontmatter: ${details}`);
   }
   const fm = result.data;
+  if (fm.format > CURRENT_FORMAT) {
+    throw new MemoryError(
+      "INVALID_INPUT",
+      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade dsh-memory-hub instead of editing the file`
+    );
+  }
   assertIdMatchesType(fm.id, fm.type, path);
   if (!body) {
     throw new MemoryError("INVALID_INPUT", `${path}: body must not be empty`);

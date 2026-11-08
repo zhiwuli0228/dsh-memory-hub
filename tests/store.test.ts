@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { MemoryError } from '../src/errors.js'
 import { createHarness } from './helpers.js'
@@ -305,7 +305,8 @@ describe('knowledge store', () => {
     }
   })
 
-  it('rejects writes in read-only mode', async () => {    const harness = await createHarness()
+  it('rejects writes in read-only mode', async () => {
+    const harness = await createHarness()
     try {
       harness.hub.readOnly = true
       await expect(
@@ -321,6 +322,35 @@ describe('knowledge store', () => {
           { taskId: 'TSK-1' },
         ),
       ).rejects.toBeInstanceOf(MemoryError)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('skips knowledge written by a newer format version and explains why', async () => {
+    const harness = await createHarness()
+    try {
+      const proposal = await harness.store.propose(
+        {
+          operation: 'create',
+          type: 'knowledge',
+          scope: 'global',
+          title: '未来格式',
+          summary: '由更新版本写入。',
+          content: '## 结论\n\n旧版本不应猜着读。\n',
+        },
+        { taskId: 'TSK-1' },
+      )
+      const { record } = await harness.store.commit(proposal.id)
+      const path = harness.hub.knowledgePath('knowledge', record.id)
+      const raw = await readFile(path, 'utf8')
+      await writeFile(path, raw.replace(/^format: 1$/m, 'format: 2'))
+
+      await harness.store.load()
+      expect(harness.store.docs.has(record.id)).toBe(false)
+      expect(
+        harness.store.diagnostics.some((item) => item.message.includes('newer than this version supports')),
+      ).toBe(true)
     } finally {
       await harness.cleanup()
     }

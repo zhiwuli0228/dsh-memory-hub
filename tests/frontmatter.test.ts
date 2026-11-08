@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { parseKnowledgeFile, parseProposalFile, serializeKnowledgeFile, serializeProposalFile } from '../src/frontmatter.js'
+import {
+  CURRENT_FORMAT,
+  parseKnowledgeFile,
+  parseProposalFile,
+  serializeKnowledgeFile,
+  serializeProposalFile,
+} from '../src/frontmatter.js'
 import type { KnowledgeRecord, ProposalRecord } from '../src/types.js'
 
 function record(overrides: Partial<KnowledgeRecord> = {}): KnowledgeRecord {
@@ -50,6 +56,17 @@ describe('knowledge frontmatter', () => {
     const raw = serializeKnowledgeFile(record({ extra: { owner: 'team-a' } }))
     const parsed = parseKnowledgeFile(raw, 'DEC-000001.md')
     expect(parsed.extra.owner).toBe('team-a')
+  })
+
+  it('refuses a file written by a newer format version instead of guessing', () => {
+    const raw = serializeKnowledgeFile(record()).replace(/^format: 1$/m, 'format: 2')
+    expect(() => parseKnowledgeFile(raw, 'DEC-000001.md')).toThrow(/format 2 is newer than this version supports/)
+  })
+
+  it('writes the current format version', () => {
+    const raw = serializeKnowledgeFile(record())
+    expect(raw).toContain(`format: ${CURRENT_FORMAT}`)
+    expect(parseKnowledgeFile(raw, 'DEC-000001.md').format).toBe(CURRENT_FORMAT)
   })
 
   it('rejects a missing summary', () => {

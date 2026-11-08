@@ -30,6 +30,9 @@ const appliesToSchema = z
   })
   .default({ branches: [], versions: [] })
 
+/** 当前写入的存储格式版本；读取时接受 ≤ 此值，更高版本显式拒绝而不是猜着解析。 */
+export const CURRENT_FORMAT = 1
+
 const knowledgeFrontmatterBase = z
   .object({
     id: z.string().regex(KNOWLEDGE_ID_PATTERN),
@@ -52,7 +55,7 @@ const knowledgeFrontmatterBase = z
     created_at: timestampSchema,
     updated_at: timestampSchema,
     deprecated_reason: z.string().max(500).optional(),
-    format: z.number().int().default(1),
+    format: z.number().int().positive().default(CURRENT_FORMAT),
   })
   .passthrough()
 
@@ -176,6 +179,14 @@ export function parseKnowledgeFile(raw: string, path: string): KnowledgeRecord {
     throw new MemoryError('INVALID_INPUT', `${path}: invalid knowledge frontmatter: ${details}`)
   }
   const fm = result.data
+  // 前向兼容：更新版本写下的文件不能被旧版本「按 format 1 猜着读」，否则语义会悄悄跑偏。
+  // 这里显式拒绝并交由 store 记为诊断，文件保持原样，升级后即可恢复。
+  if (fm.format > CURRENT_FORMAT) {
+    throw new MemoryError(
+      'INVALID_INPUT',
+      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade dsh-memory-hub instead of editing the file`,
+    )
+  }
   assertIdMatchesType(fm.id, fm.type, path)
   if (!body) {
     throw new MemoryError('INVALID_INPUT', `${path}: body must not be empty`)

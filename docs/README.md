@@ -34,7 +34,8 @@
 2. `docs/01-architecture/module-boundaries.md`
 3. `docs/01-architecture/storage-contract.md`
 4. `docs/01-architecture/maintenance.md`（涉及多 core / 定时 / 报告时）
-5. `docs/01-architecture/decisions/`（相关 ADR）
+5. `docs/01-architecture/compatibility.md`（改 frontmatter / 格式 / 类型前必读）
+6. `docs/01-architecture/decisions/`（相关 ADR）
 
 ### OpenSpec 工作
 

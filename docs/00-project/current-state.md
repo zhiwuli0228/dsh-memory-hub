@@ -221,6 +221,7 @@ dsh-memory-hub/
 - [hermes-memory-2026.md](../05-domain/hermes-memory-2026.md) — 2026-11 调研：Nous Research Hermes Agent 的三层记忆（有界常驻 / FTS5 档案 / 单活 provider）、写入上限与整理、后台复盘、借鉴优先级与「不该照抄」清单。
 - [search-performance.md](../04-development/search-performance.md) — 2026-11 实测：1k/5k/20k/50k/100k 规模的检索延迟与内存、热路径优化（时间戳预解析、标题缓存、前 K 选择）、`min_score` 漂移与「要不要换 SQLite」的判定条件。
 - [scale-plan.md](../01-architecture/scale-plan.md) — 多年业务积累的规模化预案：检索 / 入库 / 蒸馏三条成本线，按业务域分库、批量萃取流水线、分级审批与派生索引的分档路径。
+- [compatibility.md](../01-architecture/compatibility.md) — 兼容性契约：未知字段保留、`format` 版本闸门、作用域由小到大、索引可替换、批量靠 tag，以及合并撞 ID / 新类型 / 早期 global 三个迁移坑。
 - [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
