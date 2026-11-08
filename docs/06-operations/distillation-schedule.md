@@ -1,6 +1,6 @@
 # 定时蒸馏（每个工作区）
 
-V0.5.0 起，核心工作区与子工作区都可以配置**定时蒸馏**：到点在一个指定工作区开始一次记忆蒸馏，把本工作区的 L1 知识整理成上级核心（或 global）的候选，交给人工审批。当前发布版本为 **V0.5.2**（修复 Host 时间格式与 `session-controller` 延迟就绪，见文末「实现注记」）。
+V0.5.0 起，核心工作区与子工作区都可以配置**定时蒸馏**：到点在一个指定工作区开始一次记忆蒸馏，把本工作区的 L1 知识整理成上级核心（或 global）的候选，交给人工审批。当前发布版本为 **V0.6.0**（V0.5.2 修复 Host 时间格式与 `session-controller` 延迟就绪，V0.5.3 重做配置界面，V0.6.0 增加会话候选）。
 
 与[夜间维护](maintenance.md)不同，定时蒸馏使用 **DSH `schedule` 服务**，因此会出现在官方「自动化任务」栏；夜间维护是插件内部定时器，不出现在那里。
 
@@ -35,6 +35,8 @@ workspaces:
 | `time` | 本地时间 `HH:mm`；按 Host 的本地时区注册为 `daily` |
 | `target` | `new`：每次新建会话；`session`：投递到已有会话 |
 | `session_id` | `target: session` 时必填；会话必须存在，且不能是委派子会话 |
+
+`target: session` 时，会话列会变成可输入的下拉：候选来自 Host 的 `sessionController`（`GET /dsh-memory-hub/api/sessions`），显示“标题 · 短 id · 目录尾名”，空会话会额外标注；也可以直接粘贴完整会话 ID。该端点只读、仅回环，**不返回消息内容**，且会过滤掉不能接收投递的委派子会话。Host 没有该服务或 4 秒内读不到时，面板会提示“会话列表不可用”，此时仍需手填 ID。
 | `agent_preset` | 可选，`target: new` 时指定 Agent 预设 |
 | `max_proposals` | 单次蒸馏最多提交多少条候选（1..20） |
 
@@ -78,6 +80,7 @@ workspaces:
 - 定时蒸馏只创建候选，不提交、不改写正文、不删除知识；
 - 新建会话的 `cwd` 固定为工作区 `root`，不会越界到其他工作区；
 - 面板保存蒸馏配置走现有回环 HTTP 配置端点，写入的是 `config.yaml`，不是知识库；
+- 会话候选端点 `/api/sessions` 只读、仅回环，只暴露 id/cwd/标题/更新时间，不含消息正文；
 - 任务提示词包含 `不要调用 memory_commit`，与“模型不能自批”的硬规则一致。
 
 ## 实现注记
@@ -85,3 +88,4 @@ workspaces:
 - **时间格式**：DSH 的 `schedule` 服务要求 `daily.time` 为 `HH:mm:ss`（可带 1–3 位小数）。插件对外仍接受更友好的 `HH:mm`，注册时补成 `HH:mm:00`；对齐已有任务时只比较前 5 位，因此不会因为格式差异反复重建。
 - **延迟就绪**：Host 的 `session-controller` 可能比 `schedule` 晚挂载，冷启动后的第一次对齐会收到 `This Host cannot create Sessions`。插件对这类可自愈错误做最多 5 次退避重试（2s、4s、6s…上限 15s）；重试成功后报告里的动作变为 `created`，面板诊断也会更新。
 - **面板回显**：`/api/config` 会返回每个工作区的 `distill`，保存后表单不会回退成“未配置”。
+- **会话候选**：`/api/sessions` 用 `ctx.get('sessionController').list({}, AbortSignal.timeout(4000))` 读会话摘要，按 `updatedAt` 倒序取前 200 条并缓存 5 秒；`origin === 'subagent'` 的行被丢弃。服务不存在、抛错或超时时返回 `{ unavailable: true, items: [] }`，面板继续可用。

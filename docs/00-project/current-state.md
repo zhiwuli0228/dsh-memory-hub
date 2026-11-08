@@ -4,11 +4,11 @@
 
 ## 当前阶段
 
-V0.5.3 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.5.3`（`latest`）与 GitHub Release `v0.5.3` 已发布（run `42444334250`，publishTimestamp `1794109916`）。
+V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。投递到已有会话时，面板从 Host `sessionController` 读取本机会话列表做候选（可下拉选择，也可手填），不再要求用户自己去找会话 ID。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.6.0`（`latest`）与 GitHub Release `v0.6.0` 已发布（run `42452510255`，publishTimestamp `1794117317`）。
 
-在真实 Host（0.2.2-rc.1，隔离 profile）上验证时修掉两个只有实机才暴露的问题：Host 的 `daily.time` 必须是 `HH:mm:ss`（v0.5.1 内部把 `HH:mm` 规范化后注册）；`session-controller` 可能晚于 `schedule` 就绪，首次注册会被拒（v0.5.2 对可自愈错误做 5 次退避重试，并在 `config()` 中返回 `distill`，面板保存后不会显示成未配置）。v0.5.3 把蒸馏设置从“每个工作区一张卡 + 换行内联表单”改成整宽对齐表（工作区/启用/时间/目标/会话/上限/状态），带逐行状态与底部汇总、错误列表，窄屏自动堆叠。
+在真实 Host（0.2.2-rc.1，隔离 profile）上验证时修掉两个只有实机才暴露的问题：Host 的 `daily.time` 必须是 `HH:mm:ss`（v0.5.1 内部把 `HH:mm` 规范化后注册）；`session-controller` 可能晚于 `schedule` 就绪，首次注册会被拒（v0.5.2 对可自愈错误做 5 次退避重试，并在 `config()` 中返回 `distill`，面板保存后不会显示成未配置）。v0.5.3 把蒸馏设置从“每个工作区一张卡 + 换行内联表单”改成整宽对齐表（工作区/启用/时间/目标/会话/上限/状态），带逐行状态与底部汇总、错误列表，窄屏自动堆叠。v0.6.0 新增只读的 `/dsh-memory-hub/api/sessions`：只返回 id、cwd、标题、更新时间与空会话标记，排除委派会话，服务缺失或超时则返回 `unavailable` 让面板退回手填。
 
-当前工作树为 **V0.5.3（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.6.0（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
@@ -39,6 +39,7 @@ V0.5.3 已发布：**每个工作区的定时蒸馏**——面板「配置」页
 - [x] 蒸馏提示词只读 L1、`memory_propose` 到 `project:<父核心>`（顶端用 `memory_consolidate` 到 global）、`memory_close_task`；禁止 `memory_commit`
 - [x] 定时蒸馏配置校验：启用必须有 root；`target: session` 必须有 `session_id`；`max_proposals` 1..20
 - [x] 定时蒸馏面板（V0.5.3）：整宽对齐表（工作区/启用/时间/投递目标/会话/上限/状态），逐行状态标签（已注册/待注册/失败/未启用），底部汇总“已启用数 + 未保存 + 失败数”与主按钮，注册错误单独成块；≤760px 自动堆叠为带标签的两列
+- [x] 会话候选（V0.6.0）：`/api/sessions` 只读回环端点 + 会话列 datalist；Host 缺失 `sessionController` 或 4s 超时则显示不可用并允许手填
 - [x] 设计决策：[ADR-0007](../01-architecture/decisions/ADR-0007-scheduled-distillation.md)；操作与排障：[distillation-schedule](../06-operations/distillation-schedule.md)
 - [x] 宿主兼容冒烟（V0.4.0）：Web 模式 DSH `0.2.2-rc.1` 安装 0.4.0 后启动通过，`/api/overview` 200、`clientModules` 广告 true、批量审核端点返回 403/409 预期；`engines.dsh` 门禁因宿主用 `includePrerelease` 校验而放行（见 [COMPATIBILITY](../COMPATIBILITY.md)）
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`

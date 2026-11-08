@@ -32,6 +32,7 @@
 - 蒸馏提示词只调用 `memory_propose`（或顶端用 `memory_consolidate`），**禁止** `memory_commit`；候选仍需人工在面板批准。
 - 新建会话的 `cwd` 固定为工作区 `root`，不跨越工作区；`target: session` 的会话必须存在且不是委派子会话。
 - 任务标题以 `memory-hub:distill:` 为前缀，插件只增删改自己前缀下的任务；卸载插件不会删除已注册任务，需要用户自行清理。
+- V0.6.0 的 `GET /dsh-memory-hub/api/sessions` 只读、仅回环，只返回会话 id、cwd、标题、更新时间与空会话标记；不含消息正文，且排除委派子会话。服务缺失或超时返回 `unavailable`，不影响其他端点。
 
 ## 路径与作用域
 
