@@ -100,6 +100,7 @@ describe('client bundle', () => {
         byType: { decision: 1 },
       },
       index: { documents: 1, diagnostics: [] },
+      core_workspaces: [{ id: 'product', name: '产品主仓库', root: 'D:/projects/product', distill: { enabled: true, time: '04:15', target: 'new', max_proposals: 5 } }],
       workspaces: [{ id: 'backend', root: 'D:/projects/backend', domains: ['backend'], admin: true, enabled: true }],
       policy: {
         preflight: {
@@ -171,6 +172,11 @@ describe('client bundle', () => {
     expect(configHtml).toContain('添加子工作区')
     // 配置页提供删除入口：未分配工作区卡片带“删除”按钮。
     expect(configHtml).toContain('删除')
+    // 每个工作区都能配置定时蒸馏：时间、投递目标与保存入口。
+    expect(configHtml).toContain('定时蒸馏')
+    expect(configHtml).toContain('04:15')
+    expect(configHtml).toContain('type="time"')
+    expect(configHtml).toContain('保存定时蒸馏')
 
     const pendingHtml = renderToStaticMarkup(
       React.createElement(main?.component as React.ComponentType<{ initialData: unknown; initialTab: string }>, {

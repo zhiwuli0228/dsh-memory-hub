@@ -25,10 +25,27 @@ export const DEFAULT_EXEMPT_TOOLS = [
   'memory_maintenance',
 ]
 
+const DISTILL_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/**
+ * 每个工作区的定时蒸馏设置。真正的调度交给 Host 的 `schedule` 服务：
+ * 到点新建会话（cwd = 工作区 root）或投递到指定会话，由该会话执行蒸馏流程。
+ */
+const distillSchema = z.object({
+  enabled: z.boolean().default(false),
+  time: z.string().regex(DISTILL_TIME_PATTERN, 'distill time must be HH:mm').default('03:30'),
+  // new = 每次投递新建会话（cwd 固定为工作区 root）；session = 投递到已有会话。
+  target: z.enum(['new', 'session']).default('new'),
+  session_id: z.string().nullable().optional(),
+  agent_preset: z.string().min(1).nullable().optional(),
+  max_proposals: z.number().int().min(1).max(20).default(5),
+}).default({})
+
 const coreWorkspaceSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, 'core workspace id must be a slug (letters, digits, dot, underscore, dash)'),
   name: z.string().min(1).optional(),
   root: z.string().min(1).optional(),
+  distill: distillSchema.optional(),
 })
 
 const workspaceSchema = z.object({
@@ -38,6 +55,7 @@ const workspaceSchema = z.object({
   domains: z.array(z.string().min(1)).default([]),
   admin: z.boolean().default(false),
   enabled: z.boolean().default(true),
+  distill: distillSchema.optional(),
 })
 
 const preflightSchema = z.object({
@@ -127,10 +145,21 @@ hub:
 # Core workspaces are memory hubs. If a core workspace has a root, it becomes
 # an independent memory hub; sessions whose working directory is under that root
 # use that hub. Sub-workspaces (core_id below) live inside the same hub.
+#
+# distill (optional) schedules a memory distillation in that workspace through
+# the Host schedule service. target: new creates a fresh session with cwd set
+# to the workspace root; target: session delivers to an existing session id.
+# Distillation only proposes candidates (scope "parent" / "global"); a human still
+# approves them in the panel.
 core_workspaces: []
 #  - id: product
 #    name: '产品主仓库'
 #    root: 'D:/projects/product'
+#    distill:
+#      enabled: true
+#      time: '03:30'
+#      target: new          # new | session
+#      max_proposals: 5
 
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
@@ -142,6 +171,11 @@ workspaces: []
 #    domains: [backend]
 #    admin: true
 #    enabled: true
+#    distill:
+#      enabled: true
+#      time: '04:00'
+#      target: session
+#      session_id: session-xxxx
 
 policy:
   approval:

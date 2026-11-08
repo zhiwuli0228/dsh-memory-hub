@@ -1426,6 +1426,7 @@ export class MemoryService {
         id: core.id,
         name: core.name,
         root: core.root,
+        distill: core.distill,
       })),
       workspaces: this.activeWorkspaces.map((workspace) => ({
         id: workspace.id,
@@ -1434,6 +1435,7 @@ export class MemoryService {
         domains: workspace.domains,
         admin: workspace.admin,
         enabled: workspace.enabled,
+        distill: workspace.distill,
       })),
       policy: {
         approval: this.hub.config.policy.approval,
@@ -1504,6 +1506,9 @@ export class MemoryService {
     const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces
 
     const validCoreIds = new Set(core_workspaces.map((core: CoreWorkspaceConfig) => core.id))
+    for (const core of core_workspaces) {
+      this.validateDistillConfig(core.id, 'core workspace', core.distill, core.root, true)
+    }
     for (const workspace of workspaces) {
       if (workspace.core_id !== null && workspace.core_id !== undefined && !validCoreIds.has(workspace.core_id)) {
         throw new MemoryError('INVALID_INPUT', `workspace ${workspace.id} references unknown core ${workspace.core_id}`)
@@ -1514,6 +1519,7 @@ export class MemoryService {
           `workspace ${workspace.id} cannot reference itself as its core; a core workspace that is also a sub-workspace must point at a different parent core`,
         )
       }
+      this.validateDistillConfig(workspace.id, 'workspace', workspace.distill, workspace.root, false)
     }
 
     const next: MemoryConfig = configSchema.parse({
@@ -1532,6 +1538,25 @@ export class MemoryService {
       return this.config()
     } catch (error) {
       throw new MemoryError('STORAGE_ERROR', `cannot write config: ${(error as Error).message}`)
+    }
+  }
+
+  private validateDistillConfig(
+    id: string,
+    kind: string,
+    distill: CoreWorkspaceConfig['distill'] | undefined,
+    root: string | undefined,
+    core: boolean,
+  ): void {
+    if (distill === undefined || distill.enabled !== true) return
+    if (distill.target === 'session' && (distill.session_id ?? '').trim() === '') {
+      throw new MemoryError('INVALID_INPUT', `${kind} ${id} enables distill in session mode but has no session_id`)
+    }
+    if ((root ?? '').trim() === '') {
+      throw new MemoryError('INVALID_INPUT', `${kind} ${id} enables distill but has no root to run in`)
+    }
+    if (!core && (distill.max_proposals ?? 0) < 1) {
+      throw new MemoryError('INVALID_INPUT', `${kind} ${id} has an invalid max_proposals`)
     }
   }
 

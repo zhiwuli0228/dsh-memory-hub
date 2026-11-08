@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { hostname, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { apply } from '../src/index.js'
 import { serializeKnowledgeFile } from '../src/frontmatter.js'
@@ -810,6 +810,70 @@ core_workspaces:
     }
     expect(coreStatus.root).toContain('core-free')
     expect(coreStatus.readOnly).toBe(false)
+
+    for (const dispose of host.disposers.reverse()) {
+      await dispose()
+    }
+    await rm(configRoot, { recursive: true, force: true })
+    await rm(coreRoot, { recursive: true, force: true })
+  })
+  it('registers per-workspace distillation with the host schedule service', async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-distill-'))
+    const coreRoot = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-distill-core-'))
+    const configYaml = `version: 1
+hub:
+  id: primary
+core_workspaces:
+  - id: core-a
+    root: '${coreRoot.replace(/\\/g, '/')}'
+    distill:
+      enabled: true
+      time: '04:15'
+      target: new
+      max_proposals: 4
+`
+    await writeFile(join(configRoot, 'config.yaml'), configYaml, 'utf8')
+
+    const created: Array<Record<string, any>> = []
+    const schedule = {
+      items: [] as Array<Record<string, any>>,
+      async list() {
+        return { items: schedule.items, total: schedule.items.length }
+      },
+      async create(request: Record<string, any>) {
+        created.push(request)
+        const task = {
+          id: `task-${created.length}`,
+          title: request.title,
+          status: 'active',
+          kind: 'daily',
+          time: request.timing.daily.time,
+          target: request.target,
+        }
+        schedule.items.push(task)
+        return { id: task.id }
+      },
+      async edit(request: Record<string, any>) {
+        if (request.action === 'delete') {
+          schedule.items = schedule.items.filter((task) => task.id !== request.id)
+        }
+        return { ok: true }
+      },
+    }
+
+    const host = createFakeHost(configRoot)
+    const originalGet = host.ctx.get.bind(host.ctx)
+    host.ctx.get = (name: string) => (name === 'schedule' ? schedule : originalGet(name))
+    apply(host.ctx, { root: configRoot })
+    await invoke('memory_status', host, {}, makeAgent(host))
+
+    expect(created).toHaveLength(1)
+    expect(created[0]?.title).toBe('memory-hub:distill:primary:core:core-a')
+    expect(created[0]?.timing).toEqual({ kind: 'daily', daily: { time: '04:15', time_zone: expect.any(String) } })
+    expect(created[0]?.target).toEqual({ kind: 'new', create: { cwd: resolve(coreRoot) } })
+    expect(String(created[0]?.prompt)).toContain('不要调用 memory_commit')
+    expect(String(created[0]?.prompt)).toContain('memory_close_task')
+    expect(schedule.items).toHaveLength(1)
 
     for (const dispose of host.disposers.reverse()) {
       await dispose()

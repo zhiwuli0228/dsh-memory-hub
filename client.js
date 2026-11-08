@@ -156,6 +156,21 @@
     'config.delete': '删除',
     'config.deleteSubConfirm': '确认删除子工作区 {id}？',
     'config.deleteCoreConfirm': '确认删除核心工作区 {id}？其子工作区将变为未分配。',
+    'config.distillTitle': '定时蒸馏',
+    'config.distillHint': '到点由 Host 定时任务在工作区开始一次记忆蒸馏：默认新建会话（cwd = 工作区根目录），也可以投递到指定会话；候选仍需人工审批。',
+    'config.distillOn': '启用',
+    'config.distillTime': '时间',
+    'config.distillTarget': '投递目标',
+    'config.distillNew': '每次新建会话',
+    'config.distillSession': '指定会话',
+    'config.distillSessionId': '会话 ID',
+    'config.distillMax': '最多候选',
+    'config.distillSave': '保存定时蒸馏',
+    'config.distillSaved': '定时蒸馏设置已保存',
+    'config.distillUnavailable': 'Host schedule 服务不可用，定时任务未注册',
+    'config.distillRegistered': '已注册',
+    'config.coreShort': '核心',
+    'config.subShort': '子工作区',
     'config.emptyId': '标识不能为空',
     'config.emptyRoot': '子工作区需要根目录',
   };
@@ -299,6 +314,21 @@
     'config.delete': 'Delete',
     'config.deleteSubConfirm': 'Delete sub-workspace {id}?',
     'config.deleteCoreConfirm': 'Delete core workspace {id}? Its sub-workspaces become unassigned.',
+    'config.distillTitle': 'Scheduled distillation',
+    'config.distillHint': 'At the configured time a Host schedule starts a distillation in this workspace: a new session (cwd = workspace root) by default, or the specified session. Proposals still need human approval.',
+    'config.distillOn': 'Enabled',
+    'config.distillTime': 'Time',
+    'config.distillTarget': 'Deliver to',
+    'config.distillNew': 'New session each run',
+    'config.distillSession': 'Existing session',
+    'config.distillSessionId': 'Session ID',
+    'config.distillMax': 'Max proposals',
+    'config.distillSave': 'Save distillation schedule',
+    'config.distillSaved': 'Distillation schedule saved',
+    'config.distillUnavailable': 'Host schedule service unavailable; no task was registered',
+    'config.distillRegistered': 'Registered',
+    'config.coreShort': 'core',
+    'config.subShort': 'sub-workspace',
     'config.emptyId': 'Id is required',
     'config.emptyRoot': 'Sub-workspace requires a root path',
   };
@@ -369,6 +399,7 @@
 .dmh-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .dmh-input,.dmh-select{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);border-radius:8px;padding:7px 9px;font:inherit;font-size:12px;min-width:0}
 .dmh-input{flex:1;min-width:180px}
+.dmh-input-sm{flex:0 1 130px;min-width:96px}
 .dmh-select{cursor:pointer}
 .dmh-split{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
 .dmh-split.has-detail{grid-template-columns:minmax(0,1fr) minmax(280px,380px)}
@@ -960,6 +991,18 @@
       const targetCore = subCore === null ? activeCore : subCore;
       const selectedSubs = useMemo(() => workspaces.filter((w) => w.core_id === activeCore), [workspaces, activeCore]);
       const unassigned = useMemo(() => workspaces.filter((w) => !w.core_id), [workspaces]);
+      const [distillEdits, setDistillEdits] = useState({});
+      const distillDefaults = { enabled: false, time: '03:30', target: 'new', session_id: '', agent_preset: '', max_proposals: 5 };
+      const distillValue = (key, distill) => distillEdits[key] || { ...distillDefaults, ...(distill || {}) };
+      const editDistill = (key, distill, patch) => setDistillEdits((current) => ({
+        ...current,
+        [key]: { ...distillValue(key, distill), ...patch },
+      }));
+      const distillReport = data.distill || null;
+      const distillRows = [
+        ...coreWorkspaces.map((core) => ({ key: `core:${core.id}`, kind: 'core', id: core.id, root: core.root, distill: core.distill })),
+        ...workspaces.map((workspace) => ({ key: `workspace:${workspace.id}`, kind: 'workspace', id: workspace.id, root: workspace.root, distill: workspace.distill })),
+      ];
 
       useEffect(() => {
         if (selectedCore !== '' && !coreWorkspaces.some((core) => core.id === selectedCore)) {
@@ -1051,6 +1094,20 @@
           });
           if (selectedCore === id) setSelectedCore('');
           showMessage(t('config.saved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
+      // 保存每个工作区的定时蒸馏设置；后端会把配置写入 config.yaml 并对齐 Host schedule 任务。
+      const handleSaveDistill = async () => {
+        const nextCores = coreWorkspaces.map((core) => ({ ...core, distill: distillValue(`core:${core.id}`, core.distill) }));
+        const nextWorkspaces = workspaces.map((workspace) => ({ ...workspace, distill: distillValue(`workspace:${workspace.id}`, workspace.distill) }));
+        try {
+          const payload = await save({ core_workspaces: nextCores, workspaces: nextWorkspaces });
+          setDistillEdits({});
+          const unavailable = payload && payload.distill && payload.distill.error;
+          showMessage(unavailable ? t('config.distillUnavailable') : t('config.distillSaved'), Boolean(unavailable));
         } catch (error) {
           showMessage(error.message || t('config.error'), true);
         }
@@ -1156,10 +1213,91 @@
           ? h(Empty, { title: t('config.unassigned'), hint: t('config.unassignedHint') })
           : h('div', { className: 'dmh-list' }, unassigned.map(renderWorkspace)));
 
+      const renderDistillRow = (row) => {
+        const value = distillValue(row.key, row.distill);
+        const disabled = readOnly || state.phase === 'saving';
+        return h('div', { key: row.key, className: 'dmh-card' },
+          h('div', { className: 'dmh-row-top' },
+            h('span', { className: 'dmh-row-title' }, row.id),
+            h(Tag, null, row.kind === 'core' ? t('config.coreShort') : t('config.subShort')),
+            row.root ? h('span', { className: 'dmh-row-id dmh-mono' }, row.root) : null),
+          h('div', { className: 'dmh-form-row' },
+            h('label', { className: 'dmh-check' },
+              h('input', {
+                type: 'checkbox',
+                checked: value.enabled === true,
+                disabled,
+                onChange: (event) => editDistill(row.key, row.distill, { enabled: event.target.checked }),
+              }),
+              t('config.distillOn')),
+            h('label', { className: 'dmh-check' },
+              t('config.distillTime'),
+              h('input', {
+                className: 'dmh-input dmh-input-sm',
+                type: 'time',
+                value: value.time || '03:30',
+                disabled,
+                onChange: (event) => editDistill(row.key, row.distill, { time: event.target.value }),
+              })),
+            h('label', { className: 'dmh-check' },
+              t('config.distillTarget'),
+              h('select', {
+                className: 'dmh-select',
+                value: value.target || 'new',
+                disabled,
+                onChange: (event) => editDistill(row.key, row.distill, { target: event.target.value }),
+              },
+                h('option', { value: 'new' }, t('config.distillNew')),
+                h('option', { value: 'session' }, t('config.distillSession')))),
+            value.target === 'session'
+              ? h('label', { className: 'dmh-check' },
+                  t('config.distillSessionId'),
+                  h('input', {
+                    className: 'dmh-input dmh-input-sm',
+                    placeholder: 'session-…',
+                    value: value.session_id || '',
+                    disabled,
+                    onChange: (event) => editDistill(row.key, row.distill, { session_id: event.target.value }),
+                  }))
+              : null,
+            h('label', { className: 'dmh-check' },
+              t('config.distillMax'),
+              h('input', {
+                className: 'dmh-input dmh-input-sm',
+                type: 'number',
+                min: 1,
+                max: 20,
+                value: value.max_proposals || 5,
+                disabled,
+                onChange: (event) => editDistill(row.key, row.distill, { max_proposals: Number(event.target.value) || 1 }),
+              }))),
+        );
+      };
+
+      const distillSection = h('section', { className: 'dmh-section' },
+        h(SectionHead, { title: t('config.distillTitle'), hint: t('config.distillHint') }),
+        distillReport && distillReport.error
+          ? h('div', { className: 'dmh-banner err' }, `${t('config.distillUnavailable')}: ${distillReport.error}`)
+          : null,
+        distillReport && Array.isArray(distillReport.entries) && distillReport.entries.length > 0
+          ? h('div', { className: 'dmh-row-id' }, distillReport.entries.map((entry) =>
+              `${entry.workspaceId}: ${entry.action}${entry.error ? ` (${entry.error})` : ''}`).join(' · '))
+          : null,
+        distillRows.length === 0
+          ? h(Empty, { title: t('config.distillTitle'), hint: t('config.distillHint') })
+          : h('div', { className: 'dmh-list' }, distillRows.map(renderDistillRow)),
+        h('div', { className: 'dmh-form-actions' },
+          h('button', {
+            type: 'button',
+            className: 'dmh-btn',
+            disabled: readOnly || state.phase === 'saving',
+            onClick: handleSaveDistill,
+          }, t('config.distillSave'))));
+
       return h('div', { className: 'dmh-config' },
         message ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text) : null,
         readOnly ? h('div', { className: 'dmh-banner err' }, t('config.readonly')) : null,
-        h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection));
+        h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection, distillSection));
     }
 
     function Panel(props) {

@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.4.0
+// dsh-memory-hub 0.5.0
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename3, join as join5, relative as relative3, resolve as resolve2 } from "node:path";
+import { basename as basename3, join as join5, relative as relative3, resolve as resolve3 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -11439,7 +11439,7 @@ function daysSince(iso) {
   return Math.max(0, (Date.now() - then) / 864e5);
 }
 function sleep(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 
 // src/ids.ts
@@ -11586,10 +11586,21 @@ var DEFAULT_EXEMPT_TOOLS = [
   "memory_consolidate",
   "memory_maintenance"
 ];
+var DISTILL_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+var distillSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  time: external_exports.string().regex(DISTILL_TIME_PATTERN, "distill time must be HH:mm").default("03:30"),
+  // new = 每次投递新建会话（cwd 固定为工作区 root）；session = 投递到已有会话。
+  target: external_exports.enum(["new", "session"]).default("new"),
+  session_id: external_exports.string().nullable().optional(),
+  agent_preset: external_exports.string().min(1).nullable().optional(),
+  max_proposals: external_exports.number().int().min(1).max(20).default(5)
+}).default({});
 var coreWorkspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "core workspace id must be a slug (letters, digits, dot, underscore, dash)"),
   name: external_exports.string().min(1).optional(),
-  root: external_exports.string().min(1).optional()
+  root: external_exports.string().min(1).optional(),
+  distill: distillSchema.optional()
 });
 var workspaceSchema = external_exports.object({
   id: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "workspace id must be a slug (letters, digits, dot, underscore, dash)"),
@@ -11597,7 +11608,8 @@ var workspaceSchema = external_exports.object({
   root: external_exports.string().min(1),
   domains: external_exports.array(external_exports.string().min(1)).default([]),
   admin: external_exports.boolean().default(false),
-  enabled: external_exports.boolean().default(true)
+  enabled: external_exports.boolean().default(true),
+  distill: distillSchema.optional()
 });
 var preflightSchema = external_exports.object({
   mode: external_exports.enum(["per-turn", "off"]).default("per-turn"),
@@ -11677,10 +11689,21 @@ hub:
 # Core workspaces are memory hubs. If a core workspace has a root, it becomes
 # an independent memory hub; sessions whose working directory is under that root
 # use that hub. Sub-workspaces (core_id below) live inside the same hub.
+#
+# distill (optional) schedules a memory distillation in that workspace through
+# the Host schedule service. target: new creates a fresh session with cwd set
+# to the workspace root; target: session delivers to an existing session id.
+# Distillation only proposes candidates (scope "parent" / "global"); a human still
+# approves them in the panel.
 core_workspaces: []
 #  - id: product
 #    name: '\u4EA7\u54C1\u4E3B\u4ED3\u5E93'
 #    root: 'D:/projects/product'
+#    distill:
+#      enabled: true
+#      time: '03:30'
+#      target: new          # new | session
+#      max_proposals: 5
 
 # Register the project roots you want project-scoped memory for. Sessions whose
 # working directory is inside one of these roots see global + domain + project
@@ -11692,6 +11715,11 @@ workspaces: []
 #    domains: [backend]
 #    admin: true
 #    enabled: true
+#    distill:
+#      enabled: true
+#      time: '04:00'
+#      target: session
+#      session_id: session-xxxx
 
 policy:
   approval:
@@ -13241,8 +13269,8 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.4.0",
-  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, and a read-only Web panel.",
+  version: "0.5.0",
+  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, proposals, human-approved commits, manual consolidation, nightly report-only maintenance, per-workspace scheduled distillation, and a Web panel with human review.",
   license: "MIT",
   author: "zhiwuli0228",
   homepage: "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
@@ -14725,7 +14753,8 @@ var MemoryService = class {
       core_workspaces: this.hub.config.core_workspaces.map((core) => ({
         id: core.id,
         name: core.name,
-        root: core.root
+        root: core.root,
+        distill: core.distill
       })),
       workspaces: this.activeWorkspaces.map((workspace) => ({
         id: workspace.id,
@@ -14733,7 +14762,8 @@ var MemoryService = class {
         root: workspace.root,
         domains: workspace.domains,
         admin: workspace.admin,
-        enabled: workspace.enabled
+        enabled: workspace.enabled,
+        distill: workspace.distill
       })),
       policy: {
         approval: this.hub.config.policy.approval,
@@ -14795,6 +14825,9 @@ var MemoryService = class {
     const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces;
     const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces;
     const validCoreIds = new Set(core_workspaces.map((core) => core.id));
+    for (const core of core_workspaces) {
+      this.validateDistillConfig(core.id, "core workspace", core.distill, core.root, true);
+    }
     for (const workspace of workspaces) {
       if (workspace.core_id !== null && workspace.core_id !== void 0 && !validCoreIds.has(workspace.core_id)) {
         throw new MemoryError("INVALID_INPUT", `workspace ${workspace.id} references unknown core ${workspace.core_id}`);
@@ -14805,6 +14838,7 @@ var MemoryService = class {
           `workspace ${workspace.id} cannot reference itself as its core; a core workspace that is also a sub-workspace must point at a different parent core`
         );
       }
+      this.validateDistillConfig(workspace.id, "workspace", workspace.distill, workspace.root, false);
     }
     const next = configSchema.parse({
       ...this.hub.config,
@@ -14821,6 +14855,18 @@ var MemoryService = class {
       return this.config();
     } catch (error) {
       throw new MemoryError("STORAGE_ERROR", `cannot write config: ${error.message}`);
+    }
+  }
+  validateDistillConfig(id, kind, distill, root, core) {
+    if (distill === void 0 || distill.enabled !== true) return;
+    if (distill.target === "session" && (distill.session_id ?? "").trim() === "") {
+      throw new MemoryError("INVALID_INPUT", `${kind} ${id} enables distill in session mode but has no session_id`);
+    }
+    if ((root ?? "").trim() === "") {
+      throw new MemoryError("INVALID_INPUT", `${kind} ${id} enables distill but has no root to run in`);
+    }
+    if (!core && (distill.max_proposals ?? 0) < 1) {
+      throw new MemoryError("INVALID_INPUT", `${kind} ${id} has an invalid max_proposals`);
     }
   }
   status(agent) {
@@ -15107,6 +15153,231 @@ function localTimeKey(date) {
 }
 function maintenanceDue(time, date) {
   return localTimeKey(date) >= time;
+}
+
+// src/distill.ts
+import { resolve as resolve2 } from "node:path";
+var DISTILL_TITLE_PREFIX = "memory-hub:distill:";
+function localTimeZone() {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone === "" ? "UTC" : zone;
+  } catch {
+    return "UTC";
+  }
+}
+function parentCoreOf(config, coreId) {
+  const dualRole = config.workspaces.find((workspace) => workspace.id === coreId);
+  const parent = dualRole?.core_id;
+  if (parent === null || parent === void 0 || parent === "" || parent === coreId) return void 0;
+  return parent;
+}
+function workspaceRoot(entry) {
+  const trimmed = entry.root?.trim();
+  if (trimmed === void 0 || trimmed === "") return null;
+  return resolve2(expandHome(trimmed));
+}
+function distillPrompt(options) {
+  const scope = options.parentCoreId !== void 0 ? `project:${options.parentCoreId}` : "global";
+  const upward = options.parentCoreId !== void 0 ? `\u84B8\u998F\u5230\u4E0A\u7EA7\u6838\u5FC3 ${options.parentCoreId} \u7684 L2\uFF08scope: "${scope}"\uFF09` : '\u664B\u5347\u4E3A global \u5019\u9009\uFF08scope: "global"\uFF09';
+  const proposeStep = options.parentCoreId !== void 0 ? `   - \u7528 memory_propose \u63D0\u4EA4\uFF1Aoperation: "create"\uFF0Ctype \u6CBF\u7528\u539F\u7C7B\u578B
+   - scope: "${scope}"
+   - title / summary / content \u5199\u6210\u53BB\u6389\u9879\u76EE\u79C1\u6709\u7684\u84B8\u998F\u7248
+   - source_refs: ["knowledge:<\u539FID>@<\u7248\u672C>"]
+   - tags \u8FFD\u52A0 "distilled"` : `   - \u7528 memory_consolidate \u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u6761\u76EE\u664B\u5347\u4E3A global \u5019\u9009\uFF08type \u8FC7\u6EE4\uFF1Adecision / constraint / process / api-catalog / playbooks\uFF09`;
+  return [
+    `[\u8BB0\u5FC6\u84B8\u998F] \u5DE5\u4F5C\u533A ${options.workspaceKind === "core" ? "\u6838\u5FC3" : "\u5B50\u5DE5\u4F5C\u533A"} ${options.workspaceId}\uFF08${options.root}\uFF09\u5F00\u59CB\u4E00\u6B21\u5B9A\u65F6\u84B8\u998F\u3002`,
+    "",
+    `\u76EE\u6807\uFF1A\u628A\u672C\u5DE5\u4F5C\u533A\u53EF\u590D\u7528\u7684 L1 \u77E5\u8BC6${upward}\uFF0C\u4F9B\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002`,
+    "",
+    "\u6B65\u9AA4\uFF08\u53EA\u505A\u8FD9\u4E9B\uFF0C\u4E0D\u8981\u6269\u5C55\u4EFB\u52A1\uFF09\uFF1A",
+    '1. \u82E5\u5F53\u524D\u6CA1\u6709\u6253\u5F00\u7684\u8BB0\u5FC6\u4EFB\u52A1\uFF0C\u5148\u8C03\u7528 memory_preflight\uFF0Cquery \u7528 "\u8BB0\u5FC6\u84B8\u998F"\u3002',
+    `2. \u7528 memory_search \u8BFB\u53D6\u672C\u5DE5\u4F5C\u533A\u77E5\u8BC6\uFF08query "\u8BB0\u5FC6\u84B8\u998F"\uFF0Cscope "project:${options.workspaceId}"\uFF1B\u5FC5\u8981\u65F6 memory_get \u8BFB\u6B63\u6587\uFF09\u3002`,
+    `3. \u6700\u591A\u6311 ${options.maxProposals} \u6761\u5BF9\u4E0A\u7EA7\u6709\u590D\u7528\u4EF7\u503C\u7684\u6761\u76EE\uFF08decision / constraint / process / api-catalog / playbooks\uFF09\uFF0C\u63D0\u4EA4\u5019\u9009\uFF1A`,
+    proposeStep,
+    "4. \u4E0D\u8981\u8C03\u7528 memory_commit\uFF1B\u5019\u9009\u7559\u7ED9\u4EBA\u5DE5\u5728\u9762\u677F\u300C\u5F85\u5BA1\u6279\u300D\u5BA1\u6279\u3002",
+    "5. \u6700\u540E\u8C03\u7528 memory_close_task \u8BB0\u5F55\u672C\u6B21\u84B8\u998F\uFF08assessment: proposed \u6216 no_new_knowledge\uFF09\u3002"
+  ].join("\n");
+}
+function desiredDistillSchedules(config, hubId) {
+  const timeZone = localTimeZone();
+  const entries = [];
+  for (const core of config.core_workspaces) {
+    const distill = core.distill;
+    if (distill === void 0 || distill.enabled !== true) continue;
+    const root = workspaceRoot(core);
+    if (root === null) continue;
+    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
+    if (target === null) continue;
+    entries.push({
+      key: `core:${core.id}`,
+      title: `${DISTILL_TITLE_PREFIX}${hubId}:core:${core.id}`,
+      workspaceId: core.id,
+      workspaceKind: "core",
+      root,
+      time: distill.time,
+      timeZone,
+      target,
+      prompt: distillPrompt({
+        workspaceId: core.id,
+        workspaceKind: "core",
+        root,
+        maxProposals: distill.max_proposals,
+        parentCoreId: parentCoreOf(config, core.id)
+      })
+    });
+  }
+  for (const workspace of config.workspaces) {
+    const distill = workspace.distill;
+    if (distill === void 0 || distill.enabled !== true) continue;
+    if (workspace.enabled === false) continue;
+    const root = workspaceRoot(workspace);
+    if (root === null) continue;
+    const target = buildTarget(distill.target, root, distill.session_id, distill.agent_preset);
+    if (target === null) continue;
+    const parentCoreId = workspace.core_id !== null && workspace.core_id !== void 0 && workspace.core_id !== "" ? parentCoreOf(config, workspace.core_id) : void 0;
+    entries.push({
+      key: `workspace:${workspace.id}`,
+      title: `${DISTILL_TITLE_PREFIX}${hubId}:workspace:${workspace.id}`,
+      workspaceId: workspace.id,
+      workspaceKind: "workspace",
+      root,
+      time: distill.time,
+      timeZone,
+      target,
+      prompt: distillPrompt({
+        workspaceId: workspace.id,
+        workspaceKind: "workspace",
+        root,
+        maxProposals: distill.max_proposals,
+        parentCoreId
+      })
+    });
+  }
+  return entries;
+}
+function buildTarget(kind, root, sessionId, agentPreset) {
+  if (kind === "session") {
+    const trimmed = sessionId?.trim() ?? "";
+    if (trimmed === "") return null;
+    return { kind: "session", sessionId: trimmed };
+  }
+  const preset = agentPreset?.trim() ?? "";
+  return {
+    kind: "new",
+    create: { cwd: root, ...preset === "" ? {} : { agentPreset: preset } }
+  };
+}
+function targetMatches(entry, task) {
+  const target = task.target;
+  if (target === void 0 || target.kind !== entry.target.kind) return false;
+  if (entry.target.kind === "session") {
+    return target.sessionId === entry.target.sessionId;
+  }
+  return (target.create?.cwd ?? "") === entry.target.create.cwd;
+}
+function taskMatches(entry, task) {
+  if (task.status !== void 0 && task.status !== "active") return false;
+  if (task.kind !== void 0 && task.kind !== "daily") return false;
+  if (task.time !== void 0 && task.time !== entry.time) return false;
+  return targetMatches(entry, task);
+}
+async function listTasks(service) {
+  const items = [];
+  const limit = 100;
+  for (let offset = 0; offset < 1e3; offset += limit) {
+    const page = await service.list({ limit, offset });
+    const pageItems = Array.isArray(page?.items) ? page.items : [];
+    items.push(...pageItems);
+    const total = typeof page?.total === "number" ? page.total : items.length;
+    if (pageItems.length < limit || items.length >= total) break;
+  }
+  return items;
+}
+async function reconcileDistillSchedules(service, config, hubId) {
+  const desired = desiredDistillSchedules(config, hubId);
+  const prefix = `${DISTILL_TITLE_PREFIX}${hubId}:`;
+  const existing = (await listTasks(service)).filter((task) => typeof task.title === "string" && task.title.startsWith(prefix));
+  const byTitle = new Map(existing.map((task) => [task.title, task]));
+  const matched = /* @__PURE__ */ new Set();
+  const entries = [];
+  for (const entry of desired) {
+    const base = {
+      key: entry.key,
+      title: entry.title,
+      workspaceId: entry.workspaceId,
+      workspaceKind: entry.workspaceKind,
+      root: entry.root,
+      time: entry.time,
+      target: entry.target.kind,
+      ...entry.target.kind === "session" ? { sessionId: entry.target.sessionId } : {}
+    };
+    const task = byTitle.get(entry.title);
+    try {
+      if (task === void 0) {
+        const created = await service.create({
+          title: entry.title,
+          prompt: entry.prompt,
+          timing: { kind: "daily", daily: { time: entry.time, time_zone: entry.timeZone } },
+          target: entry.target
+        });
+        entries.push({ ...base, taskId: created.id, action: "created" });
+      } else {
+        matched.add(entry.title);
+        if (taskMatches(entry, task)) {
+          entries.push({ ...base, taskId: task.id, action: "kept" });
+        } else {
+          await service.edit({
+            id: task.id,
+            action: "update",
+            patch: {
+              timing: { kind: "daily", daily: { time: entry.time, time_zone: entry.timeZone } },
+              target: entry.target,
+              prompt: entry.prompt,
+              active: true
+            }
+          });
+          entries.push({ ...base, taskId: task.id, action: "updated" });
+        }
+      }
+    } catch (error) {
+      entries.push({ ...base, action: "error", error: error.message });
+    }
+  }
+  let removed = 0;
+  for (const task of existing) {
+    if (matched.has(task.title)) continue;
+    if (desired.some((entry) => entry.title === task.title)) continue;
+    try {
+      await service.edit({ id: task.id, action: "delete" });
+      removed += 1;
+      entries.push({
+        key: task.title.slice(prefix.length),
+        title: task.title,
+        workspaceId: task.title.slice(prefix.length),
+        workspaceKind: "core",
+        root: "",
+        time: task.time ?? "",
+        target: "new",
+        taskId: task.id,
+        action: "removed"
+      });
+    } catch (error) {
+      entries.push({
+        key: task.title.slice(prefix.length),
+        title: task.title,
+        workspaceId: task.title.slice(prefix.length),
+        workspaceKind: "core",
+        root: "",
+        time: task.time ?? "",
+        target: "new",
+        taskId: task.id,
+        action: "error",
+        error: error.message
+      });
+    }
+  }
+  return { entries, removed };
 }
 
 // src/tools.ts
@@ -15623,14 +15894,15 @@ var MemoryRuntime = class {
   maintenanceTimer = null;
   maintenanceRunning = false;
   maintenanceLastDate = null;
+  distillReport = null;
   ready;
   resolveReady = null;
   constructor(ctx, config) {
     this.ctx = ctx;
     const parsed = pluginConfigSchema.safeParse(config ?? {});
     this.config = parsed.success ? parsed.data : {};
-    this.ready = new Promise((resolve3) => {
-      this.resolveReady = resolve3;
+    this.ready = new Promise((resolve4) => {
+      this.resolveReady = resolve4;
     });
   }
   register() {
@@ -15643,6 +15915,7 @@ var MemoryRuntime = class {
       }
     }
     this.registerSkill();
+    this.watchScheduleService();
     this.listen("agent/created", this.onAgentCreated);
     this.listen("agent/pre-step", this.onPreStep);
     this.listen("agent/turn-stopping", this.onTurnStopping);
@@ -15679,6 +15952,19 @@ var MemoryRuntime = class {
       this.ctx.logger.warn(`dsh-memory-hub: skills injection failed: ${error.message}`);
     }
   }
+  /**
+   * 插件可能先于 schedule 服务挂载；等它就绪后再对齐一次，避免启动顺序导致
+   * 定时蒸馏只留下 "service unavailable" 诊断。
+   */
+  watchScheduleService() {
+    try {
+      this.ctx.inject(["schedule"], () => {
+        if (!this.disposed) void this.reconcileDistill();
+      });
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: schedule injection failed: ${error.message}`);
+    }
+  }
   listen(name2, listener) {
     try {
       this.disposers.push(this.ctx.on(name2, listener));
@@ -15698,7 +15984,7 @@ var MemoryRuntime = class {
       this.fallback = await this.openServicePack(configHub, globalConfig, this.standaloneWorkspaces(globalConfig), null, []);
       for (const core of globalConfig.core_workspaces) {
         if (core.root === void 0) continue;
-        const root = resolve2(expandHome(core.root));
+        const root = resolve3(expandHome(core.root));
         const sharesConfigRoot = normalizeForCompare2(root) === normalizeForCompare2(configHub.root);
         if (sharesConfigRoot) {
           this.ctx.logger.warn(
@@ -15729,6 +16015,7 @@ var MemoryRuntime = class {
       this.warmClientModule();
       this.startWatcher();
       this.startMaintenanceTimer();
+      await this.reconcileDistill();
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0);
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`
@@ -15788,6 +16075,59 @@ var MemoryRuntime = class {
       }
     });
     tick();
+  }
+  /** Host `schedule` 服务（可选）：缺失时定时蒸馏只记录诊断，不影响插件其他功能。 */
+  scheduleService() {
+    try {
+      const service = this.ctx.get("schedule");
+      if (service === void 0 || service === null) return null;
+      if (typeof service.list !== "function" || typeof service.create !== "function" || typeof service.edit !== "function") {
+        return null;
+      }
+      return service;
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * 按 config.yaml 的每个工作区 `distill` 设置对齐 Host 定时任务：
+   * 到点新建会话（cwd = 工作区 root）或投递到指定会话，由会话执行蒸馏提示词。
+   */
+  async reconcileDistill() {
+    if (this.disposed || this.configHub === null) return;
+    const service = this.scheduleService();
+    if (service === null) {
+      this.distillReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: [],
+        removed: 0,
+        error: "schedule service unavailable; distill schedules were not registered"
+      };
+      return;
+    }
+    try {
+      const report = await reconcileDistillSchedules(service, this.configHub.config, this.configHub.config.hub.id);
+      this.distillReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: report.entries,
+        removed: report.removed,
+        error: null
+      };
+      const changed = report.entries.filter((entry) => entry.action !== "kept").length;
+      if (changed > 0) {
+        this.ctx.logger.info(
+          `dsh-memory-hub: distill schedules reconciled (${changed} change(s), ${report.removed} removed)`
+        );
+      }
+    } catch (error) {
+      this.distillReport = {
+        at: (/* @__PURE__ */ new Date()).toISOString(),
+        entries: [],
+        removed: 0,
+        error: error.message
+      };
+      this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${error.message}`);
+    }
   }
   async runScheduledMaintenance() {
     if (this.disposed || this.maintenanceRunning || this.configHub === null) return;
@@ -15969,7 +16309,7 @@ var MemoryRuntime = class {
     const desiredRoot = /* @__PURE__ */ new Map();
     for (const core of globalConfig.core_workspaces) {
       if (core.root === void 0) continue;
-      desiredRoot.set(core.id, normalizeForCompare2(resolve2(expandHome(core.root))));
+      desiredRoot.set(core.id, normalizeForCompare2(resolve3(expandHome(core.root))));
     }
     const removedIds = /* @__PURE__ */ new Set();
     for (const [id, pack] of this.cores) {
@@ -15989,7 +16329,7 @@ var MemoryRuntime = class {
     }
     for (const core of globalConfig.core_workspaces) {
       if (core.root === void 0) continue;
-      const root = resolve2(expandHome(core.root));
+      const root = resolve3(expandHome(core.root));
       const key = normalizeForCompare2(root);
       const exists = [...this.cores.values()].some((pack2) => normalizeForCompare2(pack2.hub.root) === key);
       if (exists) continue;
@@ -16022,6 +16362,7 @@ var MemoryRuntime = class {
       this.fallback.service.updateWorkspaces(this.standaloneWorkspaces(globalConfig));
     }
     this.startWatcher();
+    await this.reconcileDistill();
   }
   standaloneWorkspaces(config) {
     return config.workspaces.filter((workspace) => !workspace.core_id);
@@ -16262,6 +16603,7 @@ var MemoryRuntime = class {
           };
         }
         payload.client = this.clientInfo();
+        payload.distill = this.distillReport;
         sendJson(response, 200, payload, method);
         return;
       }
@@ -16297,7 +16639,7 @@ var MemoryRuntime = class {
         if (method === "GET" || method === "HEAD") {
           try {
             if (this.fallback === null) throw new Error("not initialized");
-            sendJson(response, 200, this.fallback.service.config(), method);
+            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport }, method);
           } catch (error) {
             sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
           }
@@ -16308,7 +16650,8 @@ var MemoryRuntime = class {
             if (this.fallback === null) throw new Error("not initialized");
             const body = await readJsonBody(request);
             const payload = await this.fallback.service.updateConfig(body);
-            sendJson(response, 200, payload, method);
+            await this.reconcileDistill();
+            sendJson(response, 200, { ...payload, distill: this.distillReport }, method);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             sendJson(response, 400, { error: "invalid-config", message }, method);
@@ -16602,7 +16945,7 @@ function sendJson(response, status, body, method) {
   response.end(method === "HEAD" ? void 0 : text);
 }
 function readJsonBody(request) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const chunks = [];
     const readable = request;
     readable.on("data", (chunk) => {
@@ -16612,7 +16955,7 @@ function readJsonBody(request) {
     readable.on("end", () => {
       try {
         const text = Buffer.concat(chunks).toString("utf8");
-        resolve3(text === "" ? {} : JSON.parse(text));
+        resolve4(text === "" ? {} : JSON.parse(text));
       } catch (error) {
         reject(error instanceof Error ? error : new Error(String(error)));
       }

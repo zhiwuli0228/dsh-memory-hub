@@ -8,6 +8,7 @@ import { Ledger } from './ledger.js'
 import { MemoryError } from './errors.js'
 import { MemoryService, PLUGIN_VERSION, type ParentPack } from './service.js'
 import { localDateKey, maintenanceDue } from './maintenance-schedule.js'
+import { reconcileDistillSchedules, type DistillReconcileReport, type DistillScheduleService } from './distill.js'
 import { createTools, type MaintenanceToolArgs, type ToolHost } from './tools.js'
 import { registerMemorySkill } from './skill.js'
 import type { MemoryConfig, WorkspaceConfig } from './config.js'
@@ -67,6 +68,7 @@ export class MemoryRuntime implements ToolHost {
   private maintenanceTimer: NodeJS.Timeout | null = null
   private maintenanceRunning = false
   private maintenanceLastDate: string | null = null
+  private distillReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
   private readonly ready: Promise<void>
   private resolveReady: (() => void) | null = null
 
@@ -90,6 +92,7 @@ export class MemoryRuntime implements ToolHost {
     }
 
     this.registerSkill()
+    this.watchScheduleService()
     this.listen('agent/created', this.onAgentCreated)
     this.listen('agent/pre-step', this.onPreStep)
     this.listen('agent/turn-stopping', this.onTurnStopping)
@@ -126,6 +129,20 @@ export class MemoryRuntime implements ToolHost {
       })
     } catch (error) {
       this.ctx.logger.warn(`dsh-memory-hub: skills injection failed: ${(error as Error).message}`)
+    }
+  }
+
+  /**
+   * 插件可能先于 schedule 服务挂载；等它就绪后再对齐一次，避免启动顺序导致
+   * 定时蒸馏只留下 "service unavailable" 诊断。
+   */
+  private watchScheduleService(): void {
+    try {
+      this.ctx.inject(['schedule'], () => {
+        if (!this.disposed) void this.reconcileDistill()
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: schedule injection failed: ${(error as Error).message}`)
     }
   }
 
@@ -192,6 +209,7 @@ export class MemoryRuntime implements ToolHost {
       this.warmClientModule()
       this.startWatcher()
       this.startMaintenanceTimer()
+      await this.reconcileDistill()
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0)
       this.ctx.logger.info(
         `dsh-memory-hub ${PLUGIN_VERSION} ready with ${this.cores.size} core hub(s) and fallback (${total} entries)`,
@@ -256,6 +274,65 @@ export class MemoryRuntime implements ToolHost {
       }
     })
     tick()
+  }
+
+  /** Host `schedule` 服务（可选）：缺失时定时蒸馏只记录诊断，不影响插件其他功能。 */
+  private scheduleService(): DistillScheduleService | null {
+    try {
+      const service = this.ctx.get('schedule') as Partial<DistillScheduleService> | undefined
+      if (service === undefined || service === null) return null
+      if (
+        typeof service.list !== 'function' ||
+        typeof service.create !== 'function' ||
+        typeof service.edit !== 'function'
+      ) {
+        return null
+      }
+      return service as DistillScheduleService
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 按 config.yaml 的每个工作区 `distill` 设置对齐 Host 定时任务：
+   * 到点新建会话（cwd = 工作区 root）或投递到指定会话，由会话执行蒸馏提示词。
+   */
+  private async reconcileDistill(): Promise<void> {
+    if (this.disposed || this.configHub === null) return
+    const service = this.scheduleService()
+    if (service === null) {
+      this.distillReport = {
+        at: new Date().toISOString(),
+        entries: [],
+        removed: 0,
+        error: 'schedule service unavailable; distill schedules were not registered',
+      }
+      return
+    }
+    try {
+      const report = await reconcileDistillSchedules(service, this.configHub.config, this.configHub.config.hub.id)
+      this.distillReport = {
+        at: new Date().toISOString(),
+        entries: report.entries,
+        removed: report.removed,
+        error: null,
+      }
+      const changed = report.entries.filter((entry) => entry.action !== 'kept').length
+      if (changed > 0) {
+        this.ctx.logger.info(
+          `dsh-memory-hub: distill schedules reconciled (${changed} change(s), ${report.removed} removed)`,
+        )
+      }
+    } catch (error) {
+      this.distillReport = {
+        at: new Date().toISOString(),
+        entries: [],
+        removed: 0,
+        error: (error as Error).message,
+      }
+      this.ctx.logger.warn(`dsh-memory-hub: distill schedule reconciliation failed: ${(error as Error).message}`)
+    }
   }
 
   private async runScheduledMaintenance(): Promise<void> {
@@ -529,6 +606,9 @@ export class MemoryRuntime implements ToolHost {
 
     // 4) 新 root 的 watcher 句柄（已有 root 跳过）。
     this.startWatcher()
+
+    // 5) 工作区蒸馏配置可能刚变化：对齐 Host 定时任务。
+    await this.reconcileDistill()
   }
 
   private standaloneWorkspaces(config: MemoryConfig): WorkspaceConfig[] {
@@ -795,6 +875,7 @@ export class MemoryRuntime implements ToolHost {
           }
         }
         payload.client = this.clientInfo()
+        payload.distill = this.distillReport
         sendJson(response, 200, payload, method)
         return
       }
@@ -830,7 +911,7 @@ export class MemoryRuntime implements ToolHost {
         if (method === 'GET' || method === 'HEAD') {
           try {
             if (this.fallback === null) throw new Error('not initialized')
-            sendJson(response, 200, this.fallback.service.config(), method)
+            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport }, method)
           } catch (error) {
             sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
           }
@@ -841,7 +922,8 @@ export class MemoryRuntime implements ToolHost {
             if (this.fallback === null) throw new Error('not initialized')
             const body = await readJsonBody(request)
             const payload = await this.fallback.service.updateConfig(body as { core_workspaces?: unknown; workspaces?: unknown })
-            sendJson(response, 200, payload, method)
+            await this.reconcileDistill()
+            sendJson(response, 200, { ...payload, distill: this.distillReport }, method)
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             sendJson(response, 400, { error: 'invalid-config', message }, method)

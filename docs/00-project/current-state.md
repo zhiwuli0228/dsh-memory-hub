@@ -4,9 +4,9 @@
 
 ## 当前阶段
 
-V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全选后一次批准或拒绝多条候选；端点接受 `ids[]`（单次最多 50 条）并返回逐条结果，部分失败不影响其他条目。V0.3.0 的单条审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.4.0` 与 GitHub Release `v0.4.0` 已发布（run `42434724294`，publishTimestamp `1794072916`）。
+V0.5.0 已实现（待发布）：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。
 
-当前工作树为 **V0.4.0（已发布）**：在 V0.3.0 的面板审核之上加入批量操作。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.5.0（待发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
 ## 已实现
 
@@ -29,6 +29,12 @@ V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全�
 - [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
 - [x] 面板批量审核（V0.4.0）：勾选/全选后批量批准或拒绝；端点 `POST /api/pending` 接受 `ids[]`（最多 50 条），返回逐条 `results` 与 `approved/failed`，部分失败不阻塞其他条目
 - [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
+- [x] 工作区定时蒸馏（V0.5.0）：`core_workspaces[]` / `workspaces[]` 可选 `distill { enabled, time, target, session_id, agent_preset, max_proposals }`；面板「配置」页逐工作区配置
+- [x] 定时蒸馏由 Host `schedule` 服务执行：`target: new` 每次新建会话（`cwd` = 工作区 root），`target: session` 投递到指定会话；任务标题 `memory-hub:distill:<hub-id>:<kind>:<id>`
+- [x] 幂等对齐：插件启动、配置热更新、`schedule` 延迟挂载时创建/更新/删除任务；单条失败回填诊断，不影响其他工作区
+- [x] 蒸馏提示词只读 L1、`memory_propose` 到 `project:<父核心>`（顶端用 `memory_consolidate` 到 global）、`memory_close_task`；禁止 `memory_commit`
+- [x] 定时蒸馏配置校验：启用必须有 root；`target: session` 必须有 `session_id`；`max_proposals` 1..20
+- [x] 设计决策：[ADR-0007](../01-architecture/decisions/ADR-0007-scheduled-distillation.md)；操作与排障：[distillation-schedule](../06-operations/distillation-schedule.md)
 - [x] 宿主兼容冒烟（V0.4.0）：Web 模式 DSH `0.2.2-rc.1` 安装 0.4.0 后启动通过，`/api/overview` 200、`clientModules` 广告 true、批量审核端点返回 403/409 预期；`engines.dsh` 门禁因宿主用 `includePrerelease` 校验而放行（见 [COMPATIBILITY](../COMPATIBILITY.md)）
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
@@ -66,7 +72,7 @@ V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全�
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板除「待审批」人工审核外只读；配置与审核走回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 71 个 vitest 测试（10 个文件）
+- [x] 77 个 vitest 测试（11 个文件）
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
 - [x] npm `0.1.5` 发布后已校验 `gitHead` 与 provenance

@@ -102,6 +102,12 @@ workspaces:
     domains: [backend]
     admin: true          # 允许运行汇总
     enabled: true
+    distill:             # 可选：定时蒸馏（也可在面板「配置」页设置）
+      enabled: true
+      time: '04:00'      # 本地时间 HH:mm
+      target: new        # new = 每次新建会话（cwd = root）；session = 投递到指定会话
+      # session_id: session-xxxx
+      max_proposals: 5
 
 policy:
   preflight:
@@ -160,6 +166,18 @@ policy:
 维护任务**永不**调用 `memory_commit`、不删除、不改写正文；同一指纹已有 pending 时跳过，避免每晚重复。也可以随时手动调用 `memory_maintenance`，用 `apply: "report"` 只看报告。
 
 多 core 的完整顺序、单 core 失败语义、状态文件和配置含义见 [docs/01-architecture/maintenance.md](docs/01-architecture/maintenance.md)；每日检查与排障见 [docs/06-operations/maintenance.md](docs/06-operations/maintenance.md)。
+
+### 定时蒸馏
+
+每个核心/子工作区都可以配置 `distill`（面板「配置」页有同一组控件）：到点后由 **DSH `schedule` 服务**启动一次蒸馏，因此会出现在官方「自动化任务」栏。
+
+- `target: new`（默认）：每次投递新建一个会话，`cwd` 固定为工作区 `root`，保证记忆路由到正确工作区；
+- `target: session` + `session_id`：投递到已有会话（会话必须存在，且不能是委派子会话）；
+- 蒸馏提示词只做三件事：读本工作区 L1 → `memory_propose` 到上级核心（`scope: "project:<父核心>"`；无上级时 `memory_consolidate` 到 global）→ `memory_close_task`；
+- **永不** `memory_commit`：候选仍需在面板「待审批」人工批准；
+- 插件启动和 `config.yaml` 热更新时会对比 Host 任务并增/改/删（标题前缀 `memory-hub:distill:`），单条失败只回填诊断，不影响其他工作区。
+
+配置字段、失败排查与卸载行为见 [docs/06-operations/distillation-schedule.md](docs/06-operations/distillation-schedule.md)。
 
 ### 系统级记忆 Skill
 
