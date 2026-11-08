@@ -1,6 +1,6 @@
 # 宿主兼容性与验证记录
 
-日期：2026-11-01｜插件版本：`0.1.5`（已发布 npm / GitHub Release）｜状态：Desktop 宿主冒烟通过；`min_score` / `local_boost` / 面板计数 / 系统级 `memory-hub` skill / 夜间维护工具与定时器已热加载验证，视觉待人工确认。
+日期：2026-11-08｜插件版本：`0.4.0`（Web 模式在 DSH `0.2.2-rc.1` 冒烟通过）｜Desktop 冒烟基于 `0.2.1-rc.5`；`min_score` / `local_boost` / 面板计数 / 系统级 `memory-hub` skill / 夜间维护工具与定时器已热加载验证，视觉与交互点击待人工确认。
 
 ## 版本约束（`engines.dsh`）
 
@@ -9,11 +9,27 @@
 | 宿主版本 | 默认 semver（无 includePrerelease） | DSH 实际校验 | 结论 |
 | --- | --- | --- | --- |
 | `0.2.1-rc.5` | 通过 | 通过 | 已实测（本文件所有 V 项） |
-| `0.2.2-rc.1` | 不通过（tuple 规则） | 通过 | 可安装/激活；运行时未实测 |
+| `0.2.2-rc.1` | 不通过（tuple 规则） | 通过 | Web 模式已实测（见下节）；Desktop 未实测 |
 | `0.2.2` | 通过 | 通过 | 理论通过，未实测 |
 | `0.3.0-rc.1` | 不通过 | 通过 | 理论通过，未实测 |
 
 跨版本冒烟关注点：`clientModules` 内部缓存 shim（已做字段守卫，失败自动回退到“重启一次”）、回环 `webServer` 路由、`skills.register`、`tools/pre-execute` 的 `ask` 审批、`agent/pre-step` 预检。
+
+## Web 模式冒烟（`0.2.2-rc.1`，2026-11-08）
+
+| 项 | 操作 | 结果 |
+| --- | --- | --- |
+| CLI 升级 | `npm i -g @deepseek-ai/dsh@latest` | `dsh --version` → `0.2.2-rc.1` |
+| 干净 profile | `dsh --profile webcheck --from-default-profile web` | 创建成功；`--dump-config` 无错误 |
+| npm 安装 | `dsh plugin --profile webcheck add dsh-memory-hub@0.4.0` | pnpm 安装成功，无 `incompatible-version` |
+| bundle 挂载 | profile `bundles` 加入 `dsh-memory-hub` | `--dump-config` 出现 `# == dsh-memory-hub` |
+| 启动 | `dsh --profile webcheck --port 0 --no-open` | 启动成功，无插件告警 |
+| 面板 API | `GET /dsh-memory-hub/api/overview` | 200；`version: 0.4.0`、`initialized: true` |
+| 客户端模块 | `clientModules` 广告 + `GET /plugins/??dsh-memory-hub/client.js` | `advertised: true`，HTTP 200（约 69 KB） |
+| 审核端点 | `POST /api/pending`（缺头 / 带头） | 403 `review-header-required` / 409 逐条 `NOT_FOUND` 结果，批量协议生效 |
+| 真实 `web` profile | 安装 0.4.0 后启动并探测 | 同样 200 且 `advertised: true`；`readOnly: true`（Desktop 持有写锁，符合设计） |
+
+已知升级副作用：该机 `web` profile 里的 `dshmarket@1.40.0` 与 `dsh-dream-skin@9.10.0` 在 0.2.2-rc.1 被判 `incompatible` 并跳过，需要各自更新；`memory-hub` 不受影响。npm 全局安装时 `node-pty` / `koffi` / `dsh-subprocess-local` 的安装脚本被 `allow-scripts` 策略拦截，Web 服务与插件运行正常，终端类功能可能受影响。
 
 ## 环境
 
@@ -22,7 +38,7 @@
 | OS | Windows（本机 DSH Desktop） |
 | DSH Desktop Runtime | `0.2.1-rc.5`（`@deepseek-ai/dsh-*` 包） |
 | Desktop Runtime Node | `24.21.0` |
-| PATH 上的 `dsh` CLI | `0.1.5-rc.1`（与 Desktop Runtime 不是同一版本） |
+| PATH 上的 `dsh` CLI | `0.2.2-rc.1`（2026-11-08 从 `0.1.5-rc.1` 升级；与 Desktop Runtime 独立） |
 | CLI Node | `24.22.1` |
 | Profile | `desktop`（由 Electron 管理，`C:\Users\18811\.dsh\profiles\desktop`） |
 | Hub | `~/.dsh/memory-hub` |

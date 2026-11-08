@@ -29,6 +29,7 @@ V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全�
 - [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
 - [x] 面板批量审核（V0.4.0）：勾选/全选后批量批准或拒绝；端点 `POST /api/pending` 接受 `ids[]`（最多 50 条），返回逐条 `results` 与 `approved/failed`，部分失败不阻塞其他条目
 - [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
+- [x] 宿主兼容冒烟（V0.4.0）：Web 模式 DSH `0.2.2-rc.1` 安装 0.4.0 后启动通过，`/api/overview` 200、`clientModules` 广告 true、批量审核端点返回 403/409 预期；`engines.dsh` 门禁因宿主用 `includePrerelease` 校验而放行（见 [COMPATIBILITY](../COMPATIBILITY.md)）
 - [x] 任务关闭评估（`memory_close_task`）：`proposed` / `no_new_knowledge` / `needs_evidence` / `deferred`
 - [x] 手动汇总（`memory_consolidate`）：项目知识晋升为 global 候选
 - [x] 夜间维护（`memory_maintenance`）：确定性巡检，报告写 `<hub>/reports/<timestamp>.md` + `latest.md`
@@ -99,7 +100,7 @@ V0.4.0 已发布：**面板批量审核**——「待审批」支持勾选/全�
 - jsDelivr 的 `@main` 分支缓存可能长时间滞后：本次 `site/index.json` 更新后，`@main` 仍返回 0.2.0（多次 purge 未刷新），而 commit-pinned URL（`@8a2dabe`）已返回 0.3.0；市场索引最长约 12h 后才会自动刷新。
 - 门禁的宿主级拒绝未在真实会话中强制触发，由单元测试覆盖。
 - PTC `run_code` 嵌套调用未验证。
-- 外部 CLI / 多进程共享 Hub 未验证；每根一把锁、按根降级、跨机锁回收由单元测试覆盖。
+- 外部 CLI / 多进程共享 Hub：Web 0.2.2-rc.1 实测第二个进程按写锁降级为只读（`readOnlyReason: lock`），符合设计；跨机锁回收与多进程写路径仍由单元测试覆盖。
 - 长会话上下文累积效果未做规模测量。
 - 5k 条索引性能未压测。
 - Web 面板完整视觉效果尚未人工确认。
