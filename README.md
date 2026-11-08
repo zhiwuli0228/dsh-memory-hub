@@ -6,7 +6,7 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**当前 npm `0.6.0`（V0.7 迭代中）**：在文件原生 Hub 之上，已具备时效字段（`valid_from` / `expires_at` / `last_verified`）、近重复检测与 `merge` 合并、回顾式萃取（`memory_reflect`，含原文 `search` 模式）、引用驱动生命周期（aging 参考最近引用）、写入风险标记、派生 SQLite 索引（零依赖，按需建库），以及面板批量审批。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.7.0 已发布**：在文件原生 Hub 之上，加入时效字段（`valid_from` / `expires_at` / `last_verified`）、近重复检测与 `merge` 合并、回顾式萃取（`memory_reflect`，含原文 `search` 模式）、引用驱动生命周期（aging 参考最近引用）、写入风险标记、派生 SQLite 索引（零依赖，按需建库）、面板批量审批，以及**每个 Hub 自动生成的目录说明书 README**（解释每个文件夹、澄清 `assets` 含义）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
 

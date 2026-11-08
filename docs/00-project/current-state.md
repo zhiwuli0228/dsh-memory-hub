@@ -4,13 +4,15 @@
 
 ## 当前阶段
 
-V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。投递到已有会话时，面板从 Host `sessionController` 读取本机会话列表做候选（可下拉选择，也可手填），不再要求用户自己去找会话 ID。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。npm 包 `dsh-memory-hub@0.6.0`（`latest`）与 GitHub Release `v0.6.0` 已发布（run `42452510255`，publishTimestamp `1794117317`）。
+V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0`（`latest`）与 GitHub Release `v0.7.0` 已发布。
+
+V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。投递到已有会话时，面板从 Host `sessionController` 读取本机会话列表做候选（可下拉选择，也可手填），不再要求用户自己去找会话 ID。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。
 
 在真实 Host（0.2.2-rc.1，隔离 profile）上验证时修掉两个只有实机才暴露的问题：Host 的 `daily.time` 必须是 `HH:mm:ss`（v0.5.1 内部把 `HH:mm` 规范化后注册）；`session-controller` 可能晚于 `schedule` 就绪，首次注册会被拒（v0.5.2 对可自愈错误做 5 次退避重试，并在 `config()` 中返回 `distill`，面板保存后不会显示成未配置）。v0.5.3 把蒸馏设置从“每个工作区一张卡 + 换行内联表单”改成整宽对齐表（工作区/启用/时间/目标/会话/上限/状态），带逐行状态与底部汇总、错误列表，窄屏自动堆叠。v0.6.0 新增只读的 `/dsh-memory-hub/api/sessions`：只返回 id、cwd、标题、更新时间与空会话标记，排除委派会话，服务缺失或超时则返回 `unavailable` 让面板退回手填。
 
-当前工作树为 **V0.6.0（已发布）**：在 V0.4.0 之上加入定时蒸馏。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.7.0（已发布）**：在 V0.6.0 之上加入时效字段、去重合并、回顾式萃取、引用生命周期、写入风险标记、派生 SQLite 索引，以及每个 Hub 的自动目录说明书。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
 
-V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）**均已完成实现与测试，尚未发布**：时效字段（`valid_from` / `expires_at` / `last_verified`、派生 `fresh/aging/stale/scheduled`、确定性降权、预检时效门、面板标签）；去重合并（只读 `memory_duplicates`、`operation: "merge"` + `merged_ids`、`superseded_by` 反向指针、`knowledge.merged` 账本、面板 diff）；回顾式萃取（`memory_reflect` digest、按工作区定时回顾、`records/reflect-state.json` 去重水位）。`format` 仍为 1，老文件零迁移。
+V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）**均已完成实现、测试并随 `v0.7.0` 发布**：时效字段（`valid_from` / `expires_at` / `last_verified`、派生 `fresh/aging/stale/scheduled`、确定性降权、预检时效门、面板标签）；去重合并（只读 `memory_duplicates`、`operation: "merge"` + `merged_ids`、`superseded_by` 反向指针、`knowledge.merged` 账本、面板 diff）；回顾式萃取（`memory_reflect` digest、按工作区定时回顾、`records/reflect-state.json` 去重水位）。`format` 仍为 1，老文件零迁移。
 
 ## 已实现
 
@@ -34,8 +36,8 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 候选创建（`memory_propose`）与提交审批（`memory_commit`）
 - [x] 面板人工审核（V0.3.0）：「待审批」可直接批准/拒绝；批准走 `service.approveProposal`（账本 `approvalRef: panel:human`），拒绝归档为 rejected 并记 `proposal.rejected`；`policy.panel.review: false` 可关闭并恢复只读
 - [x] 面板批量审核（V0.4.0）：勾选/全选后批量批准或拒绝；端点 `POST /api/pending` 接受 `ids[]`（最多 50 条），返回逐条 `results` 与 `approved/failed`，部分失败不阻塞其他条目
-- [x] 面板批量萃取视图（V0.7 WIP）：待审批按 `tags:batch:<id>` 聚合筛选（只读，不新增写端点）；列表只返回最近 200 条（`PANEL_PENDING_LIMIT`），`pendingTotal` / `pendingBatches` 仍为全量计数，顶部提示“只显示最近 N 条，共 M 条”
-- [x] 候选积压启动保护（V0.7 WIP）：`pending/` 只预解析最新 `PENDING_EAGER_LIMIT=200` 条，其余按 id 惰性解析；3k 候选启动 3.56s → 0.33s、10k 0.35s（`scripts/bench-pending.ts`）；`counts().pending` 与序号仍完整
+- [x] 面板批量萃取视图（V0.7.0）：待审批按 `tags:batch:<id>` 聚合筛选（只读，不新增写端点）；列表只返回最近 200 条（`PANEL_PENDING_LIMIT`），`pendingTotal` / `pendingBatches` 仍为全量计数，顶部提示“只显示最近 N 条，共 M 条”
+- [x] 候选积压启动保护（V0.7.0）：`pending/` 只预解析最新 `PENDING_EAGER_LIMIT=200` 条，其余按 id 惰性解析；3k 候选启动 3.56s → 0.33s、10k 0.35s（`scripts/bench-pending.ts`）；`counts().pending` 与序号仍完整
 - [x] 审核端点防护：只接受回环地址、`x-dmh-review: 1` 头、同源 Origin；只作用于已有 `pending/` 候选，不提供改正文/删除知识端点
 - [x] 工作区定时蒸馏（V0.5.0）：`core_workspaces[]` / `workspaces[]` 可选 `distill { enabled, time, target, session_id, agent_preset, max_proposals }`；面板「配置」页逐工作区配置
 - [x] 定时蒸馏由 Host `schedule` 服务执行：`target: new` 每次新建会话（`cwd` = 工作区 root），`target: session` 投递到指定会话；任务标题 `memory-hub:distill:<hub-id>:<kind>:<id>`
@@ -84,27 +86,27 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 面板知识列表对 `project:<core-id>` 显示「核心共享」标签
 - [x] Web 面板六个标签页：总览 / 配置 / 知识 / 待审批 / 活动与策略 / 能力
 - [x] 面板除「待审批」人工审核外只读；配置与审核走回环 HTTP 路由（`/dsh-memory-hub/api/*`）
-- [x] 时效字段（V0.7 WIP，按 [proposal-temporal-fields](../03-openspec/proposal-temporal-fields.md)）：`valid_from` / `expires_at` / `last_verified` 可选、带时区校验、`valid_from ≤ expires_at` 与「`last_verified` 不得在 5 分钟后」两道校验；派生状态 `fresh/aging/stale/scheduled` 只读不落盘
+- [x] 时效字段（V0.7.0，按 [proposal-temporal-fields](../03-openspec/proposal-temporal-fields.md)）：`valid_from` / `expires_at` / `last_verified` 可选、带时区校验、`valid_from ≤ expires_at` 与「`last_verified` 不得在 5 分钟后」两道校验；派生状态 `fresh/aging/stale/scheduled` 只读不落盘
 - [x] 时效降权：`policy.temporal.aging_days`（默认 90）、`aging_decay` 0.85、`stale_decay` 0.6、`scheduled_decay` 0.3；老文件用 `updated_at` 回退，`aging_decay: 1.0` 可完全关闭
 - [x] 预检时效门：`scheduled` 不注入上下文（`memory_search` 仍可查到并带 `temporal`），`stale` / `aging` 注入并标「已过期，需复核」/「长期未确认」；`memory_get` 元数据带 `temporal` 与 `temporalNote`
 - [x] 时效维护视图：报告 Summary 增加 `temporal` 计数，Issues 增加 `expired`（warn）与 `aging`（info，只报告不写候选）；面板知识行/详情/待审批卡显示时效标签与三个时间
-- [x] 去重与合并（V0.7 WIP，按 [proposal-dedupe-merge](../03-openspec/proposal-dedupe-merge.md)）：`src/duplicates.ts` 组合相似度（0.6 × 标题/摘要词元 Jaccard + 0.4 × 正文 3-gram，正文只取 4KB），只在同类型同作用域内比较；keeper 顺序 `version` → `updatedAt` → `sourceRefs` → `id`
+- [x] 去重与合并（V0.7.0，按 [proposal-dedupe-merge](../03-openspec/proposal-dedupe-merge.md)）：`src/duplicates.ts` 组合相似度（0.6 × 标题/摘要词元 Jaccard + 0.4 × 正文 3-gram，正文只取 4KB），只在同类型同作用域内比较；keeper 顺序 `version` → `updatedAt` → `sourceRefs` → `id`
 - [x] 只读工具 `memory_duplicates`（`scope?` / `threshold?` / `limit?`，阈值默认 `policy.dedupe.threshold` 0.72，返回 keeper/similarity/高置信标记）；维护报告的 `duplicate-near` 复用同一实现并展示 keeper
 - [x] `operation: "merge"` 提案：`merged_ids`（1..10，同类型同作用域、不含 target、不重复、未合并过）；提交 target +1 并合并正文与 `related`/`source_refs`，被合并项 `superseded` + `superseded_by`，各自写 `history/`，账本 `knowledge.merged`
 - [x] 面板 merge 卡片：显示被合并条目与 target 旧正文 → 合并稿的行级 diff（上限 200 行，超出提示截断），仍只读、批准走既有审核端点
 - [x] 设计决策：[ADR-0008](../01-architecture/decisions/ADR-0008-merge-operation.md)（独立 merge 操作）
-- [x] 回顾式萃取（V0.7 WIP，按 [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)）：`src/reflect.ts` 的 `SessionDigestSource` / `HostSessionDigestSource` / `NullSessionDigestSource`、最长前缀会话归属 `ownerWorkspaceOf`、digest 只保留用户消息 + 每轮助手最终文本 + 失败工具（`policy.reflect.max_chars` 默认 8000，头 60% + 尾 40% 截断）
+- [x] 回顾式萃取（V0.7.0，按 [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)）：`src/reflect.ts` 的 `SessionDigestSource` / `HostSessionDigestSource` / `NullSessionDigestSource`、最长前缀会话归属 `ownerWorkspaceOf`、digest 只保留用户消息 + 每轮助手最终文本 + 失败工具（`policy.reflect.max_chars` 默认 8000，头 60% + 尾 40% 截断）
 - [x] `memory_reflect`（`session_id?` / `limit?` / `dry_run?`）：只读本工作区名下已结束的主会话（排除委派会话与 root 外会话），返回 digest 与 `seqRange`；`min_messages` 不足 `too-short`，digest 未变 `already-reflected`；`dry_run` 不写水位与账本
 - [x] 回顾水位：`records/reflect-state.json`（`sessionId` / `workspaceId` / `reflectedAt` / `digestHash`，上限 200 条），账本追加 `reflect.read`；无宿主 `sessionQuery` 时返回 `available: false` 并跳过定时任务
 - [x] 按工作区定时回顾：`reflect:`（`enabled` 默认 false / `time` 04:30 / `target` / `max_candidates` / `lookback_days`）与 `policy.reflect.*`（`max_chars` / `max_sessions` / `min_messages`）；标题 `memory-hub:reflect:<hub>:core|workspace:<id>`，与蒸馏共用 `reconcileScheduleEntries`，启动/热更新/保存后对齐并沿用瞬时错误重试
 - [x] 面板「能力」页补充 `memory_duplicates` 与 `memory_reflect` 说明（中英双语）；操作文档 [reflection.md](../06-operations/reflection.md)
-- [x] 派生 SQLite 索引（V0.7 WIP，按 [proposal-derived-index](../03-openspec/proposal-derived-index.md)）：`storage.index: auto|memory|sqlite`（默认 `auto`，阈值 `sqlite_min_entries` 30k）、`index_candidate_limit`（默认 2000）、`records/index.sqlite`（contentless FTS5 倒排 + `terms` df + 文档元数据）、`entry_count + 知识目录 mtime` 指纹校验、损坏或缺少 `node:sqlite` 时回退内存并记诊断
+- [x] 派生 SQLite 索引（V0.7.0，按 [proposal-derived-index](../03-openspec/proposal-derived-index.md)）：`storage.index: auto|memory|sqlite`（默认 `auto`，阈值 `sqlite_min_entries` 30k）、`index_candidate_limit`（默认 2000）、`records/index.sqlite`（contentless FTS5 倒排 + `terms` df + 文档元数据）、`entry_count + 知识目录 mtime` 指纹校验、损坏或缺少 `node:sqlite` 时回退内存并记诊断
 - [x] 检索打分抽成 `SearchIndex` 与 `rankScored` / `bm25Term` / `passesFilters` / `searchSetup`：内存索引与 SQLite 索引共用同一份公式；命中数 ≤ 候选上限时两者逐位一致
 - [x] `/api/overview` 与 `memory_status` 暴露 `index.backend` / `index.rebuilt`；`store.closeIndex()` 释放句柄（Windows 文件锁）
-- [x] P0 原文取证（V0.7 WIP，按 [proposal-evidence-lifecycle-risk](../03-openspec/proposal-evidence-lifecycle-risk.md)）：`memory_reflect` 增加 `mode: "search"`，经宿主 `sessionQuery.searchEvents` 返回 `seq/type/time/snippet`；只读、不写水位与账本；缺省扫最近 3 个本工作区会话，`limit` 1..50
+- [x] P0 原文取证（V0.7.0，按 [proposal-evidence-lifecycle-risk](../03-openspec/proposal-evidence-lifecycle-risk.md)）：`memory_reflect` 增加 `mode: "search"`，经宿主 `sessionQuery.searchEvents` 返回 `seq/type/time/snippet`；只读、不写水位与账本；缺省扫最近 3 个本工作区会话，`limit` 1..50
 - [x] P0 引用生命周期：维护报告与 aging 参考最近一次 `memory_cite`（`knowledgeId → lastCitedAt`），`uncited` 区分「从未引用 / 最近引用 N 天前」，totals 增加 `cited`；`/api/overview` 知识行带 `lastCitedAt`；归档仍需人批准的 deprecate 候选
 - [x] P0 写入风险标记：`src/risk.ts` 扫描注入短语、凭据形态、零宽/方向控制符、角色伪造；`memory_propose` 返回 `risk`、账本记 `riskLevel/riskSignals`、面板候选卡片显示「需确认」；**只标记，不阻断、不改写**
-- [x] Hub 目录说明书（V0.7 WIP）：`Hub.open` 在可写 Hub 根目录自动生成 `README.md`（`src/hub-readme.ts`，标记 `hub-readme <version>`）；内含目录地图（每个文件夹/文件谁写、能否手改、删了会怎样）、九类知识表与 **`assets` = 外部资源索引（不是代码资产/构建产物）** 的澄清、作用域金字塔、唯一写入路径、工具速查、派生数据与常见误用；同版本不覆盖用户编辑，无标记的手写 README 不会被改写，只读 Hub 不写
+- [x] Hub 目录说明书（V0.7.0）：`Hub.open` 在可写 Hub 根目录自动生成 `README.md`（`src/hub-readme.ts`，标记 `hub-readme <version>`）；内含目录地图（每个文件夹/文件谁写、能否手改、删了会怎样）、九类知识表与 **`assets` = 外部资源索引（不是代码资产/构建产物）** 的澄清、作用域金字塔、唯一写入路径、工具速查、派生数据与常见误用；同版本不覆盖用户编辑，无标记的手写 README 不会被改写，只读 Hub 不写
 - [x] 初始化不再新建遗留 `index/` 空目录（老 Hub 里已有的仍可手动删除）
 - [x] 根 `README.md` 增加「5 分钟初始化工作区」：配置 Hub / 数据 Hub 的区别、最小 `core_workspaces[].root` + `workspaces[]` 配置、验证三件事、初始化后目录速览；修正示例里核心工作区缺 `root` 的问题
 - [x] `memory-hub` skill 增加「Hub 目录与初始化（先读目录说明书）」：目录表、`assets` 含义、最小配置、初始化后用 `memory_status` 验证；回顾式萃取补充 `mode: "search"` 原文取证
@@ -238,10 +240,10 @@ dsh-memory-hub/
 - [scale-plan.md](../01-architecture/scale-plan.md) — 多年业务积累的规模化预案：检索 / 入库 / 蒸馏三条成本线，按业务域分库、批量萃取流水线、分级审批与派生索引的分档路径。
 - [compatibility.md](../01-architecture/compatibility.md) — 兼容性契约：未知字段保留、`format` 版本闸门、作用域由小到大、索引可替换、批量靠 tag，以及合并撞 ID / 新类型 / 早期 global 三个迁移坑。
 - [batch-extraction.md](../07-templates/batch-extraction.md) — 批量萃取模板：`batch.yaml`、chunk 提示词骨架、进度表与收尾检查。
-- [proposal-derived-index.md](../03-openspec/proposal-derived-index.md) — 派生 SQLite 索引（**已实现**，V0.7 WIP）：contentless FTS5 取候选 + 现有 JS 精排、启动指纹校验、无 `node:sqlite` 时回退内存。
-- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，V0.7 WIP**）。
-- [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，V0.7 WIP**）。
-- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，V0.7 WIP**）。
+- [proposal-derived-index.md](../03-openspec/proposal-derived-index.md) — 派生 SQLite 索引（**已实现**，v0.7.0）：contentless FTS5 取候选 + 现有 JS 精排、启动指纹校验、无 `node:sqlite` 时回退内存。
+- [proposal-temporal-fields.md](../03-openspec/proposal-temporal-fields.md) — P0 提案：时效字段与过期降权（Accepted，aging 90 天；**已实现，v0.7.0**）。
+- [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，v0.7.0**）。
+- [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，v0.7.0**）。
 - [proposal-evidence-lifecycle-risk.md](../03-openspec/proposal-evidence-lifecycle-risk.md) — P0 三件套（**已实现**）：`memory_reflect` 原文取证、引用驱动生命周期、写入风险标记。
 
 ## 下一步推荐工作
