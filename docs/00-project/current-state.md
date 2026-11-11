@@ -245,6 +245,7 @@ dsh-memory-hub/
 - [proposal-dedupe-merge.md](../03-openspec/proposal-dedupe-merge.md) — P0 提案：近重复检测与 `merge` 提交（Accepted，独立 merge 操作；**已实现，v0.7.0**）。
 - [proposal-retrospective-extraction.md](../03-openspec/proposal-retrospective-extraction.md) — P0 提案：回顾式萃取（Accepted，定时任务 + 核心/子工作区各一条；**已实现，v0.7.0**）。
 - [proposal-evidence-lifecycle-risk.md](../03-openspec/proposal-evidence-lifecycle-risk.md) — P0 三件套（**已实现**）：`memory_reflect` 原文取证、引用驱动生命周期、写入风险标记。
+- [dsh-memory-hub-v0.7.md](../08-publish/dsh-memory-hub-v0.7.md) — 对外发表长文（v0.7.0）：能力全景、完整设计、11 条设计亮点、工程实测、同类系统对照、潜力与 v0.8–v1.0 路线。
 
 ## 下一步推荐工作
 
