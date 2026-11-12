@@ -94,14 +94,16 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/v1/scopes` | 可见作用域 + 我的角色 + 各 scope 的 `lastSeq` |
-| GET | `/v1/events?since=<seq>` | **SSE** 增量事件；断线用 `Last-Event-ID` 续传 |
-| GET | `/v1/knowledge/<id>` | 返回 Markdown + `ETag: W/"<version>"`（记录自带 scope） |
-| GET | `/v1/sync?since=<seq>` | 冷启动 / 落后太多的批量补拉 |
+| GET | `/v1/sync/snapshot?scope=` | 冷启动/游标过期：`{lastSeq, files:[{id,version,etag,hash}]}` |
+| GET | `/v1/sync/events?after=<seq>` | 批量补拉：`200 {events,next}`；`410` 表示游标过期 → 重拉 snapshot |
+| GET | `/v1/stream?after=<seq>` | **SSE**；`id:` 即 `seq`，15s 心跳注释行，断线用 `Last-Event-ID` 续传 |
+| GET | `/v1/knowledge/<id>` | Markdown + `ETag: W/"<version>"`（记录自带 scope） |
+| PUT | `/v1/knowledge/<id>` | 条件写：`If-Match: "<version>"`；失配 `412`（返回 base/ours/theirs）；`If-None-Match: *` 才允许创建 |
 | POST | `/v1/proposals` | 创建提案（带 `baseVersion` 与幂等键 `clientOpId`） |
 | POST | `/v1/approvals/<proposalId>` | reviewer 批准 / 拒绝 |
 | POST | `/v1/cites` | 引用计数（可离线批量重放） |
 
-事件（追加式 `records/events.jsonl`，`seq` 单调）：
+事件（追加式 `records/events.jsonl`，`seq` 单调且永不复用）：
 
 ```json
 {"seq":1024,"at":"2026-11-12T14:10:00Z","scope":"domain:backend",
@@ -109,21 +111,26 @@
  "actor":"user:alice","proposalId":"PRO-000107"}
 ```
 
+**`seq` 与 `version` 是两件事**：`seq` 是日志位置（单调、可重放、用于游标）；`version` 是单文件 CAS 版本（用于 `If-Match`）。混用会把"日志走到哪"误判成"文件被谁改过"。
+
 客户端行为：
 
-1. 启动 → `GET /v1/scopes` 取游标 → 落后则 `/v1/sync`，否则订阅 SSE。
-2. 收到事件 → 只更新对应作用域的缓存文件 + **增量**更新索引（不重建）。
-3. `seq` 出现空洞 → 停订、走 `/sync?since=`、补完再续订（宁可重复，不可漏）。
-4. 写 `domain/global` → `POST /v1/proposals`；写 `project` → 本地照旧。
-5. **409** → 不重试、不合并，把"服务器版本 vs 本地提案"的 diff 交给用户。
+1. 启动 → `GET /v1/scopes` 取游标 → 无缓存则 `/v1/sync/snapshot`，有缓存则 `after=<lastSeq>` 补拉或直接订阅 SSE。
+2. 收到事件 → 更新对应作用域的缓存文件 + **增量**更新索引（不重建）；**应用成功后才推进落盘的 `lastSeq`**（同一事务，宁重复勿漏）。
+3. 事件 `seq` 出现空洞 → 停订、`/v1/sync/events?after=` 补齐；返回 `410` 就重拉 snapshot。
+4. 写 `domain/global` → `POST /v1/proposals`（或由 reviewer 直接条件写）；写 `project` → 本地照旧。
+5. **412** → 不重试、不合并：把 `base / ours / theirs` 三方 diff 交给用户（覆盖 / 追加 / 放弃）；离线重放遇到 412 时进"待人审"队列。
 
-**冲突语义**：不同 `ID` 永不冲突（一条一文件是天然分片）；同一条知识并发提案 → 先到者生效，后到者 409 → 人工选覆盖 / 追加 / 放弃。
+**冲突语义**：不同 `ID` 永不冲突（一条一文件是天然分片）；同一条知识并发写 → 先到者生效，后到者 `412`。`409` 只用于"创建时已存在"或"并发删除"。
 
-**三个最容易出错的点**：
+**四个最容易出错的点**：
 
-1. **代理缓冲**：SSE 经过 nginx/网关时会被缓冲，客户端看起来"没实时"；要 `X-Accel-Buffering: no` + 关闭 `proxy_buffering`，并定期发心跳注释行。
-2. **`Last-Event-ID` 不能只信浏览器**：重连时以本地落盘的 `lastSeq` 为准，浏览器头只作提示；落后太多直接 `/sync`，不要硬放 SSE。
-3. **时钟不可信**：事件排序只认服务器分配的 `seq`，`at` 只能用于展示，不能用来比较新旧。
+1. **代理缓冲**：SSE 经 nginx 会被缓冲，看起来"没实时"；要 `X-Accel-Buffering: no` + 关 `proxy_buffering` + 15s 心跳注释行。
+2. **`Last-Event-ID` 只作提示**：以本地落盘的 `lastSeq` 为准，落后太多直接重拉 snapshot，不要硬放 SSE。
+3. **`seq` 当版本号**：见上；两者必须分离。
+4. **把"收到事件"当"已应用"**：cursor 必须与应用同事务推进，否则断线就丢一条。
+
+**鉴权细节（SSE 特有）**：`EventSource` 不能自定义头，token 放 query 会进访问日志；因此客户端用 `fetch` 的流式响应（或 Cookie + `withCredentials`）携带 `Authorization`，不要用裸 `EventSource`。
 
 ## 8. 离线与本地模式
 
@@ -131,7 +138,8 @@
 - 启用后断网：
   - 读：用本地缓存（上次同步的 `knowledge/` + 本地索引），结果标 `stale: true`；
   - 写：`project` 正常写；`domain/global` 写进 `records/outbox.jsonl`；
-  - 重连：按 `clientOpId` 幂等重放，逐条处理 200 / 409。
+  - 重连：按 `clientOpId` 幂等重放，逐条处理 `200` / `409` / `412`（`412` 进"待人审"队列，不自动覆盖）。
+- **手改文件**：离线期间直接编辑缓存 `knowledge/*.md` 不会进事件流；启动时用 `hash` 比对发现本地漂移，标为"本地草稿"，提示转为提案。
 - `sync_project`（默认 false）：打开后个人条目上传为私有副本（仅本人可见），用于换机与备份。
 
 ## 9. 权限模型
@@ -182,6 +190,7 @@
 - `records/sequences.json`：不变。
 - 新增 `records/outbox.jsonl`（仅客户端，可删）。
 - 新增服务端 `records/events.jsonl`（追加式，不可删；删除等于丢历史）。
+- 索引：增量按 `id` 删旧行插新行；**contentless FTS5 的 DELETE 必须提供插入时相同的列值**，否则索引不可预测（要么保留 `content` 副本，要么用 `contentless_delete` 的 tombstone 方案），实现时必须先确认这一条再动 `index-sqlite.ts`。
 
 ## 14. Constraints
 
@@ -203,8 +212,8 @@
 
 - 回归：不配置 `server` 时，现有测试全绿（行为等价）。
 - 实时：两台客户端，A 批准后 B 收到事件并命中新知识，p95 ≤ 1s（局域网）。
-- 冲突：并发对同一 ID 提案 → 后到者 409，本地不被覆盖。
-- 断网：团队写作入 outbox、个人可写；重连幂等重放，无重复条目。
+- 冲突：并发对同一 ID 提案 → 后到者 `412`，本地不被覆盖，且返回三方 diff。
+- 断网：团队写作入 outbox、个人可写；重连幂等重放，无重复条目；离线手改被判为"本地草稿"。
 - 权限：`reader` 提案 → 403；`reviewer` 批 `global` → 403；越权读 → 404。
 - 规模：单 scope 1 万条，冷启动 `/sync` + 增量索引 ≤ 5s；检索 p50 与单机持平。
 
@@ -218,6 +227,16 @@
 
 ## 18. Alternatives
 
-- **借船**：部署 [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) 的 Team Memory 当共享层，我们只做客户端。快，但两套真相、它自动抽取与"人审才入"冲突；适合"团队共享读 + 个人写"的松散集成（见调研 §11）。
+- **借船（建议先花半天验证）**：部署 [TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) 的 v2.0.1-beta 四件套，按它的 INSTALL 把 `llm-deepseek.baseURL` 指到 `/dsh/<spaceId>`，让它在每轮注入 L2/L3 + Skill。**它的团队/权限/面板已经能用**，我们要的"三级 + 实时"它近似满足。代价是：真相在 `~/.memory-tencentdb`（不是我们的 Markdown）、写入靠 LLM 自动抽取（不是人审）、没有推送（每轮现拉）。**结论：用它做一次真实项目的对照实验，量出"它够不够用"，再决定要不要自建**——这是最省钱的一步。
 - **纯 git 中继**：零开发，但没有实时与角色；可作为 M1 之前的过渡。
 - **纯 SaaS（Mem0 Cloud / 百炼记忆库）**：最快，但放弃文件即真相与零依赖，与定位冲突。
+
+## 19. 协议依据
+
+- [WHATWG — Server-Sent Events](https://html.spec.whatwg.org/dev/server-sent-events.html)：`Last-Event-ID` 续传、`id:` 游标、重连语义。
+- [MDN — If-Match](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-Match)：`412` 用于条件写失配，`If-None-Match: *` 用于仅创建。
+- [AWS S3 — Conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)：对象存储上的 CAS 语义与并发边界。
+- [SQLite FTS5](https://sqlite.org/fts5.html)：contentless 表的删除约束（增量索引的坑）。
+- [Kafka — Log compaction](https://docs.confluent.io/kafka/design/log_compaction.html)：`seq` 单调、offset 不复用、顺序不变。
+- [git-sync](https://github.com/kubernetes/git-sync) / [obsidian-git](https://github.com/Vinzent03/obsidian-git)：git 做同步的现实边界（快照式、移动端脆弱），只适合备份与审计。
+- [Automerge](https://automerge.org/) / [Yjs](https://github.com/yjs/yjs)：CRDT 的定位是多人协作文档，不适用于"一知识一文件 + 人审"。
