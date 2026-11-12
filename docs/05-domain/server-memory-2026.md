@@ -359,6 +359,17 @@ L3  org/              组织规范，只读、二次审批、带版本号
 - **服务端 key 绑到 Hub 根**（不是绑到个人），Hub 根就是物理隔离边界（对齐 Cognee 的 dataset 思路）；层级用**路径前缀**表达，不写死三层枚举（对齐 AgentCore 的 namespace 与 LangGraph Store 的 tuple）。
 - **服务端只做锁、索引、转发**，文件仍是唯一可恢复副本；任何"后台合并 / 后台改结论"的能力都不做（§5.4）。
 
+### 结论更新（2026-11-12）：项目组场景落在 B′
+
+用户的实际场景是"项目组内部复用，组内再分小组与个人，要实时"，且"不介意部署服务器，但 local 模式不能丢"。这正好是 **B 的改良版（B′）**：
+
+- **服务器只承载上两级**：`global`（项目组）与 `domain`（小组）由服务器持有；`project`（个人）仍以本地为权威。
+- **不发明新作用域**：沿用现有 `global / domain / project`，只补"成员、角色、权威位置"三件事。
+- **服务器只做锁、事件、转发、索引**，不做后台改写；实时靠 SSE 推"变更指针"。
+- 仍需独立设计的是：**离线时团队作用域只读 + outbox 重放**、**审批人不能是提案人**、**事件流 seq 空洞检测**。
+
+设计见 [proposal-team-memory.md](../03-openspec/proposal-team-memory.md)。A（纯 git 中继）降级为 M1 之前的过渡手段，C 仍只作对标。
+
 ---
 
 ## 10. 明确不做 / 待验证
@@ -377,13 +388,72 @@ L3  org/              组织规范，只读、二次审批、带版本号
 3. 服务端审批的角色模型：谁有权批 `decision`/`constraint`，是否需要按作用域分级授权。
 4. 跨机派生索引一致性：`index.sqlite` 能否作为派生物随 Hub 分发，还是必须本机重建。
 5. 未取到一手资料的空白：Google Memory Bank 的默认 TTL / 配额 / 价格（文档站不可达，只引了 Google 自有仓库）；Memobase、OpenMemory 的层级表达；飞书知识库 / Confluence 的页面权限继承（官方页正文未取到）。这些**不进入结论**，只作待补项。
+6. **TencentDB Agent Memory 的实时能力**未见 SSE/WebSocket 一手证据（"实时"靠每轮请求现拉 + `/health` 轮询），若要走"借船"路线需实测其端到端延迟。
 
 ---
 
-## 11. 参考资料
+## 11. 同类开源：可自托管的团队记忆层
+
+### 11.1 TencentDB Agent Memory（MIT，腾讯 2026-05 开源）
+
+**形态**（[一手 README](https://github.com/TencentCloud/TencentDB-Agent-Memory)）：Node ≥ 22.16 的 npm 包，可作为 OpenClaw 插件或 Hermes 的 memory provider；自带 HTTP Gateway（默认 `:8420`），本地默认 **SQLite + sqlite-vec**，云端可切 TCVDB（腾讯云向量库）。MIT 协议。
+
+**它的"两层"**：短期**符号化记忆**（把工具日志压成 Mermaid 画布 + 引用，官方称 token 降 61.38%、通过率相对 +51.52%）；长期**语义金字塔** L0 对话 → L1 原子 → L2 场景 → L3 人格（PersonaMem 48%→76%）。
+
+**Team Memory（2026-08 发布，[二手：官方通稿](https://www.ithome.com/0/986/971.htm)）**：把长期记忆从个人扩到团队，概念是 `Team → Agent → Task`，资产分四类：**Chat Memory / LLM-Wiki / CodeGraph / Skill**；配一个 **Memory Hub 控制台**做生成、审核、授权、分享、装配；每条记忆有 **owner / 版本 / 状态 / 使用记录**；权限按**用户、角色、Agent** 设置；共享范围分档：**个人私有 → 团队 → 指定用户或 Agent**。
+
+**关键判断（一手核对后，分两个发布形态看）**：
+
+- **`main` 分支的 Gateway** 是 Hermes 的单租户 sidecar，只有 7 个路由（`/health`、`/recall`、`/capture`、`/search/memories`、`/search/conversations`、`/session/end`、`/seed`），鉴权是**单个共享 `Bearer` key**，**没有 ACL、没有 SSE**（[一手：`src/gateway/server.ts`](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/src/gateway/server.ts)）。
+- **v2.0.1-beta 的发行形态**是四件套：`memory-core(:8420)` + `memory-hub 面板(:8125)` + `knowledge(:8424)` + `proxy(:8096)`，一键容器起；HTTP `/v3/*` 用 **`Bearer` + `x-tdai-service-id` 当租户头**，Knowledge 侧 28 个端点按 service_id 隔离；数据落 `~/.memory-tencentdb/memory-tdai`（[一手：MemoryCore README](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/v2.0.1-beta.2/MemoryCore/README_CN.md)）。
+
+所以"团队三级"在腾讯这里**已经存在，但形态是服务端 + LLM 自动抽取**，不是"文件 + 人审"。对我们更关键的一条：它的 INSTALL 里**已有「通过 Proxy 使用 DeepSeek Harness」章节**——把 `llm-deepseek.baseURL` 指到 `/dsh/<spaceId>`，每轮由 Proxy 现拉 L2/L3 + Skill 注入上下文（[一手：INSTALL_CN](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/v2.0.1-beta.2/INSTALL_CN.md)）。这既是可抄的接入样板，也是**一条会直接替代我们的现成路径**，必须先评估再决定自建。
+
+**可借鉴**：
+
+- 控制台的信息架构（owner / version / status / visibility / 使用次数 + Agent 绑定）——正好补我们"知识老化与归属"的空缺；
+- 共享范围三档（`private` / `team` / `restricted`+ACL / `agent`）——比"三级目录"更贴近真实权限诉求；
+- 轻鉴权：`Bearer` + 租户头（本地关、服务器强制）；
+- 存储分层：底层入 DB 做全文/向量检索，L2 场景 / `persona.md` / Mermaid 画布本身是 Markdown，且带 `result_ref` 可回溯源文。
+
+**不宜照搬**：L1–L3 的"编辑修正"仍在它的 roadmap（v2.0.1-beta 面板只能看/删），与"人审才入"冲突；它的 Team 是**单层**，没有"项目组 → 小组 → 个人"的嵌套与逐级审批；自己管 `~/.memory-tencentdb`，不会把我们 workspace 的 `.md` 当真相。
+
+### 11.2 其他可自托管选项（一句话结论：没有一个同时满足四项）
+
+| 项目 | 许可证 | 部署 | 层级 | 实时 | 与我们的关系 |
+| --- | --- | --- | --- | --- | --- |
+| TencentDB Agent Memory | MIT | 4 容器（core/hub/knowledge/proxy） | Team → Agent → Task + 资产 visibility | 无推送（每轮现拉） | 最值得抄模型，但换数据模型 |
+| Mem0 OSS | Apache-2.0 | Docker server + dashboard | 只有 user/agent/run 扁平 scope；**OSS 无 org/project** | 无 | 撑不起三级 |
+| Cognee | Apache-2.0 | 自托管 | tenant > user + role + dataset ACL；**一次只在一个 tenant 内** | 无 | 物理隔离强，但不能三层同时可见 |
+| Memobase | Apache-2.0 | Docker（Postgres+Redis） | project → user profile/event | 无（异步 flush） | 无团队层 |
+| Letta App Server | Apache-2.0 | `letta server` | agent 为中心；Teams 属 Cloud | **有 `/ws` 单连接多客户端订阅** | 唯一有真实时协议的，但无组织层 |
+| MemU | Apache-2.0 | sidecar（SQLite 或 Postgres+pgvector） | 无租户/团队 | 无 | 单机个人向 |
+| Basic Memory | **AGPL-3.0** | 本地 | 项目即目录（Markdown+SQLite 双向写） | 无 | 最贴近文件原生；团队共享只在商业 Cloud，AGPL 有传染风险 |
+
+**结论**：不存在"文件即真相 + 人审写入 + 三级复用 + 实时"四件齐备的开源项目。要这四条同时成立，只能自建薄服务。
+
+### 11.3 自建薄服务时，抄什么、不抄什么
+
+**可抄**：
+
+1. 资产元数据四件套 `owner / version / status / visibility`（腾讯）+ 使用次数，用于"知识老化与归属"。
+2. 共享语义：`private` / `team` / `restricted`（ACL）——比"三级目录"更贴近真实诉求。
+3. 轻鉴权：`Bearer` + 租户/作用域头（`x-tdai-service-id` 的形态）。
+4. "查询前先定作用域"（Cognee）→ 改成 **scope 叠加**而不是切换租户（三级要同时可见）。
+5. 订阅式推送（Letta `/ws` 的形态）→ 换 **SSE + `Last-Event-ID` 重放**，只推"文件变更指针"，不推正文。
+
+**不可抄**：把 SQLite/向量库当真相（我们只存索引、事件、ACL，正文回文件）；Mem0 的 user/agent/run 扁平 scope（缺 group）；Cognee 一租户一目录（三级要同时可见）；腾讯的 LLM 全自动抽取入库（我们只出人审建议）。
+
+---
+
+## 12. 参考资料
 
 一手：
 
+- [TencentDB Agent Memory — README](https://github.com/TencentCloud/TencentDB-Agent-Memory) / [Gateway 源码](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/main/src/gateway/server.ts) / [v2.0.1-beta MemoryCore](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/v2.0.1-beta.2/MemoryCore/README_CN.md) / [INSTALL_CN（含 DSH Proxy 接入）](https://github.com/TencentCloud/TencentDB-Agent-Memory/blob/v2.0.1-beta.2/INSTALL_CN.md) / [Team Memory 通稿（二手）](https://www.ithome.com/0/986/971.htm)
+- [Mem0 — Platform vs OSS](https://docs.mem0.ai/platform/platform-vs-oss) / [OSS 自托管](https://docs.mem0.ai/open-source/setup)
+- [Cognee — 多用户与 tenant](https://docs.cognee.ai/core-concepts/multi-user-mode/permissions-system/tenants) / [Memobase 自托管](https://github.com/memodb-io/memobase/blob/main/src/server/readme.md)
+- [Letta — App Server（/ws）](https://docs.letta.com/self-hosting/app-server) / [MemU](https://github.com/NevaMind-AI/memU) / [Basic Memory](https://github.com/basicmachines-co/basic-memory)
 - [AWS — Add memory to your AgentCore agent](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory.html)
 - [AWS — Memory types](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-types.html)
 - [AWS — Memory terminology](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory-terminology.html)

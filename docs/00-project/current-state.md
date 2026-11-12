@@ -265,6 +265,6 @@ dsh-memory-hub/
 13. 验证 PTC `run_code` 嵌套调用与门禁边界。
 14. 补充外部 CLI / 多进程共享 Hub 测试。
 15. 评估索引落盘与增量重建（V0.2 方向）。
-16. 评审 [server-memory-2026.md](../05-domain/server-memory-2026.md)（服务端部署 + 三级管理调研），决定 V1.0 走同步中继（A）还是服务端 Hub（B）；若要 B，先补 DSH 远程/多用户连接与审批角色模型两项验证。
+16. 评审 [server-memory-2026.md](../05-domain/server-memory-2026.md)（服务端部署 + 三级管理调研）与 [proposal-team-memory.md](../03-openspec/proposal-team-memory.md)（组内服务器草案）；方向已定为"沿用 `global/domain/project` 三级 + 服务端承载上两级 + 本地保留"，待定的是 M1 的接口细节与 token 发放方式。
 
 

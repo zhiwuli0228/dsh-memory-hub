@@ -81,13 +81,17 @@
 - 自动过期 / 提醒策略
 - 多 Hub 导入/导出
 
-## V1.0（调研中）：服务端部署与三级管理
+## V1.0（方向已定）：组内服务器 + 三级复用，本地模式保留
 
-调研与业界对照见 [server-memory-2026](../05-domain/server-memory-2026.md)。结论：建议顺序 **A（同步中继）→ B（单写者 Hub 服务）**，托管形态只作对标。
+调研见 [server-memory-2026](../05-domain/server-memory-2026.md)，设计见 [proposal-team-memory](../03-openspec/proposal-team-memory.md)。
 
-- A：跨机同步（导入/导出 + git 中继 + 冲突报告），权威仍是本地文件，不改硬规则。
-- B：服务端只做锁 / 索引 / 转发，文件仍是唯一可恢复副本；服务端 key 绑到 Hub 根。
-- 三级作用域：`L1 inbox`（草稿、不检索）→ `L2 project`（人审后入）→ `L3 org`（只读、二次审批）；晋升全部走待审提案，不自动写。
+结论：不发明新作用域，沿用 `global / domain / project` 三级；把 **`global`（项目组）与 `domain`（小组）的权威搬到组内服务器**，`project`（个人）仍本地。本地永远是工作副本，不部署服务器时行为不变。
+
+- M1：服务端骨架（scopes / token / 读 / SSE）+ 客户端同步 + 缓存
+- M2：提案 / 审批 / 离线 outbox / 面板状态
+- M3：`global` 层 + 晋升 + 审计 + 部署文档
+
+硬规则不变：文件是真相、模型不能自批、不引入强制数据库与向量库。
 
 ## Backlog
 

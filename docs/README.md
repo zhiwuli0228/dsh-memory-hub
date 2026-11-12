@@ -15,6 +15,7 @@
 - [06-operations/catalog-submission.md](06-operations/catalog-submission.md) — 公共插件目录的提交机制与本次 PR。
 - [08-publish/dsh-memory-hub-v0.7.md](08-publish/dsh-memory-hub-v0.7.md) — 可对外发表的长文：v0.7.0 的能力、完整设计、设计亮点、工程数据、同类对照、潜力与演进路线。
 - [05-domain/server-memory-2026.md](05-domain/server-memory-2026.md) — 服务端部署与三级管理的业界调研：云厂商 / SaaS / 学术分级 / 组织层级，以及三条可选路线。
+- [03-openspec/proposal-team-memory.md](03-openspec/proposal-team-memory.md) — 草案：项目组三级记忆（个人 / 小组 / 项目组）+ 实时同步，本地模式保留为工作副本。
 
 ## 阅读策略
 
