@@ -26,7 +26,7 @@
     index.sqlite              # 派生 SQLite 索引（storage.index 决定；可删可重建）
     maintenance-state.json    # 夜间维护最后运行日期（仅配置 Hub；全局一份）
     reflect-state.json        # 回顾水位（哪些会话已回顾）
-    .writer.lock              # 该 Hub 根目录的写锁（每个根一把，互相独立）
+    .writer.lock              # 该 Hub 根目录的写锁（每个根一把，互相独立；租约 + fencing token）
   reports/                    # 夜间巡检报告（非权威，可删除/归档）
     <timestamp>.md
     latest.md
@@ -97,6 +97,27 @@ storage:
 - `maintenance-state.json` 只写在配置 Hub（默认 `~/.dsh/memory-hub`）；每个 core 的 `reports/` 与 `pending/` 仍写在自己的 root 下。
 - 同一个 `id` 可以同时出现在 `core_workspaces` 与 `workspaces`（V0.1.7 双角色）：`core_workspaces` 给 root 打开独立 Hub，`workspaces` 里该条目的 `core_id` 指向父核心。此时 `core_id` 不得等于 `id`；会话路由到自己的核心 Hub，父核心 Hub 作为分级蒸馏的二级来源。
 - 金字塔上级链由 `workspaces[].core_id` 逐层推导（父、祖父、…，最多 8 层）；运行时带环检测，成环即截断，不依赖任何额外配置字段。
+
+## `records/.writer.lock`
+
+写锁是**租约**，不是永久标记（[ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)）：
+
+```json
+{
+  "v": 2,
+  "pid": 347640,
+  "host": "DESKTOP-XXXX",
+  "startedAt": "2026-11-13T07:38:00.000Z",
+  "heartbeatAt": "2026-11-13T07:48:00.000Z",
+  "token": "3f9a1c0d7b2e4a55"
+}
+```
+
+- 持有者每 15 秒重写一次 `heartbeatAt`（若 `lock_stale_ms` 更短则缩到租约的 1/4）；租约 = `heartbeatAt + storage.lock_stale_ms`（默认 600000ms）。
+- 回收条件（按优先级）：`host` 非本机 → `dead-process`（pid 不存在）→ `stale-heartbeat`（心跳超租约）→ `corrupt`（读不出 JSON 且 mtime 超租约）。回收走 `rename` + 复核的 CAS，不会误删刚刷新过的锁。
+- `token` 是 fencing token：每次获取随机生成，**每次写操作前**都会复核锁文件里的 `token`/`pid`；租约被抢走的旧写者会降级为只读。
+- 该文件可安全删除：删掉等于“没人持锁”，下一个写者会重新创建。但如果你删的是**活写者**的锁，会短暂出现两个写者——优先等租约到期。
+- 旧格式（v0.7：无 `v`、无 `token`）仍可读：按 `heartbeatAt` 判定租约，`token` 视为 `null`。
 
 ## 双角色 / 金字塔配置示例
 

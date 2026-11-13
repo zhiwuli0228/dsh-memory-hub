@@ -110,10 +110,12 @@ Hub 目录管理。
 
 ## `src/lock.ts`
 
-每个 Hub 根目录一把写锁。
+每个 Hub 根目录一把写锁（租约 + fencing token，[ADR-0009](./decisions/ADR-0009-writer-lock-lease.md)）。
 
-- 文件锁创建/释放/心跳。
-- 失效判定：`host` 不同即视为残留；本机进程不存在且心跳超过 `lock_stale_ms` 才回收；活进程不抢占。
+- 文件锁创建/释放/心跳；锁内容 `{ v, pid, host, startedAt, heartbeatAt, token }`。
+- 失效判定：`host` 不同 → 立即回收；pid 不存在 → 立即回收；心跳超过 `lock_stale_ms` → 回收（挂死/假死/PID 复用）；锁文件损坏且 mtime 超租约 → 回收。
+- 回收用 `rename` + 复核 `{token, heartbeatAt}` 的 CAS，避免两个回收者同时赢或误删刚刷新的锁。
+- `verifyOwnership()` 以 `token` + `pid` 复核所有权；每次写操作前调用，被抢的旧写者降级为只读。
 - 只读降级只作用于该根。
 
 ## `src/atomic.ts`

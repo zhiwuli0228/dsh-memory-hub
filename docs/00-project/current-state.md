@@ -4,13 +4,17 @@
 
 ## 当前阶段
 
-V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0`（`latest`）与 GitHub Release `v0.7.0` 已发布（run `42492469612`，publishTimestamp `1794150080`，SLSA provenance 已验证）。
+V0.7.1 已发布：**写锁租约 + fencing，只读状态可自愈**——修复两个会被用户感知为“插件坏了”的问题：(1) 挂死/冻结的写者（进程还在、线程已死）会让某个 hub 根**永久只读**；(2) 只读状态是 Hub 打开时的**一次性缓存**，pid 已消失、锁文件已删除后 `memory_status` 与面板仍显示只读，只能重启。现在写锁是租约（心跳 15s、租约 `lock_stale_ms`）：pid 确定不存在（`ESRCH`）立即回收、探不到死活（Windows 常见 `EPERM`）约 60 秒回收、心跳超租约自动回收，旧写者按 `token` 降级为只读；`Hub.revalidateLock()` 在 `memory_status`、面板 `/api/overview`/`/api/config` 与 60 秒巡检中重新推导只读状态，面板自身每 30 秒轮询只读切片。**不再需要手动删除 `.writer.lock`。** 详见 [ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)。
+
+V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0` 与 GitHub Release `v0.7.0` 已发布（run `42492469612`，publishTimestamp `1794150080`，SLSA provenance 已验证）。
 
 V0.6.0 已发布：**每个工作区的定时蒸馏**——面板「配置」页可为核心/子工作区启用每日蒸馏，指定时间、投递目标（新建会话或指定会话）与候选上限；插件把配置对齐为 Host `schedule` 任务，到点在对应工作区开始蒸馏。投递到已有会话时，面板从 Host `sessionController` 读取本机会话列表做候选（可下拉选择，也可手填），不再要求用户自己去找会话 ID。蒸馏只创建上级（或 global）候选，仍需人工在「待审批」批准。V0.4.0 的面板批量审核、`panel:human` 账本与回环安全校验保持不变。
 
 在真实 Host（0.2.2-rc.1，隔离 profile）上验证时修掉两个只有实机才暴露的问题：Host 的 `daily.time` 必须是 `HH:mm:ss`（v0.5.1 内部把 `HH:mm` 规范化后注册）；`session-controller` 可能晚于 `schedule` 就绪，首次注册会被拒（v0.5.2 对可自愈错误做 5 次退避重试，并在 `config()` 中返回 `distill`，面板保存后不会显示成未配置）。v0.5.3 把蒸馏设置从“每个工作区一张卡 + 换行内联表单”改成整宽对齐表（工作区/启用/时间/目标/会话/上限/状态），带逐行状态与底部汇总、错误列表，窄屏自动堆叠。v0.6.0 新增只读的 `/dsh-memory-hub/api/sessions`：只返回 id、cwd、标题、更新时间与空会话标记，排除委派会话，服务缺失或超时则返回 `unavailable` 让面板退回手填。
 
-当前工作树为 **V0.7.0（已发布）**：在 V0.6.0 之上加入时效字段、去重合并、回顾式萃取、引用生命周期、写入风险标记、派生 SQLite 索引，以及每个 Hub 的自动目录说明书。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+当前工作树为 **V0.7.1（已发布）**：在 V0.7.0 之上把写锁改为租约 + fencing，并让只读状态可重新推导。升级免卸载方案见 [docs/06-operations/upgrade-guide.md](../06-operations/upgrade-guide.md)。
+
+**V0.7.1 写锁改动（2026-11-13）**：写锁从“永久所有权标记”改为**租约 + fencing token**（[ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)）。挂死/冻结的 DSH 进程不再让该根永久只读：pid 确定不存在（`ESRCH`）立即回收、探不到死活（Windows 常见 `EPERM`）约 60 秒回收、心跳超 `storage.lock_stale_ms` 自动回收，旧写者按 `token` 降级为只读；被降级的根在对方退出后由下一次读取/写入自动恢复，不必重启插件或手删 `.writer.lock`。同时修掉**内存缓存**问题：`readOnly` 之前是打开时的一次性判断，锁文件消失/被回收后进程内仍报只读；现在 `Hub.revalidateLock()` 在 `memory_status`、面板（`/api/overview`、`/api/config`）与 60s 巡检里重新观测锁文件并修正标志，面板自身每 30s 轮询只读切片。锁文件升到 `v: 2`（新增 `token`），v1 锁仍可读；Hub 根 `README.md` 模板升到 `hub-readme 3`（新增 `.writer.lock` 说明）。**从 0.7.0 升级时先停旧进程**（0.7.0 的写入口没有 fencing 复核）。
 
 V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）**均已完成实现、测试并随 `v0.7.0` 发布**：时效字段（`valid_from` / `expires_at` / `last_verified`、派生 `fresh/aging/stale/scheduled`、确定性降权、预检时效门、面板标签）；去重合并（只读 `memory_duplicates`、`operation: "merge"` + `merged_ids`、`superseded_by` 反向指针、`knowledge.merged` 账本、面板 diff）；回顾式萃取（`memory_reflect` digest、按工作区定时回顾、`records/reflect-state.json` 去重水位）。`format` 仍为 1，老文件零迁移。
 
@@ -94,7 +98,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 只读工具 `memory_duplicates`（`scope?` / `threshold?` / `limit?`，阈值默认 `policy.dedupe.threshold` 0.72，返回 keeper/similarity/高置信标记）；维护报告的 `duplicate-near` 复用同一实现并展示 keeper
 - [x] `operation: "merge"` 提案：`merged_ids`（1..10，同类型同作用域、不含 target、不重复、未合并过）；提交 target +1 并合并正文与 `related`/`source_refs`，被合并项 `superseded` + `superseded_by`，各自写 `history/`，账本 `knowledge.merged`
 - [x] 面板 merge 卡片：显示被合并条目与 target 旧正文 → 合并稿的行级 diff（上限 200 行，超出提示截断），仍只读、批准走既有审核端点
-- [x] 设计决策：[ADR-0008](../01-architecture/decisions/ADR-0008-merge-operation.md)（独立 merge 操作）
+- [x] 设计决策：[ADR-0008](../01-architecture/decisions/ADR-0008-merge-operation.md)（独立 merge 操作）、[ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)（写锁租约 + fencing token）
 - [x] 回顾式萃取（V0.7.0，按 [proposal-retrospective-extraction](../03-openspec/proposal-retrospective-extraction.md)）：`src/reflect.ts` 的 `SessionDigestSource` / `HostSessionDigestSource` / `NullSessionDigestSource`、最长前缀会话归属 `ownerWorkspaceOf`、digest 只保留用户消息 + 每轮助手最终文本 + 失败工具（`policy.reflect.max_chars` 默认 8000，头 60% + 尾 40% 截断）
 - [x] `memory_reflect`（`session_id?` / `limit?` / `dry_run?`）：只读本工作区名下已结束的主会话（排除委派会话与 root 外会话），返回 digest 与 `seqRange`；`min_messages` 不足 `too-short`，digest 未变 `already-reflected`；`dry_run` 不写水位与账本
 - [x] 回顾水位：`records/reflect-state.json`（`sessionId` / `workspaceId` / `reflectedAt` / `digestHash`，上限 200 条），账本追加 `reflect.read`；无宿主 `sessionQuery` 时返回 `available: false` 并跳过定时任务
@@ -110,7 +114,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] 初始化不再新建遗留 `index/` 空目录（老 Hub 里已有的仍可手动删除）
 - [x] 根 `README.md` 增加「5 分钟初始化工作区」：配置 Hub / 数据 Hub 的区别、最小 `core_workspaces[].root` + `workspaces[]` 配置、验证三件事、初始化后目录速览；修正示例里核心工作区缺 `root` 的问题
 - [x] `memory-hub` skill 增加「Hub 目录与初始化（先读目录说明书）」：目录表、`assets` 含义、最小配置、初始化后用 `memory_status` 验证；回顾式萃取补充 `mode: "search"` 原文取证
-- [x] 141 个 vitest 测试（19 个文件）
+- [x] 165 个 vitest 测试（20 个文件）
 - [x] 升级/收编文档对齐 0.6.0：[upgrade-guide.md](../06-operations/upgrade-guide.md) 覆盖 link/CLI/市场迁移三条免卸载路径，并新增「老版本收编兼容矩阵」（format 闸门、账本容错、时效默认、序列回填、索引自动）与收编清单
 - [x] npm 发布：`dsh-memory-hub@0.1.5`（2026-11-01，`latest`）
 - [x] GitHub release `v0.1.5`，仓库 homepage 指向 npm 包页
@@ -124,7 +128,10 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - [x] TypeScript + esbuild 构建，产出 `dist/index.js`
 - [x] 宿主兼容性验证记录（`docs/COMPATIBILITY.md`）
 - [x] 写锁按 hub 根独立：只有配置根/该 core 根自己的锁占用才让它只读，不跨根级联；显式 `readOnly: true` 仍是全局只读（[ADR-0006](../01-architecture/decisions/ADR-0006-per-root-write-lock.md)）
-- [x] 残留锁回收：`host` 不同（跨机拷贝/漫游目录）即视为失效；本机进程不存在且心跳超过 `lock_stale_ms` 才回收，活进程的锁不抢占
+- [x] 写锁改为**租约 + fencing token**（[ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)）：心跳 15s、租约 `lock_stale_ms`；pid 确定不存在（`ESRCH`）立即回收，探不到死活（Windows 常见 `EPERM`）约 60s 回收，心跳超租约（挂死/假死/PID 复用）回收，跨机锁立即回收；回收走 `rename` 复核的 CAS
+- [x] 写锁自愈：`Hub.ensureWritable()` 在每次写入口复核 token 并在对方退出后自动重抢；被抢的旧写者降级为只读（`lost the lease`），不再永久卡死、不必手动删 `.writer.lock`；正常退出主动释放锁
+- [x] 写锁缓存可失效：`Hub.revalidateLock()` 同步重读锁文件，在 `memory_status` / 面板（`/api/overview`、`/api/config`）与每 60s 运行时巡检里修正内存中的 `readOnly`——锁文件被释放/删除、pid 消失、心跳过期后不再继续报只读；锁文件“消失”只丢句柄（根空闲），只有 `token` 变成别人的才降级；面板每 30s 轮询只读切片
+- [x] `memory_status` / `/api/overview` 增加 `lock: { held, owner, expiresAt, reclaimed, onDisk }` 诊断
 - [x] 配置可写性与写锁解耦：`configWritable` 只受显式 `readOnly: true` 影响；锁被占用或 `config.yaml` 损坏时，面板「配置」页仍可保存并触发 `reloadConfig` 恢复写权限
 - [x] 新增项目文档体系（`docs/` 目录层级 + `AGENTS.md`）
 
@@ -134,7 +141,7 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - 默认不使用向量数据库。
 - `memory_commit` 在会话内必须经过 DSH 原生人工审批；面板「待审批」由人点击批准/拒绝，账本记为 `panel:human`；模型不可自批。
 - Web 面板路由只允许回环请求；除人工审核（单条/批量）外不提供写入端点。
-- 每根一把写锁：第二个写者只让该根降级为只读，不跨根级联；显式 `readOnly: true` 才是全局只读。
+- 每根一把写锁（租约 + fencing token）：第二个写者只让该根降级为只读，不跨根级联；显式 `readOnly: true` 才是全局只读。租约到期或对方退出后，被降级的根自动恢复可写。
 - Windows 原生路径语义。
 
 ## 已知限制
@@ -150,7 +157,11 @@ V0.7 的三项 P0 提案（时效字段 → 去重合并 → 回顾式萃取）*
 - jsDelivr 的 `@main` 分支缓存可能长时间滞后：本次 `site/index.json` 更新后，`@main` 仍返回 0.2.0（多次 purge 未刷新），而 commit-pinned URL（`@8a2dabe`）已返回 0.3.0；市场索引最长约 12h 后才会自动刷新。
 - 门禁的宿主级拒绝未在真实会话中强制触发，由单元测试覆盖。
 - PTC `run_code` 嵌套调用未验证。
-- 外部 CLI / 多进程共享 Hub：Web 0.2.2-rc.1 实测第二个进程按写锁降级为只读（`readOnlyReason: lock`），符合设计；跨机锁回收与多进程写路径仍由单元测试覆盖。
+- 外部 CLI / 多进程共享 Hub：Web 0.2.2-rc.1 实测第二个进程按写锁降级为只读（`readOnlyReason: lock`），符合设计；租约回收、fencing、多进程写路径仍由单元测试覆盖，未做真实多进程端到端压测。
+- 升级写锁时不要混跑两个版本：v0.7.0（v1 锁）会刷新心跳、健康时不会被抢，但它的写入口没有 fencing 复核；卡死超过租约被新版本接管后，它恢复会在不复核的情况下继续写。升级时先停旧进程。
+- Windows 上“已退出但探不到”的 pid：`process.kill(pid, 0)` 对某些已不存在的 pid 返回 `EPERM`（本机实测 pid 36156），无法证明它已退出，只能用心跳仲裁（`min(lock_stale_ms, 60s)` 宽限）。这类写者约 1 分钟恢复而不是立即恢复；要更快需要平台特定探针（`tasklist` 子进程 / `NtQueryInformationProcess`），代价大于收益。同一台机器上**另一个用户**运行的 DSH 也是这种“探不到”形态：只要它健康刷新心跳就不会被抢。
+- 租约式写锁的残余窗口：旧写者被冻结在“已复核 token、但还没写完”之间时，租约被抢后它恢复运行可能再写一次。触发需要“冻结超过 `lock_stale_ms` 且恰好停在写操作中间”，当前靠写入口复核 token + 心跳不复活别人的锁 + `release` 只删自己的锁来收敛；若要彻底消除需引入每写一条的 fencing 序号校验（账本可扩展）。
+- `records/ledger.jsonl` 的追加（`task.created` / `preflight.recorded` / `citation.added` / `task.closed`）**没有**经过写锁或 `ensureWritable()` 闸门，这是既有行为：降级为只读的根仍会记任务与引用事件。知识写入（`knowledge/`、`pending/`、`sequences.json`）才受写锁保护。若未来要求账本也单写者，需要在 `Ledger.append` 前加同样的 fencing 复核。
 - 长会话上下文累积效果未做规模测量。
 - 检索规模：合成语料已验证 1k–100k。内存索引 20k p50 ≈ 39ms / 堆 ≈ 210MB，100k ≈ 352ms / 堆 ≈ 1.1GB；派生 SQLite 索引 100k p50 ≈ 399ms、磁盘 ≈ 246MB，用磁盘换内存。真实语料上的分数分布、启动全量解析耗时仍未测；分档方案见 [scale-plan.md](../01-architecture/scale-plan.md)。
 - 批量萃取未实现：候选仍只能逐条 `memory_propose`，`pending/` 上千条时的启动解析与面板列表未做规模保护。
@@ -249,7 +260,7 @@ dsh-memory-hub/
 
 ## 下一步推荐工作
 
-1. 发布 V0.7（三项 P0 已实现）：升版本、跑 `npm run check`、桌面端冒烟（时效标签、merge diff、回顾任务）。
+1. 发布 V0.7.1：升版本、跑 `npm run check`、桌面端冒烟（只读自愈、`lock.onDisk` 展示）——**代码与测试已完成，待发版**。
 2. 在真实会话中验证审批**通过**路径。
 3. 增加面板交互与视觉验收测试。
 4. 在真实 Hub 上复核检索健康度：榜首分数分布、`min_score` 是否漂移、近重复对数；若真实条目过万，评估持久化索引快照（换 SQLite 的条件见 [search-performance.md §5](../04-development/search-performance.md)）。

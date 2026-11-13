@@ -6,7 +6,7 @@ import type { Hub } from './hub.js'
 import { KNOWLEDGE_TYPES, TYPE_PREFIX } from './types.js'
 
 /** 生成的 Hub README 版本；只有低于这个版本且仍带标记时才重写。 */
-export const HUB_README_VERSION = 2
+export const HUB_README_VERSION = 3
 
 /** 根目录没有自己的 README 时用这个文件名；有则写到备用名，绝不覆盖用户文档。 */
 const PRIMARY_NAME = 'README.md'
@@ -106,6 +106,7 @@ ${nameNote}> 本文件由 dsh-memory-hub 在初始化/升级时生成，**可以
 | \`records/index.sqlite\` | 派生全文索引（大 Hub 才有） | 插件自动重建 | ✅ 可删 | 下次启动自动重建 |
 | \`records/reflect-state.json\` | 回顾水位（哪些会话已回顾） | 插件 | ✅ 可删 | 同一会话可能被重复回顾 |
 | \`records/maintenance-state.json\` | 维护上次运行时间 | 插件 | ✅ 可删 | 只影响“今天是否已跑”判断 |
+| \`records/.writer.lock\` | 该根的写锁（租约 + fencing token） | 当前写者（心跳 15s） | ⚠️ 只有确认没有其他 DSH 在跑时才删 | 下一个写者会重新创建；活写者的锁被删会短暂出现两个写者 |
 | \`history/\` | 每次提交的旧版本快照 | 插件 | 只读查阅 | 历史版本丢失（当前版本不受影响） |
 | \`reports/\` | 维护报告（\`latest.md\` + 时间戳） | 插件 | 只读查阅 | 丢失历史体检记录 |
 | \`index/\` | 旧版本可能遗留的空目录（新 Hub 不再创建） | — | ✅ 可删 | 无影响 |
@@ -183,6 +184,7 @@ history/ 快照 + records/ledger.jsonl 追加事件 + 序号 +1
 
 - 不要往这里写密钥、token、密码、私钥；\`memory_propose\` 会扫描并标记可疑内容，但仍需人判断。
 - 只读 Hub（\`readOnly: true\`、配置损坏或写锁被占用）不会接受任何写入。
+- 写锁是**租约**：崩溃（pid 不存在）、心跳超 \`storage.lock_stale_ms\`（挂死/假死）、或跨机残留都会被自动回收，不需要手动删锁；对方退出后本进程会在下一次写入时自动接管。
 - 面板只允许回环地址请求，且只提供“批准/拒绝”两个写操作。
 
 ## 常见误用

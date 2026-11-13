@@ -343,7 +343,7 @@ export class KnowledgeStore {
   }
 
   async propose(input: ProposalInput, options: CreateProposalOptions): Promise<ProposalRecord> {
-    this.assertWritable()
+    await this.assertWritable()
     const now = nowIso()
     const title = input.title.trim()
     const summary = input.summary.trim()
@@ -499,7 +499,7 @@ export class KnowledgeStore {
   }
 
   async commit(proposalId: string, approvalRef = 'dsh:approval'): Promise<CommitResult> {
-    this.assertWritable()
+    await this.assertWritable()
     const proposal = this.proposals.get(proposalId)
     if (proposal === undefined) {
       throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
@@ -577,7 +577,7 @@ export class KnowledgeStore {
 
   /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
   async reject(proposalId: string, reason?: string): Promise<{ proposalId: string; status: 'rejected' }> {
-    this.assertWritable()
+    await this.assertWritable()
     const proposal = this.proposals.get(proposalId)
     if (proposal === undefined) {
       throw new MemoryError('NOT_FOUND', `proposal ${proposalId} does not exist`)
@@ -806,7 +806,7 @@ export class KnowledgeStore {
   }
 
   async consolidate(options: ConsolidateOptions): Promise<ConsolidateResult> {
-    this.assertWritable()
+    await this.assertWritable()
     const created: ProposalRecord[] = []
     let skipped = 0
     const targetScope = parseScope(options.targetScope)
@@ -952,10 +952,19 @@ export class KnowledgeStore {
     return next
   }
 
-  private assertWritable(): void {
-    if (this.hub.readOnly) {
-      throw new MemoryError('READ_ONLY', this.hub.readOnlyReason ?? 'memory hub is read-only')
-    }
+  /**
+   * Write gate for every mutation.
+   *
+   * It is async because the writer lock is a lease: a hub that started read-only
+   * (another DSH process was running, or this process crashed and was restarted
+   * while the old lock was still fresh) re-tries the acquisition here, and a hub
+   * whose lease was stolen re-verifies ownership before touching any file. That
+   * makes lock recovery lazy and automatic instead of requiring a restart or a
+   * manual `rm .writer.lock`.
+   */
+  private async assertWritable(): Promise<void> {
+    if (await this.hub.ensureWritable()) return
+    throw new MemoryError('READ_ONLY', this.hub.readOnlyReason ?? 'memory hub is read-only')
   }
 
   static relativePath(root: string, path: string): string {

@@ -280,6 +280,9 @@ export class MemoryRuntime implements ToolHost {
   }
 
   status(agent?: AgentLike): Record<string, unknown> {
+    // Refresh cached lock-derived read-only state before reporting it: a lock
+    // file that was released or deleted must not keep the report read-only.
+    this.configHub?.revalidateLock()
     if (this.initError !== null) {
       return {
         version: PLUGIN_VERSION,
@@ -303,6 +306,7 @@ export class MemoryRuntime implements ToolHost {
     // Keep the timer alive even when disabled so enabling it in config.yaml
     // takes effect without a plugin reload; runScheduledMaintenance checks the flag.
     const tick = (): void => {
+      this.revalidateHubs()
       void this.runScheduledMaintenance()
     }
     const timer = setInterval(tick, 60_000)
@@ -315,6 +319,23 @@ export class MemoryRuntime implements ToolHost {
       }
     })
     tick()
+  }
+
+  /**
+   * Keep every Hub's cached read-only flag in sync with the lock files on disk.
+   *
+   * A `lock` degradation is a snapshot of "another writer held this root when we
+   * opened". Without a periodic refresh that snapshot outlives reality: the other
+   * process exits, its lock file disappears, and the panel still shows read-only
+   * because nothing re-reads the flag. Revalidation is a cheap `stat` + `readFile`
+   * per root, once a minute.
+   */
+  revalidateHubs(): void {
+    const hubs = new Set<Hub>()
+    if (this.configHub !== null) hubs.add(this.configHub)
+    for (const pack of this.cores.values()) hubs.add(pack.hub)
+    if (this.fallback !== null) hubs.add(this.fallback.hub)
+    for (const hub of hubs) hub.revalidateLock()
   }
 
   /** Host `schedule` 服务（可选）：缺失时定时蒸馏只记录诊断，不影响插件其他功能。 */

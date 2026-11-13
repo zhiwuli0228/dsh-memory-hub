@@ -6,9 +6,13 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 > 让 DSH 记住项目里值得留下的结论：可检索、可追溯、可干预。
 
-**V0.7.0 已发布**：在文件原生 Hub 之上，加入时效字段（`valid_from` / `expires_at` / `last_verified`）、近重复检测与 `merge` 合并、回顾式萃取（`memory_reflect`，含原文 `search` 模式）、引用驱动生命周期（aging 参考最近引用）、写入风险标记、派生 SQLite 索引（零依赖，按需建库）、面板批量审批，以及**每个 Hub 自动生成的目录说明书 README**（解释每个文件夹、澄清 `assets` 含义）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
+**V0.7.1 已发布**：修复写锁的两个致命问题——**挂死/崩溃的写者会让某个 hub 根永久只读**，以及**只读状态是启动时的一次性缓存**（pid 已消失、锁文件已删除，`memory_status` 与面板仍显示只读，只能重启）。现在写锁是**租约 + fencing token**：pid 确定不存在的写者立即回收、探不到死活的约 60 秒回收、心跳超 `lock_stale_ms` 自动回收，旧写者按 `token` 降级为只读；只读状态在每次状态读取（`memory_status`、面板 `/api/overview`、`/api/config`）与 60 秒巡检中重新推导，面板自身每 30 秒轮询，对方退出后自动恢复可写。**不再需要手动删除 `.writer.lock`。**
+
+**V0.7.0**：在文件原生 Hub 之上，加入时效字段（`valid_from` / `expires_at` / `last_verified`）、近重复检测与 `merge` 合并、回顾式萃取（`memory_reflect`，含原文 `search` 模式）、引用驱动生命周期（aging 参考最近引用）、写入风险标记、派生 SQLite 索引（零依赖，按需建库）、面板批量审批，以及**每个 Hub 自动生成的目录说明书 README**（解释每个文件夹、澄清 `assets` 含义）。已在 DSH Desktop Runtime `0.2.1-rc.5` 完成宿主冒烟。验证记录见 [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md)。
 
 > 左侧边栏会新增「记忆中枢」图标。安装包含面板的版本后如果暂时没出现，重启一次 DSH 即可；本机已在运行中热加载成功。
+
+> **从 0.7.0 升级时先停掉旧进程**。0.7.0 会刷新锁心跳（健康时不会被抢），但它的写入口没有 fencing 复核；若它在升级期卡死超过租约、被新版本接管，恢复后会在不复核的情况下继续写。0.7.0 造成的“永久只读”不需要手动处理：升级并重启后，残留锁会被自动回收。
 
 ## 它是什么
 

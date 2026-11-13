@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.7.0
+// dsh-memory-hub 0.7.1
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename3, join as join6, relative as relative3, resolve as resolve3 } from "node:path";
+import { basename as basename4, join as join7, relative as relative3, resolve as resolve3 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -11511,7 +11511,7 @@ async function removeFile(path) {
 
 // src/hub.ts
 import { homedir } from "node:os";
-import { join as join3, resolve } from "node:path";
+import { join as join4, resolve } from "node:path";
 
 // src/config.ts
 var import_yaml = __toESM(require_dist(), 1);
@@ -11847,7 +11847,7 @@ function defaultConfig() {
 // src/hub-readme.ts
 import { readFile as readFile3 } from "node:fs/promises";
 import { join as join2 } from "node:path";
-var HUB_README_VERSION = 2;
+var HUB_README_VERSION = 3;
 var PRIMARY_NAME = "README.md";
 var FALLBACK_NAME = "MEMORY-HUB.md";
 var MARKER_PATTERN = /<!--\s*dsh-memory-hub:hub-readme\s+(\d+)\s*-->/;
@@ -11921,6 +11921,7 @@ ${nameNote}> \u672C\u6587\u4EF6\u7531 dsh-memory-hub \u5728\u521D\u59CB\u5316/\u
 | \`records/index.sqlite\` | \u6D3E\u751F\u5168\u6587\u7D22\u5F15\uFF08\u5927 Hub \u624D\u6709\uFF09 | \u63D2\u4EF6\u81EA\u52A8\u91CD\u5EFA | \u2705 \u53EF\u5220 | \u4E0B\u6B21\u542F\u52A8\u81EA\u52A8\u91CD\u5EFA |
 | \`records/reflect-state.json\` | \u56DE\u987E\u6C34\u4F4D\uFF08\u54EA\u4E9B\u4F1A\u8BDD\u5DF2\u56DE\u987E\uFF09 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u540C\u4E00\u4F1A\u8BDD\u53EF\u80FD\u88AB\u91CD\u590D\u56DE\u987E |
 | \`records/maintenance-state.json\` | \u7EF4\u62A4\u4E0A\u6B21\u8FD0\u884C\u65F6\u95F4 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u53EA\u5F71\u54CD\u201C\u4ECA\u5929\u662F\u5426\u5DF2\u8DD1\u201D\u5224\u65AD |
+| \`records/.writer.lock\` | \u8BE5\u6839\u7684\u5199\u9501\uFF08\u79DF\u7EA6 + fencing token\uFF09 | \u5F53\u524D\u5199\u8005\uFF08\u5FC3\u8DF3 15s\uFF09 | \u26A0\uFE0F \u53EA\u6709\u786E\u8BA4\u6CA1\u6709\u5176\u4ED6 DSH \u5728\u8DD1\u65F6\u624D\u5220 | \u4E0B\u4E00\u4E2A\u5199\u8005\u4F1A\u91CD\u65B0\u521B\u5EFA\uFF1B\u6D3B\u5199\u8005\u7684\u9501\u88AB\u5220\u4F1A\u77ED\u6682\u51FA\u73B0\u4E24\u4E2A\u5199\u8005 |
 | \`history/\` | \u6BCF\u6B21\u63D0\u4EA4\u7684\u65E7\u7248\u672C\u5FEB\u7167 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5386\u53F2\u7248\u672C\u4E22\u5931\uFF08\u5F53\u524D\u7248\u672C\u4E0D\u53D7\u5F71\u54CD\uFF09 |
 | \`reports/\` | \u7EF4\u62A4\u62A5\u544A\uFF08\`latest.md\` + \u65F6\u95F4\u6233\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u4E22\u5931\u5386\u53F2\u4F53\u68C0\u8BB0\u5F55 |
 | \`index/\` | \u65E7\u7248\u672C\u53EF\u80FD\u9057\u7559\u7684\u7A7A\u76EE\u5F55\uFF08\u65B0 Hub \u4E0D\u518D\u521B\u5EFA\uFF09 | \u2014 | \u2705 \u53EF\u5220 | \u65E0\u5F71\u54CD |
@@ -11998,6 +11999,7 @@ history/ \u5FEB\u7167 + records/ledger.jsonl \u8FFD\u52A0\u4E8B\u4EF6 + \u5E8F\u
 
 - \u4E0D\u8981\u5F80\u8FD9\u91CC\u5199\u5BC6\u94A5\u3001token\u3001\u5BC6\u7801\u3001\u79C1\u94A5\uFF1B\`memory_propose\` \u4F1A\u626B\u63CF\u5E76\u6807\u8BB0\u53EF\u7591\u5185\u5BB9\uFF0C\u4F46\u4ECD\u9700\u4EBA\u5224\u65AD\u3002
 - \u53EA\u8BFB Hub\uFF08\`readOnly: true\`\u3001\u914D\u7F6E\u635F\u574F\u6216\u5199\u9501\u88AB\u5360\u7528\uFF09\u4E0D\u4F1A\u63A5\u53D7\u4EFB\u4F55\u5199\u5165\u3002
+- \u5199\u9501\u662F**\u79DF\u7EA6**\uFF1A\u5D29\u6E83\uFF08pid \u4E0D\u5B58\u5728\uFF09\u3001\u5FC3\u8DF3\u8D85 \`storage.lock_stale_ms\`\uFF08\u6302\u6B7B/\u5047\u6B7B\uFF09\u3001\u6216\u8DE8\u673A\u6B8B\u7559\u90FD\u4F1A\u88AB\u81EA\u52A8\u56DE\u6536\uFF0C\u4E0D\u9700\u8981\u624B\u52A8\u5220\u9501\uFF1B\u5BF9\u65B9\u9000\u51FA\u540E\u672C\u8FDB\u7A0B\u4F1A\u5728\u4E0B\u4E00\u6B21\u5199\u5165\u65F6\u81EA\u52A8\u63A5\u7BA1\u3002
 - \u9762\u677F\u53EA\u5141\u8BB8\u56DE\u73AF\u5730\u5740\u8BF7\u6C42\uFF0C\u4E14\u53EA\u63D0\u4F9B\u201C\u6279\u51C6/\u62D2\u7EDD\u201D\u4E24\u4E2A\u5199\u64CD\u4F5C\u3002
 
 ## \u5E38\u89C1\u8BEF\u7528
@@ -12024,115 +12026,356 @@ var TYPE_PURPOSE = {
 };
 
 // src/lock.ts
-import { open as open2, readFile as readFile4, rm as rm2, writeFile } from "node:fs/promises";
+import { readFileSync, rmSync, statSync } from "node:fs";
+import { open as open2, readFile as readFile4, rename as rename2, rm as rm2, stat as stat2 } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname as dirname2 } from "node:path";
-function isProcessAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (pid === process.pid) return true;
+import { basename as basename2, dirname as dirname2, join as join3 } from "node:path";
+var LOCK_HEARTBEAT_MS = 15e3;
+var LOCK_FORMAT_VERSION = 2;
+function snapshotSync(path) {
+  let raw;
+  let mtimeMs;
+  try {
+    mtimeMs = statSync(path).mtimeMs;
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return { kind: "corrupt", mtimeMs: Date.now() };
+  }
+  const owner = parseOwner(raw);
+  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
+}
+function observeLock(path, staleMs, token = null) {
+  const snapshot = snapshotSync(path);
+  if (snapshot.kind === "missing") {
+    return { state: "missing", owner: null, expiresAt: null, reclaimable: null };
+  }
+  if (snapshot.kind === "corrupt") {
+    return {
+      state: "corrupt",
+      owner: null,
+      expiresAt: ownerExpiresAt(snapshot, staleMs),
+      reclaimable: decideReclaim(snapshot, staleMs, Date.now())
+    };
+  }
+  const owned = token !== null && snapshot.owner.token === token;
+  return {
+    state: owned ? "owned" : "foreign",
+    owner: snapshot.owner,
+    expiresAt: ownerExpiresAt(snapshot, staleMs),
+    reclaimable: decideReclaim(snapshot, staleMs, Date.now())
+  };
+}
+var UNKNOWN_LIVENESS_GRACE_MS = 6e4;
+function liveness(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "dead";
+  if (pid === process.pid) return "alive";
   try {
     process.kill(pid, 0);
-    return true;
+    return "alive";
   } catch (error) {
-    return error.code === "EPERM";
-  }
-}
-async function readLock(path) {
-  try {
-    const parsed = JSON.parse(await readFile4(path, "utf8"));
-    if (typeof parsed.pid !== "number" || typeof parsed.heartbeatAt !== "string") return null;
-    return {
-      pid: parsed.pid,
-      host: typeof parsed.host === "string" ? parsed.host : "unknown",
-      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : parsed.heartbeatAt,
-      heartbeatAt: parsed.heartbeatAt
-    };
-  } catch {
-    return null;
+    const code = error.code;
+    if (code === "ESRCH") return "dead";
+    return "unknown";
   }
 }
 function sameHost(host) {
   return host.toLowerCase() === hostname().toLowerCase();
 }
+function parseOwner(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+    if (typeof parsed.heartbeatAt !== "string" || Number.isNaN(Date.parse(parsed.heartbeatAt))) return null;
+    return {
+      pid: parsed.pid,
+      host: typeof parsed.host === "string" ? parsed.host : "unknown",
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : parsed.heartbeatAt,
+      heartbeatAt: parsed.heartbeatAt,
+      token: typeof parsed.token === "string" && parsed.token !== "" ? parsed.token : null
+    };
+  } catch {
+    return null;
+  }
+}
+async function readSnapshot(path) {
+  let raw;
+  let mtimeMs;
+  try {
+    const info = await stat2(path);
+    mtimeMs = info.mtimeMs;
+    raw = await readFile4(path, "utf8");
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return { kind: "corrupt", mtimeMs: Date.now() };
+  }
+  const owner = parseOwner(raw);
+  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
+}
+function lastSignalMs(owner) {
+  return Date.parse(owner.heartbeatAt);
+}
+function decideReclaim(snapshot, staleMs, now) {
+  if (snapshot.kind === "missing") return null;
+  if (snapshot.kind === "corrupt") return now - snapshot.mtimeMs > staleMs ? "corrupt" : null;
+  if (!sameHost(snapshot.owner.host)) return "foreign-host";
+  const state = liveness(snapshot.owner.pid);
+  if (state === "dead") return "dead-process";
+  const age = now - lastSignalMs(snapshot.owner);
+  if (state === "alive") {
+    return age > staleMs ? "stale-heartbeat" : null;
+  }
+  return age > Math.min(staleMs, UNKNOWN_LIVENESS_GRACE_MS) ? "stale-heartbeat" : null;
+}
+function ownerExpiresAt(snapshot, staleMs) {
+  if (snapshot.kind === "missing") return null;
+  if (snapshot.kind === "corrupt") return snapshot.mtimeMs + staleMs;
+  return lastSignalMs(snapshot.owner) + staleMs;
+}
+function describeSnapshot(snapshot) {
+  return snapshot.kind === "ok" ? snapshot.owner : null;
+}
+async function reclaim(path, expected) {
+  const temp = join3(dirname2(path), `.${basename2(path)}.reclaim.${process.pid}.${randomHex(4)}`);
+  try {
+    await rename2(path, temp);
+  } catch (error) {
+    if (error.code === "ENOENT") return true;
+    return false;
+  }
+  const renamed = await readSnapshot(temp);
+  const unchanged = expected.kind === "corrupt" ? renamed.kind === "corrupt" : expected.kind === "ok" && renamed.kind === "ok" && renamed.owner.token === expected.owner.token && renamed.owner.heartbeatAt === expected.owner.heartbeatAt;
+  if (!unchanged) {
+    try {
+      const raw = await readFile4(temp, "utf8");
+      const handle = await open2(path, "wx");
+      try {
+        await handle.writeFile(raw, "utf8");
+      } finally {
+        await handle.close();
+      }
+    } catch {
+    }
+    await rm2(temp, { force: true }).catch(() => {
+    });
+    return false;
+  }
+  await rm2(temp, { force: true }).catch(() => {
+  });
+  return true;
+}
+var activeLocks = /* @__PURE__ */ new Set();
+var exitHookInstalled = false;
+function installExitHook() {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once("exit", () => {
+    for (const lock of [...activeLocks]) lock.releaseSync();
+  });
+}
 var WriterLock = class _WriterLock {
-  constructor(path, info) {
+  constructor(path, info, staleMs, heartbeatMs) {
     this.path = path;
     this.info = info;
+    this.staleMs = staleMs;
+    this.heartbeatMs = heartbeatMs;
+    activeLocks.add(this);
+    installExitHook();
+    this.startHeartbeat();
   }
   timer = null;
-  static async acquire(path, staleMs) {
+  lost = false;
+  releasing = false;
+  onLostCallback = null;
+  static async acquire(path, staleMs, options = {}) {
     await ensureDir(dirname2(path));
-    const existing = await readLock(path);
-    if (existing !== null) {
-      const heartbeatAge = Date.now() - Date.parse(existing.heartbeatAt);
-      const foreignHost = !sameHost(existing.host);
-      const dead = !isProcessAlive(existing.pid);
-      const reclaimable = foreignHost || dead && heartbeatAge > staleMs;
-      if (!reclaimable) return { lock: null, owner: existing };
-      await rm2(path, { force: true }).catch(() => {
-      });
+    const heartbeatMs = options.heartbeatMs ?? Math.min(LOCK_HEARTBEAT_MS, Math.max(250, Math.floor(staleMs / 4)));
+    let reclaimed = null;
+    for (let round2 = 0; round2 < 4; round2 += 1) {
+      const snapshot = await readSnapshot(path);
+      if (snapshot.kind === "missing") {
+        const created = await _WriterLock.create(path, staleMs, heartbeatMs, reclaimed);
+        if (created !== null) return created;
+        continue;
+      }
+      const cause = decideReclaim(snapshot, staleMs, Date.now());
+      if (cause === null) {
+        return {
+          lock: null,
+          owner: describeSnapshot(snapshot),
+          reclaimed,
+          ownerExpiresAt: ownerExpiresAt(snapshot, staleMs)
+        };
+      }
+      if (!await reclaim(path, snapshot)) continue;
+      reclaimed = cause;
     }
+    const final = await readSnapshot(path);
+    return {
+      lock: null,
+      owner: describeSnapshot(final),
+      reclaimed,
+      ownerExpiresAt: ownerExpiresAt(final, staleMs)
+    };
+  }
+  static async create(path, staleMs, heartbeatMs, reclaimed) {
     const now = nowIso();
     const info = {
       pid: process.pid,
       host: hostname(),
       startedAt: now,
-      heartbeatAt: now
+      heartbeatAt: now,
+      token: randomHex(8)
     };
     let handle;
     try {
       handle = await open2(path, "wx");
     } catch (error) {
-      if (error.code === "EEXIST") {
-        return { lock: null, owner: await readLock(path) };
-      }
+      if (error.code === "EEXIST") return null;
       throw new MemoryError("STORAGE_ERROR", `cannot create writer lock ${path}: ${error.message}`);
     }
     try {
-      await handle.writeFile(JSON.stringify(info), "utf8");
+      await handle.writeFile(serialize(info), "utf8");
     } finally {
       await handle.close();
     }
-    const lock = new _WriterLock(path, info);
-    lock.startHeartbeat();
-    return { lock, owner: null };
+    const check = await readSnapshot(path);
+    if (check.kind !== "ok" || check.owner.token !== info.token) return null;
+    const lock = new _WriterLock(path, info, staleMs, heartbeatMs);
+    return { lock, owner: null, reclaimed, ownerExpiresAt: lock.expiresAt };
+  }
+  /** 租约到期时间（epoch ms）；超过它，其他写者可以接管。 */
+  get expiresAt() {
+    return Date.parse(this.info.heartbeatAt) + this.staleMs;
+  }
+  get owner() {
+    return this.info;
+  }
+  /** 锁是否已丢失（被其他写者按租约接管，或文件被删除）。 */
+  get isLost() {
+    return this.lost;
+  }
+  /** 注册“锁已丢失”回调；`reason` 区分“被别人接管”和“文件被删”。 */
+  onLost(callback) {
+    this.onLostCallback = callback;
+  }
+  /**
+   * Current relationship between this writer and the lock file.
+   *
+   * `missing` is deliberately separate from `foreign`: a lock file that was
+   * deleted (manual cleanup, or the old owner released it) leaves the root free,
+   * so this process may take it again; a `foreign` file means somebody else is
+   * the writer now and this process must not write.
+   */
+  state() {
+    if (this.lost) return "missing";
+    return observeLock(this.path, this.staleMs, this.info.token).state;
+  }
+  /**
+   * Fencing check: the lock file must still carry this writer's token. Called
+   * before every write, so a writer that lost its lease stops writing instead
+   * of racing the new owner.
+   */
+  async verifyOwnership() {
+    return this.state() === "owned";
   }
   startHeartbeat() {
     this.timer = setInterval(() => {
-      this.info.heartbeatAt = nowIso();
-      void writeFile(this.path, JSON.stringify(this.info), "utf8").catch(() => {
-      });
-    }, 15e3);
+      void this.beat();
+    }, this.heartbeatMs);
     this.timer.unref?.();
   }
-  async release() {
+  async beat() {
+    if (this.lost || this.releasing) return;
+    try {
+      const state = this.state();
+      if (state === "foreign" || state === "corrupt") {
+        this.markLost("foreign");
+        return;
+      }
+      if (state === "missing") {
+        this.markLost("missing");
+        return;
+      }
+      this.info.heartbeatAt = nowIso();
+      await writeAtomic(this.path, serialize(this.info));
+    } catch {
+    }
+  }
+  markLost(reason) {
+    if (this.lost) return;
+    this.lost = true;
     if (this.timer !== null) {
       clearInterval(this.timer);
       this.timer = null;
     }
-    const current = await readLock(this.path);
-    if (current?.pid !== this.info.pid) return;
+    activeLocks.delete(this);
+    try {
+      this.onLostCallback?.(reason);
+    } catch {
+    }
+  }
+  /**
+   * Stop tracking this handle without deciding who owns the file.
+   *
+   * Used when a caller has already observed the lock file and knows this handle
+   * is stale: keeping the heartbeat timer alive would let a dead handle keep
+   * refreshing a file it no longer owns (or would have refreshed).
+   */
+  detach() {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.lost = true;
+    activeLocks.delete(this);
+  }
+  async release() {
+    this.releasing = true;
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    activeLocks.delete(this);
+    if (this.lost) return;
+    if (!await this.verifyOwnership()) return;
     await rm2(this.path, { force: true }).catch(() => {
     });
   }
+  /** Synchronous best-effort release for the process exit hook. */
+  releaseSync() {
+    if (this.lost) return;
+    try {
+      const owner = parseOwner(readFileSync(this.path, "utf8"));
+      if (owner === null || owner.token !== this.info.token || owner.pid !== this.info.pid) return;
+      rmSync(this.path, { force: true });
+    } catch {
+    }
+  }
 };
+function serialize(info) {
+  return JSON.stringify({ v: LOCK_FORMAT_VERSION, ...info });
+}
 
 // src/hub.ts
 function expandHome(value) {
   if (value === "~") return homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) return join3(homedir(), value.slice(2));
+  if (value.startsWith("~/") || value.startsWith("~\\")) return join4(homedir(), value.slice(2));
   return value;
 }
 function resolveHubRoot(configured) {
   const trimmed = configured?.trim();
   if (trimmed !== void 0 && trimmed !== "") return resolve(expandHome(trimmed));
   const dshHome = process.env.DSH_HOME?.trim();
-  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join3(homedir(), ".dsh");
-  return join3(base, "memory-hub");
+  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join4(homedir(), ".dsh");
+  return join4(base, "memory-hub");
 }
-function describeBlocker(path, owner) {
-  if (owner === null) return `another writer holds ${path}`;
-  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host})`;
+function describeBlocker(path, owner, expiresAt) {
+  if (owner === null) return `another writer holds ${path} (unreadable lock file)`;
+  const lease = expiresAt === null ? "" : `, lease expires at ${new Date(expiresAt).toISOString()}`;
+  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host}${lease})`;
 }
 var Hub = class _Hub {
   root;
@@ -12146,6 +12389,12 @@ var Hub = class _Hub {
   /** Explicit `readOnly: true`: the only source that also blocks config edits. */
   forcedReadOnly;
   lock = null;
+  lockOwner = null;
+  lockOwnerExpiresAt = null;
+  lockReclaimed = null;
+  /** Set when another writer took this root over mid-session (lease stolen). */
+  lockLost = false;
+  acquiring = null;
   configSource = null;
   lockAllowed;
   constructor(root, config, forcedReadOnly, readOnlyReason, configSource, lockAllowed) {
@@ -12175,7 +12424,7 @@ var Hub = class _Hub {
       configSource = externalConfigPath ?? void 0;
       await ensureLayout(root);
     } else {
-      const configPath = join3(root, "config.yaml");
+      const configPath = join4(root, "config.yaml");
       config = defaultConfig();
       configSource = configPath;
       await ensureLayout(root);
@@ -12228,14 +12477,150 @@ var Hub = class _Hub {
   canWriteConfig() {
     return !this.forcedReadOnly;
   }
+  /** 写锁诊断（面板 / `memory_status` 用）。 */
+  lockInfo() {
+    const onDisk = this.forcedReadOnly ? "missing" : this.lock !== null ? this.lock.state() : observeLock(this.lockPath(), this.config.storage.lock_stale_ms).state;
+    return {
+      held: this.lock !== null && onDisk === "owned",
+      owner: this.lock === null ? this.lockOwner : null,
+      expiresAt: this.lock !== null ? this.lock.expiresAt : this.lockOwnerExpiresAt,
+      reclaimed: this.lockReclaimed,
+      onDisk
+    };
+  }
+  /**
+   * Re-derive the in-memory read-only flag from the lock file on disk.
+   *
+   * A `lock` degradation is a *cached* judgement: when this hub opened, another
+   * writer held the root. That judgement goes stale the moment the other process
+   * exits, deletes the file, or stops refreshing its heartbeat — and a stale
+   * flag is indistinguishable from a real one for `memory_status` and the panel,
+   * which is exactly how "pid is gone, lock file is gone, but memory still says
+   * locked" happens.
+   *
+   * This is synchronous so read-only report paths (status / overview / config)
+   * can call it without becoming async. It never acquires the lock; a freed root
+   * is simply reported writable, and the next write takes the lock through the
+   * normal compare-and-set path.
+   */
+  revalidateLock() {
+    if (this.forcedReadOnly || this.readOnlySource === "config" || !this.lockAllowed) return;
+    try {
+      const path = this.lockPath();
+      const seen = observeLock(path, this.config.storage.lock_stale_ms, this.lock?.owner.token ?? null);
+      if (this.lock !== null) {
+        if (seen.state === "owned") return;
+        this.lock.releaseSync();
+        this.lock.detach();
+        this.lock = null;
+        if (seen.state === "missing") {
+          this.lockLost = false;
+          this.lockOwner = null;
+          this.lockOwnerExpiresAt = null;
+          this.markWritable();
+          return;
+        }
+        this.lockLost = true;
+        this.lockOwner = seen.owner;
+        this.lockOwnerExpiresAt = seen.expiresAt;
+        this.markReadOnly("lock", `lost the lease on ${path}; another writer took the root over`);
+        return;
+      }
+      if (seen.state === "missing") {
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+        return;
+      }
+      if (seen.owner === null) {
+        this.markReadOnly("lock", describeBlocker(path, null, seen.expiresAt));
+        return;
+      }
+      this.lockOwner = seen.owner;
+      this.lockOwnerExpiresAt = seen.expiresAt;
+      if (seen.reclaimable === null) {
+        this.markReadOnly("lock", describeBlocker(path, seen.owner, seen.expiresAt));
+        return;
+      }
+      this.markWritable();
+    } catch {
+    }
+  }
+  /**
+   * Whether this root may write *right now*.
+   *
+   * This is the recovery path for a degraded root: a hub that lost the lock at
+   * startup (another DSH process was running) re-tries the acquisition on its
+   * next write instead of staying read-only until the next restart. It also
+   * fences the lock: if another writer has taken this root over — the lease
+   * expired, or the lock file was replaced — this hub drops its stale handle and
+   * either takes the lock back (only when it is genuinely free) or reports that
+   * writing is no longer allowed.
+   */
+  async ensureWritable() {
+    if (this.forcedReadOnly) return false;
+    if (this.readOnlySource === "config") return false;
+    if (this.lock !== null) {
+      const state = this.lock.state();
+      if (state === "owned") {
+        if (this.readOnlySource === "lock") this.markWritable();
+        return true;
+      }
+      await this.lock.release();
+      this.lock = null;
+      if (state === "missing") {
+        this.lockLost = false;
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+      } else {
+        this.lockLost = true;
+        this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
+      }
+    }
+    if (!this.lockAllowed) return !this.readOnly;
+    if (this.acquiring !== null) return this.acquiring;
+    const run = this.acquireLock().finally(() => {
+      this.acquiring = null;
+    });
+    this.acquiring = run;
+    return run;
+  }
   async acquireLock() {
     const attempt = await WriterLock.acquire(this.lockPath(), this.config.storage.lock_stale_ms);
+    this.lockReclaimed = attempt.reclaimed;
     if (attempt.lock === null) {
-      this.markReadOnly("lock", describeBlocker(this.lockPath(), attempt.owner));
+      this.lockOwner = attempt.owner;
+      this.lockOwnerExpiresAt = attempt.ownerExpiresAt;
+      const blocker = describeBlocker(this.lockPath(), attempt.owner, attempt.ownerExpiresAt);
+      this.markReadOnly("lock", this.lockLost ? `lost the lease; ${blocker}` : blocker);
       return false;
     }
+    this.lockOwner = null;
+    this.lockOwnerExpiresAt = null;
     this.lock = attempt.lock;
+    this.lockLost = false;
+    attempt.lock.onLost((reason) => {
+      this.lock = null;
+      if (reason === "missing") {
+        this.lockLost = false;
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+        return;
+      }
+      this.lockLost = true;
+      this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
+    });
+    this.markWritable();
     return true;
+  }
+  /** Restore the writable state after `forced`/`config` degradation is gone. */
+  markWritable() {
+    if (this.forcedReadOnly) return;
+    this.readOnly = false;
+    this.readOnlyReason = null;
+    this.readOnlySource = null;
   }
   /**
    * Re-read `config.yaml`. When the previous read-only state came from a bad
@@ -12262,13 +12647,9 @@ var Hub = class _Hub {
     }
   }
   async recoverWrites() {
-    if (this.lockAllowed && this.lock === null) {
-      const acquired = await this.acquireLock();
-      if (!acquired) return;
-    }
-    this.readOnly = this.forcedReadOnly;
-    this.readOnlyReason = this.forcedReadOnly ? "configured read-only" : null;
-    this.readOnlySource = this.forcedReadOnly ? "forced" : null;
+    this.markWritable();
+    if (!this.lockAllowed) return;
+    if (this.lock === null) await this.acquireLock();
   }
   async close() {
     if (this.lock !== null) {
@@ -12278,41 +12659,41 @@ var Hub = class _Hub {
   }
   configPath() {
     if (this.configSource !== null) return this.configSource;
-    return join3(this.root, "config.yaml");
+    return join4(this.root, "config.yaml");
   }
   lockPath() {
-    return join3(this.root, "records", ".writer.lock");
+    return join4(this.root, "records", ".writer.lock");
   }
   ledgerPath() {
-    return join3(this.root, "records", "ledger.jsonl");
+    return join4(this.root, "records", "ledger.jsonl");
   }
   sequencesPath() {
-    return join3(this.root, "records", "sequences.json");
+    return join4(this.root, "records", "sequences.json");
   }
   /** 派生检索索引（可删除、可重建；不是权威数据）。 */
   indexPath() {
-    return join3(this.root, "records", "index.sqlite");
+    return join4(this.root, "records", "index.sqlite");
   }
   pendingDir() {
-    return join3(this.root, "pending");
+    return join4(this.root, "pending");
   }
   pendingArchiveDir() {
-    return join3(this.root, "pending", "archive");
+    return join4(this.root, "pending", "archive");
   }
   pendingPath(id) {
-    return join3(this.pendingDir(), `${id}.md`);
+    return join4(this.pendingDir(), `${id}.md`);
   }
   pendingArchivePath(id) {
-    return join3(this.pendingArchiveDir(), `${id}.md`);
+    return join4(this.pendingArchiveDir(), `${id}.md`);
   }
   knowledgeDir(type) {
-    return join3(this.root, "knowledge", type);
+    return join4(this.root, "knowledge", type);
   }
   knowledgePath(type, id) {
-    return join3(this.knowledgeDir(type), `${id}.md`);
+    return join4(this.knowledgeDir(type), `${id}.md`);
   }
   historyPath(type, id, version) {
-    return join3(this.root, "history", type, `${id}@v${version}.md`);
+    return join4(this.root, "history", type, `${id}@v${version}.md`);
   }
   displayRoot() {
     const home = homedir();
@@ -12331,20 +12712,20 @@ async function ensureLayout(root) {
   try {
     await ensureDir(root);
     for (const type of KNOWLEDGE_TYPES) {
-      await ensureDir(join3(root, "knowledge", type));
+      await ensureDir(join4(root, "knowledge", type));
     }
-    await ensureDir(join3(root, "pending", "archive"));
-    await ensureDir(join3(root, "history"));
-    await ensureDir(join3(root, "records"));
+    await ensureDir(join4(root, "pending", "archive"));
+    await ensureDir(join4(root, "history"));
+    await ensureDir(join4(root, "records"));
   } catch (error) {
     throw new MemoryError("STORAGE_ERROR", `cannot initialize memory hub at ${root}: ${error.message}`);
   }
 }
 
 // src/store.ts
-import { readFileSync } from "node:fs";
-import { readdir, readFile as readFile5, stat as stat2 } from "node:fs/promises";
-import { basename as basename2, join as join4, relative, sep } from "node:path";
+import { readFileSync as readFileSync2 } from "node:fs";
+import { readdir, readFile as readFile5, stat as stat3 } from "node:fs/promises";
+import { basename as basename3, join as join5, relative, sep } from "node:path";
 
 // src/frontmatter.ts
 var import_yaml2 = __toESM(require_dist(), 1);
@@ -13443,7 +13824,7 @@ var KnowledgeStore = class {
     const parsed = [];
     for (const { type, dir, files } of knowledgeFiles) {
       for (const file of files) {
-        const path = join4(dir, file);
+        const path = join5(dir, file);
         try {
           const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
           if (record.type !== type) {
@@ -13480,7 +13861,7 @@ var KnowledgeStore = class {
     const pendingFiles = (await readdirSafe(this.hub.pendingDir())).filter((file) => file.endsWith(".md") && PROPOSAL_ID_PATTERN.test(file.slice(0, -3))).sort((left, right) => right.localeCompare(left));
     for (const [index, file] of pendingFiles.entries()) {
       const id = file.slice(0, -3);
-      const path = join4(this.hub.pendingDir(), file);
+      const path = join5(this.hub.pendingDir(), file);
       if (index >= PENDING_EAGER_LIMIT) {
         this.pendingBacklog.set(id, path);
         this.bumpSequence("PRO", sequenceOf(id));
@@ -13546,7 +13927,7 @@ var KnowledgeStore = class {
     const path = this.pendingBacklog.get(id);
     if (path === void 0) return null;
     try {
-      const proposal = parseProposalFile(readFileSync(path, "utf8"), path);
+      const proposal = parseProposalFile(readFileSync2(path, "utf8"), path);
       this.proposals.set(proposal.id, proposal);
       this.pendingBacklog.delete(id);
       return proposal;
@@ -13580,7 +13961,7 @@ var KnowledgeStore = class {
     };
   }
   async propose(input, options) {
-    this.assertWritable();
+    await this.assertWritable();
     const now = nowIso();
     const title = input.title.trim();
     const summary = input.summary.trim();
@@ -13730,7 +14111,7 @@ var KnowledgeStore = class {
     return proposal;
   }
   async commit(proposalId, approvalRef = "dsh:approval") {
-    this.assertWritable();
+    await this.assertWritable();
     const proposal = this.proposals.get(proposalId);
     if (proposal === void 0) {
       throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
@@ -13790,7 +14171,7 @@ var KnowledgeStore = class {
   async knowledgeFingerprint(count) {
     let maxMtime = 0;
     for (const type of Object.keys(TYPE_PREFIX)) {
-      const info = await stat2(this.hub.knowledgeDir(type)).catch(() => null);
+      const info = await stat3(this.hub.knowledgeDir(type)).catch(() => null);
       if (info !== null) maxMtime = Math.max(maxMtime, Math.floor(info.mtimeMs));
     }
     return `${count}:${maxMtime}`;
@@ -13802,7 +14183,7 @@ var KnowledgeStore = class {
   }
   /** 拒绝候选：归档为 rejected 并记一条 proposal.rejected 账本事件。 */
   async reject(proposalId, reason) {
-    this.assertWritable();
+    await this.assertWritable();
     const proposal = this.proposals.get(proposalId);
     if (proposal === void 0) {
       throw new MemoryError("NOT_FOUND", `proposal ${proposalId} does not exist`);
@@ -14015,7 +14396,7 @@ var KnowledgeStore = class {
     this.proposals.set(proposal.id, archived);
   }
   async consolidate(options) {
-    this.assertWritable();
+    await this.assertWritable();
     const created = [];
     let skipped = 0;
     const targetScope = parseScope(options.targetScope);
@@ -14097,9 +14478,9 @@ var KnowledgeStore = class {
     };
   }
   async refreshPath(path) {
-    const info = await stat2(path).catch(() => null);
+    const info = await stat3(path).catch(() => null);
     if (info === null) {
-      const touchedKnowledge = isUnder(join4(this.hub.root, "knowledge"), path);
+      const touchedKnowledge = isUnder(join5(this.hub.root, "knowledge"), path);
       this.removePath(path);
       if (touchedKnowledge) await this.refreshIndexFingerprint();
       return;
@@ -14115,7 +14496,7 @@ var KnowledgeStore = class {
       }
       return;
     }
-    if (!isUnder(join4(this.hub.root, "knowledge"), path)) return;
+    if (!isUnder(join5(this.hub.root, "knowledge"), path)) return;
     try {
       const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
       this.docs.set(record.id, record);
@@ -14127,7 +14508,7 @@ var KnowledgeStore = class {
     await this.refreshIndexFingerprint();
   }
   removePath(path) {
-    const name2 = basename2(path);
+    const name2 = basename3(path);
     const id = name2.endsWith(".md") ? name2.slice(0, -3) : name2;
     if (this.docs.has(id)) {
       this.docs.delete(id);
@@ -14146,15 +14527,24 @@ var KnowledgeStore = class {
   async allocate(key) {
     const next = (this.sequences[key] ?? 0) + 1;
     this.sequences[key] = next;
-    await ensureDir(join4(this.hub.root, "records"));
+    await ensureDir(join5(this.hub.root, "records"));
     await writeAtomic(this.hub.sequencesPath(), `${JSON.stringify(this.sequences, null, 2)}
 `);
     return next;
   }
-  assertWritable() {
-    if (this.hub.readOnly) {
-      throw new MemoryError("READ_ONLY", this.hub.readOnlyReason ?? "memory hub is read-only");
-    }
+  /**
+   * Write gate for every mutation.
+   *
+   * It is async because the writer lock is a lease: a hub that started read-only
+   * (another DSH process was running, or this process crashed and was restarted
+   * while the old lock was still fresh) re-tries the acquisition here, and a hub
+   * whose lease was stolen re-verifies ownership before touching any file. That
+   * makes lock recovery lazy and automatic instead of requiring a restart or a
+   * manual `rm .writer.lock`.
+   */
+  async assertWritable() {
+    if (await this.hub.ensureWritable()) return;
+    throw new MemoryError("READ_ONLY", this.hub.readOnlyReason ?? "memory hub is read-only");
   }
   static relativePath(root, path) {
     return relative(root, path).replace(/\\/g, "/");
@@ -14176,7 +14566,7 @@ function truncate(value, max) {
 }
 
 // src/ledger.ts
-import { open as open3, writeFile as writeFile2 } from "node:fs/promises";
+import { open as open3, writeFile } from "node:fs/promises";
 import { dirname as dirname4 } from "node:path";
 function emptyState() {
   return {
@@ -14199,7 +14589,7 @@ var Ledger = class {
       const cut = content.lastIndexOf("\n");
       content = cut >= 0 ? content.slice(0, cut + 1) : "";
       if (options.repair !== false && content !== raw) {
-        await writeFile2(this.file, content, "utf8");
+        await writeFile(this.file, content, "utf8");
       }
     }
     const state = emptyState();
@@ -14312,7 +14702,7 @@ import { realpath } from "node:fs/promises";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.7.0",
+  version: "0.7.1",
   description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Every hub root gets a generated README that explains each folder.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -14394,7 +14784,7 @@ var package_default = {
 };
 
 // src/service.ts
-import { isAbsolute, join as join5, relative as relative2, sep as sep2 } from "node:path";
+import { isAbsolute, join as join6, relative as relative2, sep as sep2 } from "node:path";
 var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/maintenance.ts
@@ -14758,7 +15148,7 @@ function renderMaintenanceReport(input) {
     "",
     "| workspace | accepted | pending |",
     "| --- | ---: | ---: |",
-    ...input.analysis.workspaceStats.map((stat3) => `| ${stat3.id} | ${stat3.accepted} | ${stat3.pending} |`),
+    ...input.analysis.workspaceStats.map((stat4) => `| ${stat4.id} | ${stat4.accepted} | ${stat4.pending} |`),
     "",
     "## Created proposals",
     "",
@@ -14930,7 +15320,7 @@ function assessProposalRisk(input) {
 
 // src/reflect.ts
 import { createHash as createHash2 } from "node:crypto";
-import { readFile as readFile6, writeFile as writeFile3 } from "node:fs/promises";
+import { readFile as readFile6, writeFile as writeFile2 } from "node:fs/promises";
 
 // src/distill.ts
 import { resolve as resolve2 } from "node:path";
@@ -15423,7 +15813,7 @@ var ReflectStateFile = class {
   async mark(entry) {
     if (!this.loaded) await this.load();
     this.state.sessions = [entry, ...this.state.sessions.filter((item) => item.sessionId !== entry.sessionId)].slice(0, this.limit);
-    await writeFile3(this.file, `${JSON.stringify(this.state, null, 2)}
+    await writeFile2(this.file, `${JSON.stringify(this.state, null, 2)}
 `, "utf8");
   }
 };
@@ -16735,7 +17125,7 @@ var MemoryService = class {
     const errors = [];
     let skipped = 0;
     let truncated = 0;
-    if (apply2 === "propose" && this.hub.readOnly) {
+    if (apply2 === "propose" && !await this.hub.ensureWritable()) {
       errors.push(`hub is read-only: ${this.hub.readOnlyReason ?? "unknown reason"}`);
     } else if (apply2 === "propose") {
       const pendingTags = /* @__PURE__ */ new Set();
@@ -16768,8 +17158,8 @@ var MemoryService = class {
     }
     const generatedAt = nowIso();
     const stamp = generatedAt.replace(/[:.]/g, "-");
-    const reportPath = join5(this.hub.root, "reports", `${stamp}.md`);
-    const latestPath = join5(this.hub.root, "reports", "latest.md");
+    const reportPath = join6(this.hub.root, "reports", `${stamp}.md`);
+    const latestPath = join6(this.hub.root, "reports", "latest.md");
     const report = renderMaintenanceReport({
       root: this.hub.displayRoot(),
       coreId: args.coreId,
@@ -16840,6 +17230,9 @@ var MemoryService = class {
     return false;
   }
   overview() {
+    this.hub.revalidateLock();
+    this.parent?.hub.revalidateLock();
+    for (const ancestor of this.parents) ancestor.hub.revalidateLock();
     const citations = this.citationIndex();
     const describe = (record, core, policy = this.hub.config.policy.temporal) => ({
       id: record.id,
@@ -16932,6 +17325,9 @@ var MemoryService = class {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       readOnlySource: this.hub.readOnlySource,
+      // 写锁是租约：`lock.expiresAt` 之后其他写者可以接管，`lock.reclaimed`
+      // 记录本次是否回收了残留锁。两者让“卡死”变成可观察、可自愈的状态。
+      lock: this.hub.lockInfo(),
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       coreId: this.coreId,
@@ -17014,6 +17410,7 @@ var MemoryService = class {
     };
   }
   config() {
+    this.hub.revalidateLock();
     return {
       readOnly: this.hub.readOnly,
       // config.yaml is written atomically and does not need the knowledge writer
@@ -17090,6 +17487,9 @@ var MemoryService = class {
     }
   }
   status(agent) {
+    this.hub.revalidateLock();
+    this.parent?.hub.revalidateLock();
+    for (const ancestor of this.parents) ancestor.hub.revalidateLock();
     const workspace = agent === void 0 ? null : this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent);
     return {
       version: PLUGIN_VERSION,
@@ -17098,6 +17498,8 @@ var MemoryService = class {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       readOnlySource: this.hub.readOnlySource,
+      // 写锁租约诊断：谁在挡、租约何时到期、上次回收了什么残留锁。
+      lock: this.hub.lockInfo(),
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       workspace: workspace === null || !workspace.registered ? null : {
@@ -18216,6 +18618,7 @@ var MemoryRuntime = class {
     return pack.service;
   }
   status(agent) {
+    this.configHub?.revalidateLock();
     if (this.initError !== null) {
       return {
         version: PLUGIN_VERSION,
@@ -18236,6 +18639,7 @@ var MemoryRuntime = class {
   startMaintenanceTimer() {
     if (this.configHub === null) return;
     const tick = () => {
+      this.revalidateHubs();
       void this.runScheduledMaintenance();
     };
     const timer = setInterval(tick, 6e4);
@@ -18248,6 +18652,22 @@ var MemoryRuntime = class {
       }
     });
     tick();
+  }
+  /**
+   * Keep every Hub's cached read-only flag in sync with the lock files on disk.
+   *
+   * A `lock` degradation is a snapshot of "another writer held this root when we
+   * opened". Without a periodic refresh that snapshot outlives reality: the other
+   * process exits, its lock file disappears, and the panel still shows read-only
+   * because nothing re-reads the flag. Revalidation is a cheap `stat` + `readFile`
+   * per root, once a minute.
+   */
+  revalidateHubs() {
+    const hubs = /* @__PURE__ */ new Set();
+    if (this.configHub !== null) hubs.add(this.configHub);
+    for (const pack of this.cores.values()) hubs.add(pack.hub);
+    if (this.fallback !== null) hubs.add(this.fallback.hub);
+    for (const hub of hubs) hub.revalidateLock();
   }
   /** Host `schedule` 服务（可选）：缺失时定时蒸馏只记录诊断，不影响插件其他功能。 */
   scheduleService() {
@@ -18407,7 +18827,7 @@ var MemoryRuntime = class {
     }
   }
   maintenanceStatePath() {
-    return join6(this.configHub?.root ?? "", "records", "maintenance-state.json");
+    return join7(this.configHub?.root ?? "", "records", "maintenance-state.json");
   }
   async readMaintenanceState() {
     try {
@@ -18469,7 +18889,7 @@ var MemoryRuntime = class {
     const store = new KnowledgeStore(hub, ledger);
     await store.load();
     const query = this.sessionQueryService();
-    const reflectState = new ReflectStateFile(join6(hub.root, "records", "reflect-state.json"));
+    const reflectState = new ReflectStateFile(join7(hub.root, "records", "reflect-state.json"));
     if (!hub.readOnly) await reflectState.load();
     const service = new MemoryService({
       ctx: this.ctx,
@@ -19096,7 +19516,7 @@ var MemoryRuntime = class {
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return;
-          const path = join6(root, filename);
+          const path = join7(root, filename);
           this.schedule(path);
         });
         handle.on("error", (error) => {
@@ -19120,7 +19540,7 @@ var MemoryRuntime = class {
   }
   async handleChange(path) {
     if (this.configHub === null) return;
-    if (basename3(path) === "config.yaml") {
+    if (basename4(path) === "config.yaml") {
       if (this.configHub.configPath() === path) {
         await this.configHub.reloadConfig();
         await this.reconfigureCores();

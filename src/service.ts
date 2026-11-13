@@ -1643,7 +1643,7 @@ export class MemoryService {
     let skipped = 0
     let truncated = 0
 
-    if (apply === 'propose' && this.hub.readOnly) {
+    if (apply === 'propose' && !(await this.hub.ensureWritable())) {
       errors.push(`hub is read-only: ${this.hub.readOnlyReason ?? 'unknown reason'}`)
     } else if (apply === 'propose') {
       const pendingTags = new Set<string>()
@@ -1763,6 +1763,9 @@ export class MemoryService {
   }
 
   overview(): Record<string, unknown> {
+    this.hub.revalidateLock()
+    this.parent?.hub.revalidateLock()
+    for (const ancestor of this.parents) ancestor.hub.revalidateLock()
     const citations = this.citationIndex()
     interface KnowledgeRow {
       id: string
@@ -1889,6 +1892,9 @@ export class MemoryService {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       readOnlySource: this.hub.readOnlySource,
+      // 写锁是租约：`lock.expiresAt` 之后其他写者可以接管，`lock.reclaimed`
+      // 记录本次是否回收了残留锁。两者让“卡死”变成可观察、可自愈的状态。
+      lock: this.hub.lockInfo(),
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       coreId: this.coreId,
@@ -1979,6 +1985,7 @@ export class MemoryService {
   }
 
   config(): Record<string, unknown> {
+    this.hub.revalidateLock()
     return {
       readOnly: this.hub.readOnly,
       // config.yaml is written atomically and does not need the knowledge writer
@@ -2068,6 +2075,11 @@ export class MemoryService {
   }
 
   status(agent?: AgentLike): Record<string, unknown> {
+    // The read-only flag is a cached judgement about the lock file; refresh it
+    // before reporting so a released/deleted lock does not keep saying "locked".
+    this.hub.revalidateLock()
+    this.parent?.hub.revalidateLock()
+    for (const ancestor of this.parents) ancestor.hub.revalidateLock()
     const workspace = agent === undefined
       ? null
       : this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent)
@@ -2078,6 +2090,8 @@ export class MemoryService {
       readOnly: this.hub.readOnly,
       readOnlyReason: this.hub.readOnlyReason,
       readOnlySource: this.hub.readOnlySource,
+      // 写锁租约诊断：谁在挡、租约何时到期、上次回收了什么残留锁。
+      lock: this.hub.lockInfo(),
       configWritable: this.hub.canWriteConfig(),
       configError: this.hub.configError,
       workspace: workspace === null || !workspace.registered

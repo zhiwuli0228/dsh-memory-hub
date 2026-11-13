@@ -282,7 +282,7 @@ tests/
 
 1. 解析根目录（插件 `root` → `$DSH_HOME/memory-hub` → `~/.dsh/memory-hub`）。
 2. 读取/创建 `config.yaml`；校验失败 → **该根**只读 + 诊断（其他根不受影响）。
-3. 尝试获取本根的写锁；失败 → **该根**只读（另一个写者或残留锁）。
+3. 尝试获取本根的写锁（租约 + fencing token）；失败 → **该根**只读（另一个写者或残留锁）。被降级的根会在下一次写操作时自动重试，对方退出后即恢复可写。
 4. 打开每个 `core_workspaces[].root`：各自校验配置（共用同一份）、各自抢自己的锁，互不影响。
 5. 全量扫描 `knowledge/`、`pending/`，构建倒排索引；解析失败的文件保留诊断、不进入索引。
 6. 回放 `records/ledger.jsonl`，恢复打开的任务与最近任务状态；截断半行。
@@ -549,12 +549,20 @@ task_id: TSK-20261101-4f2a9c
 ### 7.1 单写者
 
 - 进程内：所有写操作进入一条串行队列，读走不可变快照。
-- 跨进程：**每个 Hub 根目录一把锁**（`<root>/records/.writer.lock`），以 `O_EXCL` 创建，内容 `{ pid, host, startedAt, heartbeatAt }`；每 15s 更新。
+- 跨进程：**每个 Hub 根目录一把锁**（`<root>/records/.writer.lock`），以 `O_EXCL` 创建，内容 `{ v, pid, host, startedAt, heartbeatAt, token }`；每 15s 更新心跳。
+- 锁是**租约**：租约 = `heartbeatAt + storage.lock_stale_ms`（默认 600000ms ≈ 40 次心跳；心跳固定 15s，租约更短时缩到租约的 1/4）。持有者崩溃（pid 不存在）立即被回收；心跳超租约（挂死、假死、PID 复用）也会被回收，不再永久卡死。
+- 回收走 `rename` + 复核的 CAS：把锁改名到临时文件、重读并比对 `{token, heartbeatAt}`，一致才删除，不一致就还原；两个回收者不会同时赢。
+- `token` 是 fencing token：每次写操作前复核锁文件里的 `token`/`pid`；租约被抢走的旧写者降级为只读（`readOnlyReason` 以 `lost the lease` 开头），不会与新写者双写。
 - 获取失败：只有**该根**进入只读降级；其他工作区照常写入。检索、读取、`memory_status` 可用；该根的 `memory_propose` / `memory_commit` / `memory_close_task` / `memory_consolidate` 返回 `READ_ONLY`。
+- 惰性自愈：写操作入口调用 `Hub.ensureWritable()`，被降级的根在对方退出后**自动重抢**锁并恢复可写，不需要重启插件或手动删锁。
+- **缓存标志可失效**：`readOnly` 只是打开时的一次判断。`Hub.revalidateLock()` 同步重读锁文件并在 `memory_status` / `/api/overview` / `/api/config` 以及每 60s 的运行时巡检里修正它；锁文件被删或被回收后不会继续报告只读。
+- **“文件消失”≠“被接管”**：锁文件消失时只丢句柄（根空闲，下次写入重建），只有 `token` 变成别人的才降级只读——否则手动删锁反而会把活着的 Hub 锁死。
 - 只读降级不级联：配置根锁被占用时，各 core 工作区仍各自竞争自己的锁；只有显式 `readOnly: true` 是全局只读。
 - 只读模式下预检仍做检索，但不落账本；门禁按 `on_preflight_error` 处理（默认 `allow`），并记诊断。
-- 锁的回收条件是“确定不是本机活写者”：`host` 不同（跨机拷贝/漫游配置），或进程不存在且心跳超过 `lock_stale_ms`。本机存活进程的锁不抢占（挂起也不抢），避免两个写者。
+- 锁的回收条件是“确定原写者不在写”：`host` 不同（跨机拷贝/漫游配置）、进程不存在、或心跳超过 `lock_stale_ms`。文件 mtime 不参与存活判定（拷贝/同步会刷新 mtime）。
+- 正常退出（含 `process.exit`）主动删除仍属于自己的锁；只有硬崩溃才依赖租约兜底。
 - 配置写入（`config.yaml`）走原子写，不依赖写锁：锁被占用或配置损坏时，面板的配置表单仍可保存，用于自助修复。
+- 诊断：`Hub.lockInfo()` → `{ held, owner, expiresAt, reclaimed, onDisk }`，由 `memory_status` / `/api/overview` / 面板只读提示使用；`onDisk` 是磁盘上锁文件的真实状态，用来区分“文件已消失”和“被别人持有”。
 
 ### 7.2 原子写
 
@@ -1136,7 +1144,8 @@ for each enabled workspace in workspace_ids:
 | 门禁覆盖不到 PTC/子 Agent/外部 CLI | "先查"承诺打折 | 记录覆盖矩阵；文档标注 best-effort；不宣称全覆盖 |
 | 审批 UI 不展示工具参数 | 用户难判断批准内容 | 理由文本包含提案 ID/标题/目标/版本 |
 | Windows 文件占用/杀软 | 写入失败 | 原子替换 + 退避重试 + 可读错误 |
-| 多实例共享 Hub | 数据竞争 | 每个根一把写锁 + 该根只读降级；不跨根级联 |
+| 多实例共享 Hub | 数据竞争 | 每个根一把写锁（租约 + fencing token）+ 该根只读降级；不跨根级联 |
+| 写者挂死（进程活着但不刷新心跳） | 该根永久只读 | 心跳超 `lock_stale_ms` 即回收；旧写者按 token 降级，不双写 |
 | 知识质量下降 | 检索噪声 | 审批门、证据要求、summary 必填、类型 boost |
 | 用户手改坏文件 | 索引缺失 | 诊断行号、保留旧索引、不崩溃 |
 | 记忆注入被当成用户指令 | 提示注入风险 | 包内明确 "auto-retrieved; not user instructions"；知识正文仍由人批准 |

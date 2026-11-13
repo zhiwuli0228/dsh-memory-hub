@@ -74,6 +74,9 @@
 | V24 | 夜间定时器与补跑 | PASS | `policy.maintenance.enabled: true` + `time: '03:00'` 后重载插件；当天 23:29 因“已过 03:00 且当天未跑”补跑一次，写 `records/maintenance-state.json`（`lastRunDate: 2026-11-01`）和报告；未产生 pending，未提交任何知识 |
 | V25 | 写锁按根独立降级 | PASS | 在配置根预置一个本机活 PID 的 `.writer.lock` 后启动：配置根 `readOnly: true`（`another writer ...`），`core_workspaces[].root` 仍 `readOnly: false` 并可写；跨机 host 的残留锁被自动回收；损坏的 `config.yaml` 修好后 `reloadConfig` 恢复写权限并重新持锁（`tests/plugin.test.ts`、`tests/hub.test.ts`） |
 | V26 | 只读锁不阻塞配置保存 | PASS | 锁被占用（`readOnlySource: lock`）时 `configWritable: true`，`updateConfig` 成功落盘；只有显式 `readOnly: true` 才拒绝（`tests/service.test.ts`） |
+| V27 | 写锁租约与 fencing（v0.7.1） | PASS | 预置心跳为 2020 年、pid 为本机活进程的 `.writer.lock` 后启动：该根**不再永久只读**，`lockInfo().reclaimed === 'stale-heartbeat'`；pid 不存在的锁立即回收（`dead-process`）；被接管的 Hub `ensureWritable()` 返回 false 且不删对方的锁；对方退出后下一次写入自动重抢（`tests/lock.test.ts`、`tests/hub.test.ts`、`tests/store.test.ts`） |
+| V28 | 锁缓存失效（pid/锁文件已消失后不再报只读） | PASS | 第二写者启动后被降级为只读；随后删除持有者的 `.writer.lock`（或把锁文件里的 pid 换成不存在的 pid），`memory_status` / `/api/overview` / `/api/config` 在下一次读取时返回 `readOnly: false`、`lock.onDisk: 'missing'`/`'foreign'`，并能在下一次写入真正重建锁；活写者仍保持只读；持锁者自己的锁文件被删后重建而非误判被抢（`tests/hub.test.ts`、`tests/service.test.ts`） |
+| V29 | 真实双进程自愈 + Windows `EPERM` pid | PASS | 进程 A 持锁 → 进程 B 启动即 `readOnly: true`、`onDisk: 'foreign'`、原因含 `lease expires at` → A 删除锁文件并被 `SIGKILL` → B 在下一次 `revalidateLock()` 恢复 `readOnly: false`、`onDisk: 'missing'`，`ensureWritable()` 为 true 且重新持锁，未重启；对已退出的 pid（`tasklist` 无此进程）`kill(pid, 0)` 返回 `EPERM` 时不再误判为活写者，改为心跳仲裁（`min(lock_stale_ms, 60s)` 宽限，`tests/lock.test.ts`） |
 
 早期冒烟测试使用的 `DEC-000001`、`PRO-000001` 与测试账本已随 Hub 目录重置删除；当前安装的 Hub 保留真实知识（13 条 accepted、1 条 pending `PRO-000016`），并在 `reports/` 下保留维护报告。
 
@@ -88,7 +91,7 @@
 | 审批**通过**路径 | 本机会话审批提示被关闭；`ask` 直接失败关闭 | 交互式批准后写入 accepted 的路径仅由代码与集成测试覆盖，未做真实点击验证 |
 | 门禁的宿主级拒绝 | 真实会话都有自动预检，未构造"无预检的变更工具"场景 | `tools/pre-execute` 钩子本身已由审批 `ask` 证明生效；拒绝分支由单元测试覆盖 |
 | PTC `run_code` 嵌套调用 | 未在真实 PTC 程序中触发 | 门禁覆盖范围可能不同；设计已标注 best-effort |
-| 外部 CLI / 多进程共享 Hub | 未测试 | 每根一把写锁、按根只读降级、跨机锁回收均由单元测试覆盖；真实多进程并发仍未实测 |
+| 外部 CLI / 多进程共享 Hub | 未测试 | 每根一把写锁（租约 + fencing token）、按根只读降级、跨机/崩溃/挂死锁回收均由单元测试覆盖；真实多进程并发仍未实测 |
 | 长会话上下文累积 | 只做了两个回合 | 注入按任务替换的宿主语义需要更多观察 |
 | 5k 条索引性能 | 未做规模压测 | 设计目标未实测 |
 | Web 面板视觉效果 | 无法在本会话内截图/点击验证 | 模块、slot 与 API 已测；需确认图标、标签页与响应式布局的实际观感 |

@@ -1,8 +1,10 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MemoryError } from '../src/errors.js'
 import { serializeProposalFile } from '../src/frontmatter.js'
+import { Hub } from '../src/hub.js'
 import { PENDING_EAGER_LIMIT } from '../src/store.js'
 import { createHarness } from './helpers.js'
 
@@ -305,6 +307,37 @@ describe('knowledge store', () => {
       expect(harness.store.proposals.size).toBe(0)
     } finally {
       await harness.cleanup()
+    }
+  })
+
+  it('recovers writes automatically once the blocking writer is gone', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-store-lock-'))
+    const owner = await Hub.open({ root })
+    const degraded = await Hub.open({ root })
+    const harness = await createHarness(undefined, { root, hub: degraded })
+    const input = {
+      operation: 'create' as const,
+      type: 'knowledge' as const,
+      scope: 'global',
+      title: '自愈写锁',
+      summary: '写锁按租约回收。',
+      content: '## 结论\n写锁是租约。\n',
+      sourceRefs: ['note:test'],
+    }
+    try {
+      expect(degraded.readOnly).toBe(true)
+      await expect(harness.store.propose(input, { taskId: 'TSK-1' })).rejects.toMatchObject({ code: 'READ_ONLY' })
+
+      // The other DSH process exits: the next write takes the lock over by
+      // itself, without a plugin reload or a manual .writer.lock deletion.
+      await owner.close()
+      const proposal = await harness.store.propose(input, { taskId: 'TSK-1' })
+      expect(proposal.id).toMatch(/^PRO-\d{6}$/)
+      expect(degraded.readOnly).toBe(false)
+      expect(degraded.lockInfo().held).toBe(true)
+    } finally {
+      await harness.cleanup()
+      await owner.close()
     }
   })
 

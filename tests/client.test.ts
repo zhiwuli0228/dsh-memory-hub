@@ -15,6 +15,20 @@ interface ClientSpec {
 }
 
 describe('client bundle', () => {
+  it('polls the read-only slice so the banner cannot stay stale', () => {
+    // The panel is read-only and long-lived. A competing writer exiting must not
+    // leave "只读" on screen until the user reopens the panel, so the bundle
+    // re-fetches the overview on a timer and only re-renders when the lock
+    // signature changed.
+    const code = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(code).toContain('STATUS_POLL_MS')
+    expect(code).toContain('setInterval')
+    expect(code).toContain('cache: \'no-store\'')
+    const poll = code.slice(code.indexOf('STATUS_POLL_MS'))
+    expect(poll).toContain('sameLock')
+    expect(poll).toContain('readOnlyReason')
+  })
+
   it('registers the sidebar entry and its main panel', () => {
     const captured: { spec: ClientSpec | null } = { spec: null }
     const window = {

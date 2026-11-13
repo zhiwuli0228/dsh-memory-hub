@@ -1,5 +1,5 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Hub } from '../src/hub.js'
@@ -596,6 +596,78 @@ describe('memory service', () => {
       expect(state?.pack).toContain('核心仓决策')
     } finally {
       await harness.cleanup()
+    }
+  })
+
+  it('stops reporting read-only once the competing lock is gone', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-stale-status-'))
+    const owner = await Hub.open({ root })
+    const degraded = await Hub.open({ root })
+    const harness = await createHarness(undefined, { root, hub: degraded })
+    try {
+      const blocked = harness.service.status(harness.agent) as {
+        readOnly: boolean
+        readOnlySource: string | null
+        lock: { held: boolean; onDisk: string }
+      }
+      expect(blocked.readOnly).toBe(true)
+      expect(blocked.readOnlySource).toBe('lock')
+      expect(blocked.lock.held).toBe(false)
+      expect(blocked.lock.onDisk).toBe('foreign')
+
+      // The other DSH process is gone and its lock file with it. Without a
+      // revalidation the in-memory judgement would keep reporting read-only.
+      await rm(join(root, 'records', '.writer.lock'), { force: true })
+
+      const recovered = harness.service.status(harness.agent) as {
+        readOnly: boolean
+        readOnlyReason: string | null
+        readOnlySource: string | null
+        lock: { held: boolean; onDisk: string }
+      }
+      expect(recovered.readOnly).toBe(false)
+      expect(recovered.readOnlyReason).toBeNull()
+      expect(recovered.readOnlySource).toBeNull()
+      expect(recovered.lock.onDisk).toBe('missing')
+      expect(recovered.lock.held).toBe(false)
+
+      // The panel reads the same state through config()/overview().
+      expect((harness.service.config() as { readOnly: boolean }).readOnly).toBe(false)
+      const overview = harness.service.overview() as { readOnly: boolean; lock: { onDisk: string } }
+      expect(overview.readOnly).toBe(false)
+      expect(overview.lock.onDisk).toBe('missing')
+    } finally {
+      await harness.cleanup()
+      await owner.close()
+    }
+  })
+
+  it('reports writable again after the lock lease expires', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lease-status-'))
+    const owner = await Hub.open({ root })
+    const degraded = await Hub.open({ root })
+    const harness = await createHarness(undefined, { root, hub: degraded })
+    try {
+      expect((harness.service.status(harness.agent) as { readOnly: boolean }).readOnly).toBe(true)
+
+      // A hung owner: pid still exists, heartbeat is far in the past.
+      await writeFile(
+        join(root, 'records', '.writer.lock'),
+        JSON.stringify({
+          pid: process.pid,
+          host: hostname(),
+          startedAt: '2020-01-01T00:00:00.000Z',
+          heartbeatAt: '2020-01-01T00:00:00.000Z',
+          token: 'b'.repeat(16),
+        }),
+        'utf8',
+      )
+      const status = harness.service.status(harness.agent) as { readOnly: boolean; lock: { onDisk: string } }
+      expect(status.readOnly).toBe(false)
+      expect(status.lock.onDisk).toBe('foreign')
+    } finally {
+      await harness.cleanup()
+      await owner.close()
     }
   })
 

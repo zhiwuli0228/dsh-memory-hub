@@ -18,6 +18,12 @@
   const API_PENDING = '/dsh-memory-hub/api/pending';
   const API_SESSIONS = '/dsh-memory-hub/api/sessions';
 
+  // The panel is read-only and long-lived; the host's read-only state can change
+  // while it is open (a competing writer exits, its lock lease expires, or the
+  // lock file is deleted). Poll just that slice of the overview so the banner and
+  // the "只读" pill do not stay stuck on a stale snapshot.
+  const STATUS_POLL_MS = 30_000;
+
   const ZH = {
     title: '记忆中枢',
     subtitle: '本地优先的长期记忆：每个回合自动预检，候选需要人工批准后才生效。',
@@ -597,6 +603,33 @@
       useEffect(() => {
         void load();
       }, [load]);
+      // Background poll of the read-only slice only: re-render when the lock
+      // state actually changed, and never blank a working panel on failure.
+      useEffect(() => {
+        let cancelled = false;
+        const timer = setInterval(() => {
+          const url = core ? `${API_OVERVIEW}?core=${encodeURIComponent(core)}` : API_OVERVIEW;
+          fetch(url, { cache: 'no-store' })
+            .then((response) => (response.ok ? response.json() : null))
+            .then((data) => {
+              if (cancelled || data === null) return;
+              setState((current) => {
+                if (current.data === null) return current;
+                const before = current.data;
+                const sameLock =
+                  before.readOnly === data.readOnly &&
+                  (before.readOnlyReason || null) === (data.readOnlyReason || null) &&
+                  JSON.stringify(before.lock || null) === JSON.stringify(data.lock || null);
+                return sameLock ? current : { phase: current.phase, data, error: current.error };
+              });
+            })
+            .catch(() => {});
+        }, STATUS_POLL_MS);
+        return () => {
+          cancelled = true;
+          clearInterval(timer);
+        };
+      }, [core]);
       return { state, load };
     }
 
