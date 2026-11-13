@@ -4,7 +4,7 @@
 
 ## 当前阶段
 
-V0.7.1 已发布：**写锁租约 + fencing，只读状态可自愈**——修复两个会被用户感知为“插件坏了”的问题：(1) 挂死/冻结的写者（进程还在、线程已死）会让某个 hub 根**永久只读**；(2) 只读状态是 Hub 打开时的**一次性缓存**，pid 已消失、锁文件已删除后 `memory_status` 与面板仍显示只读，只能重启。现在写锁是租约（心跳 15s、租约 `lock_stale_ms`）：pid 确定不存在（`ESRCH`）立即回收、探不到死活（Windows 常见 `EPERM`）约 60 秒回收、心跳超租约自动回收，旧写者按 `token` 降级为只读；`Hub.revalidateLock()` 在 `memory_status`、面板 `/api/overview`/`/api/config` 与 60 秒巡检中重新推导只读状态，面板自身每 30 秒轮询只读切片。**不再需要手动删除 `.writer.lock`。** 详见 [ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)。
+V0.7.1 已发布：**写锁租约 + fencing，只读状态可自愈**——修复两个会被用户感知为“插件坏了”的问题：(1) 挂死/冻结的写者（进程还在、线程已死）会让某个 hub 根**永久只读**；(2) 只读状态是 Hub 打开时的**一次性缓存**，pid 已消失、锁文件已删除后 `memory_status` 与面板仍显示只读，只能重启。现在写锁是租约（心跳 15s、租约 `lock_stale_ms`）：pid 确定不存在（`ESRCH`）立即回收、探不到死活（Windows 常见 `EPERM`）约 60 秒回收、心跳超租约自动回收，旧写者按 `token` 降级为只读；`Hub.revalidateLock()` 在 `memory_status`、面板 `/api/overview`/`/api/config` 与 60 秒巡检中重新推导只读状态，面板自身每 30 秒轮询只读切片。**不再需要手动删除 `.writer.lock`。** 详见 [ADR-0009](../01-architecture/decisions/ADR-0009-writer-lock-lease.md)。npm 包 `dsh-memory-hub@0.7.1`（`latest`）与 GitHub Release `v0.7.1` 已发布（run `43392559044`，publishTimestamp `1794529659`，SLSA provenance 已签名）。
 
 V0.7.0 已发布：**时效、去重合并、回顾萃取与可读目录**——`valid_from` / `expires_at` / `last_verified` 与确定性降权、`memory_duplicates` + `merge`、`memory_reflect`（`digest` 与原文 `search`）、引用驱动的 aging、写入风险标记、派生 SQLite 索引，以及每个 Hub 根目录自动生成的 `README.md`（逐条说明文件夹职责、`assets` 含义与写入路径）。npm 包 `dsh-memory-hub@0.7.0` 与 GitHub Release `v0.7.0` 已发布（run `42492469612`，publishTimestamp `1794150080`，SLSA provenance 已验证）。
 
