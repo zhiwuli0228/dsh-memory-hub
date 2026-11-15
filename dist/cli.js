@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.8.0
+// dsh-memory-hub 0.8.1
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -7375,7 +7375,7 @@ import { homedir as homedir3 } from "node:os";
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.8.0",
+  version: "0.8.1",
   description: "Local-first, file-native long-term memory hub: preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Ships as a DSH plugin and as a standalone MCP server / CLI (`memory-hub`) for cross-host use.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -7413,7 +7413,7 @@ var package_default = {
   ],
   engines: {
     node: ">=20",
-    dsh: ">=0.2.1-rc.5"
+    dsh: ">=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-0 <0.3.0-0"
   },
   publishConfig: {
     access: "public"
@@ -21306,6 +21306,13 @@ var PANEL_TEMPLATE = `<!doctype html>
   .toast { position: fixed; right: 16px; bottom: 16px; background: #111827; color: #f9fafb; padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; }
   .toast.show { opacity: 1; }
   .hidden { display: none; }
+  .status-tag { display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px; }
+  .status-tag.ok { background: #ecfdf5; color: #065f46; }
+  .status-tag.err { background: #fee2e2; color: #991b1b; }
+  .status-tag.muted { background: #e5e7eb; color: #4b5563; }
+  .kind { font-family: ui-monospace, monospace; font-size: 11px; color: #6b7280; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 5px; }
+  h2.section { font-size: 14px; margin: 18px 0 8px; }
+  .section-hint { font-size: 11.5px; color: #6b7280; margin: 0 0 8px; }
 </style>
 </head>
 <body>
@@ -21339,6 +21346,9 @@ var PANEL_TEMPLATE = `<!doctype html>
   </section>
 
   <section id="view-config" class="hidden">
+    <h2 class="section">\u8FDC\u7AEF\u8BB0\u5FC6\uFF08S7\uFF1A\u72B6\u6001\u53EA\u8BFB\u5C55\u793A\uFF09</h2>
+    <p class="section-hint">\u89D2\u8272\uFF1Afeed \u62C9\u8FDC\u7AEF\u5019\u9009\uFF08\u7EDD\u4E0D\u81EA\u52A8\u5165\u5E93\uFF09\xB7 mirror \u5206\u53D1\u672C\u5730\u77E5\u8BC6\u3002\u540C\u6B65/\u4F5C\u5E9F\u4F20\u64AD\u8D70\u6A21\u578B\u5DE5\u5177 memory_remote_sync / memory_remote_forget\uFF0C\u672C\u9875\u53EA\u5C55\u793A\u72B6\u6001\uFF1Bremote \u6BB5\u53EF\u5728\u4E0B\u65B9 JSON \u7F16\u8F91\u540E\u4FDD\u5B58\u3002</p>
+    <div id="remote-status"></div>
     <p style="font-size:12.5px;color:#4b5563">\u53EA\u8BFB\u89C6\u56FE\uFF1Bremote \u6BB5\u53EF\u7F16\u8F91\u540E\u4FDD\u5B58\uFF08\u8D70\u4E0E DSH \u9762\u677F\u540C\u4E00\u4EFD updateConfig \u6821\u9A8C\uFF09\u3002</p>
     <pre class="config" id="config-json"></pre>
     <textarea id="config-remote" spellcheck="false"></textarea>
@@ -21483,11 +21493,49 @@ function bulk(action) {
   }).catch(function (error) { toast('\u64CD\u4F5C\u5931\u8D25: ' + error); });
 }
 
+function fmtTime(value) {
+  return value ? String(value).slice(0, 19).replace('T', ' ') : '\u4ECE\u672A';
+}
+
+/* \u8FDC\u7AEF provider \u72B6\u6001\u5361\u7247\uFF08S7\uFF09\uFF1A\u7EAF\u5C55\u793A\u5FEB\u7167\uFF0C\u6570\u636E\u6765\u81EA GET /api/config \u7684 remote \u6BB5
+ * \uFF08service.config() \u5E76\u5165 remoteStatus() \u9010 provider sync \u5FEB\u7167\u2014\u2014\u4E0E DSH \u5185\u5D4C\u9762\u677F\u540C\u6E90\uFF09\u3002 */
+function renderRemote(remote) {
+  var el = document.getElementById('remote-status');
+  if (!remote || remote.enabled !== true) {
+    el.innerHTML = '<div class="banner warn">\u8FDC\u7AEF provider \u672A\u542F\u7528\uFF1A\u5728 hub \u6839 config.yaml \u8BBE remote.enabled\uFF08\u6216 tencent.enabled \u517C\u5BB9\u5165\u53E3\uFF09\u540E\u5237\u65B0\u3002</div>';
+    return;
+  }
+  var html = '';
+  if (remote.validation && remote.validation.ok === false) {
+    html += '<div class="banner warn">\u8FDC\u7AEF\u914D\u7F6E\u65E0\u6548\uFF1A' + esc((remote.validation.errors || []).join('\uFF1B')) + '</div>';
+  }
+  var providers = remote.providers || [];
+  if (providers.length === 0) {
+    el.innerHTML = html + '<div class="banner warn">\u8FDC\u7AEF\u5DF2\u542F\u7528\u4F46\u6CA1\u6709 provider\u3002</div>';
+    return;
+  }
+  html += providers.map(function (p) {
+    var tag = p.enabled !== true
+      ? '<span class="status-tag muted">\u5DF2\u505C\u7528</span>'
+      : (p.ready === true ? '<span class="status-tag ok">\u6B63\u5E38</span>' : '<span class="status-tag err">\u4E0D\u53EF\u7528</span>');
+    var sync = p.sync || {};
+    return '<div class="card"><h3><code>' + esc(p.id) + '</code> <span class="kind">' + esc(p.kind) + '</span>' + tag + '</h3>' +
+      (p.error ? '<p style="color:#991b1b">' + esc(p.error) + '</p>' : '') +
+      '<p class="tags">\u89D2\u8272: ' + esc((p.roles || []).join(' / ')) + '</p>' +
+      '<p>\u5F85\u4F20\u64AD ' + esc(sync.pendingForget || 0) + ' \xB7 \u5B64\u513F ' + esc(sync.orphans || 0) + ' \xB7 \u5F85\u91CD\u653E ' + esc(sync.outboxPending || 0) + ' \xB7 \u5DF2\u955C\u50CF ' + esc(sync.mirrored || 0) + '</p>' +
+      '<p class="tags">\u4E0A\u6B21 pull ' + esc(fmtTime(sync.lastPullAt)) + ' \xB7 \u4E0A\u6B21 push ' + esc(fmtTime(sync.lastPushAt)) + ' \xB7 \u4E0A\u6B21\u4F5C\u5E9F\u4F20\u64AD ' + esc(fmtTime(sync.lastForgetAt)) + '</p>' +
+      (sync.lastError ? '<p style="color:#92400e">\u4E0A\u6B21\u9519\u8BEF: ' + esc(sync.lastError) + '</p>' : '') +
+      '</div>';
+  }).join('');
+  el.innerHTML = html;
+}
+
 function loadConfig() {
   return api(API_BASE + '/config').then(function (result) {
     config = result.payload;
     document.getElementById('config-json').textContent = JSON.stringify(config, null, 2);
     document.getElementById('config-remote').value = JSON.stringify(config.remote || {}, null, 2);
+    renderRemote(config.remote);
   }).catch(function (error) { toast('\u52A0\u8F7D\u914D\u7F6E\u5931\u8D25: ' + error); });
 }
 
@@ -21544,8 +21592,9 @@ async function startServeServer(options) {
     distillReport: () => null,
     reflectReport: () => null,
     hubs: () => [{ id: "", root }],
-    // port=0 时 Host 白名单必须用实际绑定端口——在 listen 之后取 address.port 再建 router。
-    hostMode: { kind: "fixed-port", port: 0 },
+    // Host 白名单必须在 listen 之后用实际绑定端口建 router——显式端口与临时端口
+    // 统一走下方重建分支（此前只在临时端口分支重建，默认端口路径白名单死在 0）。
+    hostMode: { kind: "fixed-port", port },
     writeToken: () => token,
     // serve 独立端口：API 直接在 /api/*，面板页在 / 与 /panel——不带发行包名前缀。
     basePath: "/",
@@ -21572,10 +21621,8 @@ async function startServeServer(options) {
     throw new Error("serve: could not determine bound port");
   }
   const boundPort = address.port;
-  if (boundPort !== port) {
-    routerDeps.hostMode = { kind: "fixed-port", port: boundPort };
-    router = createMemoryRouter(routerDeps);
-  }
+  routerDeps.hostMode = { kind: "fixed-port", port: boundPort };
+  router = createMemoryRouter(routerDeps);
   const serverFile = join11(root, "records", "server.json");
   const serverInfo = {
     url: `http://127.0.0.1:${boundPort}`,

@@ -358,6 +358,10 @@ describe('memory-hub serve (S3)', () => {
     expect(html).not.toContain('__DMH_API_BASE__')
     expect(html).toContain("var API_BASE = '/api'")
     expect(html).toContain("api(API_BASE + '/overview')")
+    // S7：远端状态区块（浏览器运行时渲染 provider 快照；模板侧断言骨架与渲染函数存在）
+    expect(html).toContain('renderRemote')
+    expect(html).toContain('id="remote-status"')
+    expect(html).toContain('远端记忆')
     // token 注入页面后与 records/server-token 一致
     const token = (await readFile(join(root, 'records', 'server-token'), 'utf8')).trim()
     expect(html).toContain(`window.__DMH_TOKEN__ = '${token}'`)    // 内嵌挂载没有 panelHtml → 根路径仍 404（client.js 的 API 契约不受影响）

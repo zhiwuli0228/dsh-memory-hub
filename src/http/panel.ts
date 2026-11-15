@@ -55,6 +55,13 @@ const PANEL_TEMPLATE = `<!doctype html>
   .toast { position: fixed; right: 16px; bottom: 16px; background: #111827; color: #f9fafb; padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; }
   .toast.show { opacity: 1; }
   .hidden { display: none; }
+  .status-tag { display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 11px; margin-left: 6px; }
+  .status-tag.ok { background: #ecfdf5; color: #065f46; }
+  .status-tag.err { background: #fee2e2; color: #991b1b; }
+  .status-tag.muted { background: #e5e7eb; color: #4b5563; }
+  .kind { font-family: ui-monospace, monospace; font-size: 11px; color: #6b7280; border: 1px solid #d1d5db; border-radius: 4px; padding: 0 5px; }
+  h2.section { font-size: 14px; margin: 18px 0 8px; }
+  .section-hint { font-size: 11.5px; color: #6b7280; margin: 0 0 8px; }
 </style>
 </head>
 <body>
@@ -88,6 +95,9 @@ const PANEL_TEMPLATE = `<!doctype html>
   </section>
 
   <section id="view-config" class="hidden">
+    <h2 class="section">远端记忆（S7：状态只读展示）</h2>
+    <p class="section-hint">角色：feed 拉远端候选（绝不自动入库）· mirror 分发本地知识。同步/作废传播走模型工具 memory_remote_sync / memory_remote_forget，本页只展示状态；remote 段可在下方 JSON 编辑后保存。</p>
+    <div id="remote-status"></div>
     <p style="font-size:12.5px;color:#4b5563">只读视图；remote 段可编辑后保存（走与 DSH 面板同一份 updateConfig 校验）。</p>
     <pre class="config" id="config-json"></pre>
     <textarea id="config-remote" spellcheck="false"></textarea>
@@ -232,11 +242,49 @@ function bulk(action) {
   }).catch(function (error) { toast('操作失败: ' + error); });
 }
 
+function fmtTime(value) {
+  return value ? String(value).slice(0, 19).replace('T', ' ') : '从未';
+}
+
+/* 远端 provider 状态卡片（S7）：纯展示快照，数据来自 GET /api/config 的 remote 段
+ * （service.config() 并入 remoteStatus() 逐 provider sync 快照——与 DSH 内嵌面板同源）。 */
+function renderRemote(remote) {
+  var el = document.getElementById('remote-status');
+  if (!remote || remote.enabled !== true) {
+    el.innerHTML = '<div class="banner warn">远端 provider 未启用：在 hub 根 config.yaml 设 remote.enabled（或 tencent.enabled 兼容入口）后刷新。</div>';
+    return;
+  }
+  var html = '';
+  if (remote.validation && remote.validation.ok === false) {
+    html += '<div class="banner warn">远端配置无效：' + esc((remote.validation.errors || []).join('；')) + '</div>';
+  }
+  var providers = remote.providers || [];
+  if (providers.length === 0) {
+    el.innerHTML = html + '<div class="banner warn">远端已启用但没有 provider。</div>';
+    return;
+  }
+  html += providers.map(function (p) {
+    var tag = p.enabled !== true
+      ? '<span class="status-tag muted">已停用</span>'
+      : (p.ready === true ? '<span class="status-tag ok">正常</span>' : '<span class="status-tag err">不可用</span>');
+    var sync = p.sync || {};
+    return '<div class="card"><h3><code>' + esc(p.id) + '</code> <span class="kind">' + esc(p.kind) + '</span>' + tag + '</h3>' +
+      (p.error ? '<p style="color:#991b1b">' + esc(p.error) + '</p>' : '') +
+      '<p class="tags">角色: ' + esc((p.roles || []).join(' / ')) + '</p>' +
+      '<p>待传播 ' + esc(sync.pendingForget || 0) + ' · 孤儿 ' + esc(sync.orphans || 0) + ' · 待重放 ' + esc(sync.outboxPending || 0) + ' · 已镜像 ' + esc(sync.mirrored || 0) + '</p>' +
+      '<p class="tags">上次 pull ' + esc(fmtTime(sync.lastPullAt)) + ' · 上次 push ' + esc(fmtTime(sync.lastPushAt)) + ' · 上次作废传播 ' + esc(fmtTime(sync.lastForgetAt)) + '</p>' +
+      (sync.lastError ? '<p style="color:#92400e">上次错误: ' + esc(sync.lastError) + '</p>' : '') +
+      '</div>';
+  }).join('');
+  el.innerHTML = html;
+}
+
 function loadConfig() {
   return api(API_BASE + '/config').then(function (result) {
     config = result.payload;
     document.getElementById('config-json').textContent = JSON.stringify(config, null, 2);
     document.getElementById('config-remote').value = JSON.stringify(config.remote || {}, null, 2);
+    renderRemote(config.remote);
   }).catch(function (error) { toast('加载配置失败: ' + error); });
 }
 

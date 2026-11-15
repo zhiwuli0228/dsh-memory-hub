@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.8.0
+// dsh-memory-hub 0.8.1
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11519,7 +11519,7 @@ import { appendFile as appendFile2, mkdir as mkdir3, readFile as readFile7, real
 // package.json
 var package_default = {
   name: "dsh-memory-hub",
-  version: "0.8.0",
+  version: "0.8.1",
   description: "Local-first, file-native long-term memory hub: preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Ships as a DSH plugin and as a standalone MCP server / CLI (`memory-hub`) for cross-host use.",
   license: "MIT",
   author: "zhiwuli0228",
@@ -11557,7 +11557,7 @@ var package_default = {
   ],
   engines: {
     node: ">=20",
-    dsh: ">=0.2.1-rc.5"
+    dsh: ">=0.2.1-rc.5 <0.3.0-0 || >=0.2.2-0 <0.3.0-0"
   },
   publishConfig: {
     access: "public"
