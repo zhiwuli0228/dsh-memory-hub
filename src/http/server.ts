@@ -58,8 +58,9 @@ export async function startServeServer(options: ServeServerOptions): Promise<Ser
     distillReport: () => null,
     reflectReport: () => null,
     hubs: () => [{ id: '', root }],
-    // port=0 时 Host 白名单必须用实际绑定端口——在 listen 之后取 address.port 再建 router。
-    hostMode: { kind: 'fixed-port', port: 0 },
+    // Host 白名单必须在 listen 之后用实际绑定端口建 router——显式端口与临时端口
+    // 统一走下方重建分支（此前只在临时端口分支重建，默认端口路径白名单死在 0）。
+    hostMode: { kind: 'fixed-port', port: port },
     writeToken: () => token,
     // serve 独立端口：API 直接在 /api/*，面板页在 / 与 /panel——不带发行包名前缀。
     basePath: '/',
@@ -87,11 +88,10 @@ export async function startServeServer(options: ServeServerOptions): Promise<Ser
     throw new Error('serve: could not determine bound port')
   }
   const boundPort = address.port
-  if (boundPort !== port) {
-    // 临时端口：重建 router，Host 白名单对准真实端口。
-    routerDeps.hostMode = { kind: 'fixed-port', port: boundPort }
-    router = createMemoryRouter(routerDeps)
-  }
+  // 无条件重建：Host 白名单对准真实绑定端口（显式端口与临时端口同路径，
+  // 避免默认端口路径漏重建——白名单死在 port 0 会把一切请求 421）。
+  routerDeps.hostMode = { kind: 'fixed-port', port: boundPort }
+  router = createMemoryRouter(routerDeps)
 
   // server.json：pid + 地址，供 `serve --stop` 与文档发现。token 文件路径进 payload，
   // token 本体不进任何日志。

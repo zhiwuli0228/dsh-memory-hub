@@ -14,6 +14,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { get } from 'node:http'
+import { createServer as createNetServer } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createMemoryRouter, type MemoryRouterDeps, type RouterPack } from '../src/http/router.js'
 import { renderPanelHtml } from '../src/http/panel.js'
@@ -300,6 +301,19 @@ describe('memory-hub serve (S3)', () => {
     expect(denied.status).toBe(401)
     const allowed = await fetchJson(`${serveHandle.url}/api/config`, { method: 'POST', body: '{}', token })
     expect(allowed.status).toBe(200)
+  }, 20000)
+
+  it('explicit (default) port path rebuilds the Host whitelist too', async () => {
+    const root = await makeRoot()
+    // 取一个真实空闲端口，模拟"用户显式传 --port N"（boundPort === port 分支）。
+    const idle = createNetServer().listen(0, '127.0.0.1')
+    await new Promise<void>((resolveP) => idle.once('listening', () => resolveP()))
+    const explicitPort = (idle.address() as { port: number }).port
+    await new Promise<void>((resolveP) => idle.close(() => resolveP()))
+    serveHandle = await startServeServer({ root, port: explicitPort })
+    // 回归：默认/显式端口路径此前不重建 router，Host 白名单死在 port 0 → 全部 421。
+    const overview = await fetchJson(`${serveHandle.url}/api/overview`)
+    expect(overview.status).toBe(200)
   }, 20000)
 
   it('rejects forged Host headers with 421 over the wire', async () => {
