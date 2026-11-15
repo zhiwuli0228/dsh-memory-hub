@@ -211,8 +211,11 @@ function loadPending() {
       '<p>' + esc(proposal.summary) + '</p>' +
       '<p class="tags">' + esc(proposal.id) + ' · ' + esc(proposal.operation) + ' · ' + esc(proposal.type) + ' · ' + esc(proposal.scope) +
       (proposal.batch ? ' · batch:' + esc(proposal.batch) : '') + ' · ' + esc((proposal.createdAt || '').slice(0, 19)) + '</p>' +
-      '<p><button class="act primary" onclick="reviewOne(\'approve\',\'' + esc(proposal.id) + '\')">批准</button> ' +
-      '<button class="act danger" onclick="reviewOne(\'reject\',\'' + esc(proposal.id) + '\')">拒绝</button></p>' +
+      /* 内联 onclick 的引号：页面 JS 字符串用单引号定界，属性内参数一律用 &quot; 实体
+       * （渲染后属性值是双引号包裹、参数用 JS 双引号字符串）——这里任何裸 ' 都会
+       * 截断页面 JS 字符串导致整个 script 语法错误（0.8.0/0.8.1 的真实事故）。 */
+      '<p><button class="act primary" onclick="reviewOne(&quot;approve&quot;,&quot;' + esc(proposal.id) + '&quot;)">批准</button> ' +
+      '<button class="act danger" onclick="reviewOne(&quot;reject&quot;,&quot;' + esc(proposal.id) + '&quot;)">拒绝</button></p>' +
       '</div>';
   });
   document.getElementById('pending-list').innerHTML = cards.join('');

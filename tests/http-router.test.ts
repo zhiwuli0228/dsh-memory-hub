@@ -362,6 +362,11 @@ describe('memory-hub serve (S3)', () => {
     expect(html).toContain('renderRemote')
     expect(html).toContain('id="remote-status"')
     expect(html).toContain('远端记忆')
+    // 页面 JS 必须可编译（只编译不执行）：0.8.0/0.8.1 的 onclick 引号转义曾把整段
+    // script 搞成语法错误，页面按钮全部无响应——字符串断言抓不到，必须真正编译。
+    const pageScript = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? ''
+    expect(pageScript.length).toBeGreaterThan(1000)
+    expect(() => new Function(pageScript)).not.toThrow()
     // token 注入页面后与 records/server-token 一致
     const token = (await readFile(join(root, 'records', 'server-token'), 'utf8')).trim()
     expect(html).toContain(`window.__DMH_TOKEN__ = '${token}'`)    // 内嵌挂载没有 panelHtml → 根路径仍 404（client.js 的 API 契约不受影响）
