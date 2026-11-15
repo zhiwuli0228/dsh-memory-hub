@@ -334,12 +334,26 @@ export class WriterLock {
     this.startHeartbeat()
   }
 
+  /** 当前进程内该 root 已持有的活跃锁（未丢失）；没有则 null。 */
+  static sharedFor(path: string): WriterLock | null {
+    for (const lock of activeLocks) {
+      if (lock.path === path && !lock.isLost) return lock
+    }
+    return null
+  }
+
   static async acquire(
     path: string,
     staleMs: number,
     options: { heartbeatMs?: number } = {},
   ): Promise<LockAttempt> {
     await ensureDir(dirname(path))
+    // 进程级单写者：同一进程已持有该 root 的锁时直接复用（多个 Hub 实例共享
+    // 同一把锁——例如插件热重载会重建实例——避免同进程自己阻塞自己）。
+    const shared = WriterLock.sharedFor(path)
+    if (shared !== null) {
+      return { lock: shared, owner: null, reclaimed: null, ownerExpiresAt: shared.expiresAt }
+    }
     // Beat at least four times per lease: a user who lowers
     // `storage.lock_stale_ms` below the default heartbeat interval must not
     // create a lock that expires between its own beats.

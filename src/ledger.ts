@@ -33,6 +33,8 @@ export type LedgerEvent =
       hits: Array<{ id: string; version: number }>
       tokens: number
       error?: string
+      /** hybrid 组合检索的远端贡献摘要（M3）；local-first 时不存在。 */
+      remote?: Array<{ provider: string; hits: number; ok: boolean; error?: string }>
     })
   | (EventBase & {
       type: 'citation.added'
@@ -111,6 +113,54 @@ export type LedgerEvent =
       knowledgeId: string
       version: number
       note: string
+    })
+  | (EventBase & {
+      type: 'tencent.pull'
+      pulled: number
+      proposed: number
+      skipped: number
+    })
+  | (EventBase & {
+      type: 'tencent.push'
+      id: string
+      fromOutbox: boolean
+    })
+  | (EventBase & {
+      type: 'remote.pull'
+      provider: string
+      pulled: number
+      proposed: number
+      skipped: number
+    })
+  | (EventBase & {
+      type: 'remote.push'
+      provider: string
+      pushed: number
+      outboxed: number
+      replayed: number
+    })
+  | (EventBase & {
+      type: 'remote.forget'
+      provider: string
+      forgotten: number
+      orphans: number
+      pending: number
+      outboxed: number
+      dryRun: boolean
+    })
+  | (EventBase & {
+      type: 'config.remote.updated'
+      providers: number
+    })
+  | (EventBase & {
+      type: 'remote.migrated'
+      provider: string
+      /** 从旧桥状态文件接管的已拉取来源数。 */
+      pulled: number
+      /** 接管的已镜像知识数。 */
+      pushed: number
+      /** 'legacy' = 旧腾讯桥状态；后续新增来源格式在此扩展。 */
+      source: 'legacy'
     })
 
 export type LedgerEventInput =

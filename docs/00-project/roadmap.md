@@ -93,9 +93,22 @@
 
 硬规则不变：文件是真相、模型不能自批、不引入强制数据库与向量库。
 
+## V0.8「跨宿主落地」（进行中，ADR-0010 + 路线重排 DEC-000016）
+
+依据《对比及演进蓝图_2026.11.15》：宿主锁定是唯一"不改产品身份、纯放大既有投资"的方向。
+
+- [x] **S2：`memory-hub mcp`（stdio）**：8 工具面（tool-surface §7）、commit 失败关闭、headless 任务语义、分层静态断言（2026-11-15，`src/transport/mcp.ts` + `src/cli.ts`）
+- [x] **S1：`handleHttp` 抽 `src/http/router.ts`，DSH 双挂载保持等价**（2026-11-15；内嵌 = `hostMode:'embedded' + writeToken:null` 委托，client.js 零改动）
+- [x] **S3：`memory-hub serve`**（2026-11-15；Host 白名单 + Origin + 写令牌 + `records/server.json` + `--stop`；非 loopback 拒绝启动——当前硬编码回环，无 allow_remote 逃生口）
+- [x] **S4：standalone 静态面板**（2026-11-15；`src/http/panel.ts` 单文件内嵌：总览/待审批/配置；零新 API 端点；只读禁批；验收=浏览器路径批准候选且账本 `panel:human`）
+- [x] **并行：golden set 评测基线**（2026-11-15；`memory-hub eval-golden`，真机 hit@1 = 19/20（95%），报告 `docs/04-development/golden-set-baseline.md`；顺带修掉 headless 工作区合成缺失的可见性 bug）
+- [x] **S6：命名去 DSH 化（A 路线：叙事分层）+ 工作区对齐文档**（2026-11-15；产品名 Memory Hub、MCP serverInfo `memory-hub`、serve 路由 `/api/*` + `/panel`（router `basePath`，DSH 内嵌前缀不变）、生成文件署名；npm 包名保持——裸名被占；README 工作区对齐两种方式）
+- [x] **S5：CLI 只读三件套 + 分发就绪**（2026-11-15；`search`/`get`/`inbox` 与 MCP 同源（`runCli(argv, io)` 可测），CLI 故意无写路径；README 跨宿主接入段；harness 文档随包（`docs/02-harness/*.md`）；`npm pack` 20 文件核对通过。T0–T3 注入分级文档已在 2026-11-14 harness 回写中就位（harness-standard/context-policy），本轮仅回填 `cli:human` 待实现标注）
+- [ ] 分发：真实 npm 发布（tag → Trusted Publisher，等用户指令）→ MCP 官方目录 + Claude plugin 市场；发布 `http-json` provider 规范文档；可选 `memory-hub inbox --approve`（`cli:human` 落点）
+
 ## Backlog
 
-- MCP server 形态评估
+- ~~MCP server 形态评估~~ → 已立项为 V0.8 S2 并落地
 - 移动端/窄屏适配
 - 国际化面板
 - 与 DSH skills 集成

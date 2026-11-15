@@ -16,7 +16,9 @@ DeepSeek Harness（DSH）的长期记忆中枢：**文件原生、用户掌控�
 
 ## 它是什么
 
-一条知识是一个带 YAML frontmatter 的 Markdown 文件，放在用户目录下的 Hub 里。每个用户回合开始时，插件做一次确定性检索，注入一份紧凑索引；模型按需读取全文、记录引用；任务结束给出回写评估；候选知识经 DSH 原生审批后才成为权威知识。
+**Memory Hub** —— 本地优先、文件原生的长期记忆中枢，面向任何 agent 宿主（DeepSeek Harness / Claude Code / opencode / Cline / 任何能调 MCP 或 CLI 的 agent）。`dsh-memory-hub` 是它在 npm 上的发行包名（DSH 插件 + 同一个 `memory-hub` CLI / MCP server）。
+
+一条知识是一个带 YAML frontmatter 的 Markdown 文件，放在用户目录下的 Hub 里。每个用户回合开始时，插件做一次确定性检索，注入一份紧凑索引；模型按需读取全文、记录引用；任务结束给出回写评估；候选知识经人工审批后才成为权威知识。
 
 | 能力 | 说明 |
 | --- | --- |
@@ -253,6 +255,71 @@ storage:
 
 **命名冲突**：当前官方/内置 skill（`agent-experience`、`cordis-*`、`office*` 等）没有 `memory-hub`，也没有旧的通用名 `memory-management`。DSH 同 layer 内按 rank 取第一个，runtime（250）会盖住 bundled（600），所以通用名一旦撞上官方 skill 会静默遮蔽而不是报错。因此本插件改用产品自有名 `memory-hub`，并在 `tests/skill.test.ts` 锁定当前官方名称快照；完整审计见 [docs/02-harness/context-policy.md](docs/02-harness/context-policy.md#与官方-skill-的命名冲突审计)。
 
+## 跨宿主接入（MCP / CLI / standalone 面板）
+
+同一个 Hub 可以同时被多个 agent 使用。三条入口共用同一份 service 调用与同一份文件权威；**模型在任何入口都不能自行 commit**（MCP 的 `memory_commit` 无审批时恒定失败关闭）。
+
+### MCP stdio（Claude Code / opencode / Cline / 任何 MCP 客户端）
+
+```sh
+# Claude Code：全局路径按实际安装位置替换
+claude mcp add memory-hub -- node <全局安装目录>/dsh-memory-hub/dist/cli.js mcp --root '<hubRoot>'
+```
+
+通用 JSON 配置（opencode / Cline 等读 `mcpServers` 的宿主）：
+
+```json
+{
+  "mcpServers": {
+    "memory-hub": {
+      "command": "node",
+      "args": ["<全局安装目录>/dsh-memory-hub/dist/cli.js", "mcp", "--root", "<hubRoot>"]
+    }
+  }
+}
+```
+
+8 个工具：`memory_search` / `memory_get` / `memory_status` / `memory_preflight` / `memory_cite` / `memory_propose` / `memory_commit`（失败关闭）/ `memory_close_task`。工作区按启动时的 cwd 目录名解析（与 DSH 同款语义），`project:*` 知识只对同名工作区可见。
+
+#### 多个宿主指向同一个项目
+
+工作区身份默认取 **cwd 目录名**。两个宿主从**不同路径**打开同一项目（例如 Windows 的 `E:\repos\app` 与 WSL 的 `/mnt/e/repos/app`，或两个不同位置的 clone）会被解析成两个工作区，`project:*` 知识互不可见。两种对齐方式：
+
+1. **目录名对齐（零配置）**：让各宿主的 cwd 目录 basename 相同（`E:\repos\app` 与 `D:\clones\app` 天然共享 `project:app`）。
+2. **显式声明（跨机/跨路径名）**：在 hub 的 `config.yaml` 里把两个路径登记为同一个逻辑工作区——
+
+```yaml
+core_workspaces:
+  - id: app            # 核心：主仓目录
+    root: 'E:/repos/app'
+workspaces:
+  - id: app-wsl        # 逻辑同一项目的另一个挂载路径
+    core_id: app
+    root: '/mnt/e/repos/app'
+```
+
+这样两个路径都路由到同一个核心 Hub，`project:app` 蒸馏知识对两者可见（金字塔回退同样生效）。
+
+### CLI（只读三件套）
+
+```sh
+memory-hub search '写锁 租约' --root '<hubRoot>'   # 检索 accepted 知识（表格 / --json）
+memory-hub get DEC-000010 --root '<hubRoot>'       # 读单条（标题/元数据/正文）
+memory-hub inbox --root '<hubRoot>'                # 待审批候选列表（--batch / --json）
+memory-hub status --root '<hubRoot>'               # hub 体检（readOnly/锁/索引诊断）
+```
+
+`eval-golden` 输出检索基线（hit@1 / hit@K，见 `docs/04-development/golden-set-baseline.md`）。
+
+### standalone 面板（无 DSH 宿主时的人工审批入口）
+
+```sh
+memory-hub serve --root '<hubRoot>'        # 默认 127.0.0.1:7331；--port 0 取临时端口
+memory-hub serve --stop                    # 停止（读 records/server.json）
+```
+
+浏览器打开打印的 URL 即面板（总览 / 待审批 / 配置）。三层防护：仅回环绑定、Host 头白名单（421）、写操作令牌 `records/server-token`（POST 需 `x-dmh-token`）。审批通过后账本记 `approvalRef: 'panel:human'`。
+
 ## 安全与边界
 
 - 默认本地优先、无网络请求；知识是用户目录下的普通文件，可直接编辑、git、备份。
@@ -266,8 +333,8 @@ storage:
 ```sh
 npm install
 npm run typecheck
-npm run test        # 59 个单元/集成/插件/面板注册/skill/维护/锁测试
-npm run build       # 产出 dist/index.js
+npm run test        # 单元/集成/transport/锁/面板/维护测试（数量见 npm run check 输出）
+npm run build       # 产出 dist/index.js + dist/cli.js
 npm run check       # typecheck + build + test
 ```
 

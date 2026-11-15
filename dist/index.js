@@ -1,6 +1,6 @@
 import { createRequire as __dshMemoryHubCreateRequire } from 'node:module'
 const require = __dshMemoryHubCreateRequire(import.meta.url)
-// dsh-memory-hub 0.7.1
+// dsh-memory-hub 0.8.0
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -1325,9 +1325,9 @@ ${indent}`) + "'";
         start = start.replace(/\n+/g, `$&${indent}`);
       }
       const indentSize = indent ? "2" : "1";
-      let header = (startWithSpace ? indentSize : "") + chomp;
+      let header2 = (startWithSpace ? indentSize : "") + chomp;
       if (comment) {
-        header += " " + commentString(comment.replace(/ ?[\r\n]+/g, " "));
+        header2 += " " + commentString(comment.replace(/ ?[\r\n]+/g, " "));
         if (onComment)
           onComment();
       }
@@ -1342,11 +1342,11 @@ ${indent}`) + "'";
         }
         const body = foldFlowLines.foldFlowLines(`${start}${foldedValue}${end}`, indent, foldFlowLines.FOLD_BLOCK, foldOptions);
         if (!literalFallback)
-          return `>${header}
+          return `>${header2}
 ${indent}${body}`;
       }
       value = value.replace(/\n+/g, `$&${indent}`);
-      return `|${header}
+      return `|${header2}
 ${indent}${start}${value}${end}`;
     }
     function plainString(item, ctx, onComment, onChompKeep) {
@@ -4449,10 +4449,10 @@ var require_resolve_block_scalar = __commonJS({
     var Scalar = require_Scalar();
     function resolveBlockScalar(ctx, scalar, onError) {
       const start = scalar.offset;
-      const header = parseBlockScalarHeader(scalar, ctx.options.strict, onError);
-      if (!header)
+      const header2 = parseBlockScalarHeader(scalar, ctx.options.strict, onError);
+      if (!header2)
         return { value: "", type: null, comment: "", range: [start, start, start] };
-      const type = header.mode === ">" ? Scalar.Scalar.BLOCK_FOLDED : Scalar.Scalar.BLOCK_LITERAL;
+      const type = header2.mode === ">" ? Scalar.Scalar.BLOCK_FOLDED : Scalar.Scalar.BLOCK_LITERAL;
       const lines = scalar.source ? splitLines(scalar.source) : [];
       let chompStart = lines.length;
       for (let i = lines.length - 1; i >= 0; --i) {
@@ -4463,26 +4463,26 @@ var require_resolve_block_scalar = __commonJS({
           break;
       }
       if (chompStart === 0) {
-        const value2 = header.chomp === "+" && lines.length > 0 ? "\n".repeat(Math.max(1, lines.length - 1)) : "";
-        let end2 = start + header.length;
+        const value2 = header2.chomp === "+" && lines.length > 0 ? "\n".repeat(Math.max(1, lines.length - 1)) : "";
+        let end2 = start + header2.length;
         if (scalar.source)
           end2 += scalar.source.length;
-        return { value: value2, type, comment: header.comment, range: [start, end2, end2] };
+        return { value: value2, type, comment: header2.comment, range: [start, end2, end2] };
       }
-      let trimIndent = scalar.indent + header.indent;
-      let offset = scalar.offset + header.length;
+      let trimIndent = scalar.indent + header2.indent;
+      let offset = scalar.offset + header2.length;
       let contentStart = 0;
       for (let i = 0; i < chompStart; ++i) {
         const [indent, content] = lines[i];
         if (content === "" || content === "\r") {
-          if (header.indent === 0 && indent.length > trimIndent)
+          if (header2.indent === 0 && indent.length > trimIndent)
             trimIndent = indent.length;
         } else {
           if (indent.length < trimIndent) {
             const message = "Block scalars with more-indented leading empty lines must use an explicit indentation indicator";
             onError(offset + indent.length, "MISSING_CHAR", message);
           }
-          if (header.indent === 0)
+          if (header2.indent === 0)
             trimIndent = indent.length;
           contentStart = i;
           if (trimIndent === 0 && !ctx.atRoot) {
@@ -4509,7 +4509,7 @@ var require_resolve_block_scalar = __commonJS({
         if (crlf)
           content = content.slice(0, -1);
         if (content && indent.length < trimIndent) {
-          const src = header.indent ? "explicit indentation indicator" : "first line";
+          const src = header2.indent ? "explicit indentation indicator" : "first line";
           const message = `Block scalar lines must not be less indented than their ${src}`;
           onError(offset - content.length - (crlf ? 2 : 1), "BAD_INDENT", message);
           indent = "";
@@ -4536,7 +4536,7 @@ var require_resolve_block_scalar = __commonJS({
           prevMoreIndented = false;
         }
       }
-      switch (header.chomp) {
+      switch (header2.chomp) {
         case "-":
           break;
         case "+":
@@ -4548,8 +4548,8 @@ var require_resolve_block_scalar = __commonJS({
         default:
           value += "\n";
       }
-      const end = start + header.length + scalar.source.length;
-      return { value, type, comment: header.comment, range: [start, end, end] };
+      const end = start + header2.length + scalar.source.length;
+      return { value, type, comment: header2.comment, range: [start, end, end] };
     }
     function parseBlockScalarHeader({ offset, props }, strict, onError) {
       if (props[0].type !== "block-scalar-header") {
@@ -5388,10 +5388,10 @@ var require_cst_scalar = __commonJS({
             type = "QUOTE_DOUBLE";
             break;
           case "block-scalar": {
-            const header = token.props[0];
-            if (header.type !== "block-scalar-header")
+            const header2 = token.props[0];
+            if (header2.type !== "block-scalar-header")
               throw new Error("Invalid block scalar header");
-            type = header.source[0] === ">" ? "BLOCK_FOLDED" : "BLOCK_LITERAL";
+            type = header2.source[0] === ">" ? "BLOCK_FOLDED" : "BLOCK_LITERAL";
             break;
           }
           default:
@@ -5423,10 +5423,10 @@ var require_cst_scalar = __commonJS({
       const head = source.substring(0, he);
       const body = source.substring(he + 1) + "\n";
       if (token.type === "block-scalar") {
-        const header = token.props[0];
-        if (header.type !== "block-scalar-header")
+        const header2 = token.props[0];
+        if (header2.type !== "block-scalar-header")
           throw new Error("Invalid block scalar header");
-        header.source = head;
+        header2.source = head;
         token.source = body;
       } else {
         const { offset } = token;
@@ -7369,7 +7369,7 @@ var require_dist = __commonJS({
 
 // src/runtime.ts
 import { watch } from "node:fs";
-import { basename as basename4, join as join7, relative as relative3, resolve as resolve3 } from "node:path";
+import { basename as basename5, join as join10, relative as relative3, resolve as resolve3 } from "node:path";
 
 // node_modules/zod/v3/external.js
 var external_exports = {};
@@ -8362,10 +8362,10 @@ function isValidJWT(jwt, alg) {
   if (!jwtRegex.test(jwt))
     return false;
   try {
-    const [header] = jwt.split(".");
-    if (!header)
+    const [header2] = jwt.split(".");
+    if (!header2)
       return false;
-    const base64 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
+    const base64 = header2.replace(/-/g, "+").replace(/_/g, "/").padEnd(header2.length + (4 - header2.length % 4) % 4, "=");
     const decoded = JSON.parse(atob(base64));
     if (typeof decoded !== "object" || decoded === null)
       return false;
@@ -11509,13 +11509,107 @@ async function removeFile(path) {
   await rm(path, { force: true });
 }
 
-// src/hub.ts
-import { homedir } from "node:os";
-import { join as join4, resolve } from "node:path";
+// src/http/router.ts
+import { timingSafeEqual } from "node:crypto";
 
-// src/config.ts
-var import_yaml = __toESM(require_dist(), 1);
-import { readFile as readFile2 } from "node:fs/promises";
+// src/service.ts
+import { createHash as createHash3 } from "node:crypto";
+import { appendFile as appendFile2, mkdir as mkdir3, readFile as readFile7, realpath } from "node:fs/promises";
+
+// package.json
+var package_default = {
+  name: "dsh-memory-hub",
+  version: "0.8.0",
+  description: "Local-first, file-native long-term memory hub: preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Ships as a DSH plugin and as a standalone MCP server / CLI (`memory-hub`) for cross-host use.",
+  license: "MIT",
+  author: "zhiwuli0228",
+  homepage: "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
+  repository: {
+    type: "git",
+    url: "git+https://github.com/zhiwuli0228/dsh-memory-hub.git"
+  },
+  bugs: {
+    url: "https://github.com/zhiwuli0228/dsh-memory-hub/issues"
+  },
+  type: "module",
+  main: "dist/index.js",
+  bin: {
+    "memory-hub": "dist/cli.js"
+  },
+  exports: {
+    ".": "./dist/index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  files: [
+    "dist/index.js",
+    "dist/cli.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "docs/*.md",
+    "docs/02-harness/*.md"
+  ],
+  engines: {
+    node: ">=20",
+    dsh: ">=0.2.1-rc.5"
+  },
+  publishConfig: {
+    access: "public"
+  },
+  scripts: {
+    build: "node esbuild.config.mjs",
+    typecheck: "tsc --noEmit",
+    test: "vitest run",
+    "test:watch": "vitest",
+    check: "npm run typecheck && npm run build && npm run test"
+  },
+  keywords: [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "long-term-memory",
+    "knowledge-base",
+    "mcp",
+    "mcp-server",
+    "claude-code"
+  ],
+  dsh: {
+    manifestVersion: 1,
+    bundle: {
+      patch: "./cordis.patch.yml"
+    },
+    client: {
+      platform: "web",
+      immediately: true,
+      inject: [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  devDependencies: {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    esbuild: "^0.25.9",
+    react: "^19.3.1",
+    "react-dom": "^19.3.1",
+    typescript: "^5.9.2",
+    vitest: "^3.2.4",
+    yaml: "^2.8.1",
+    zod: "^3.25.76"
+  }
+};
+
+// src/service.ts
+import { isAbsolute, join as join9, relative as relative2, sep as sep2 } from "node:path";
 
 // src/errors.ts
 var MemoryError = class extends Error {
@@ -11524,6 +11618,927 @@ var MemoryError = class extends Error {
     super(`[${code}] ${message}`);
     this.name = "MemoryError";
     this.code = code;
+  }
+};
+
+// src/config.ts
+var import_yaml = __toESM(require_dist(), 1);
+import { readFile as readFile2 } from "node:fs/promises";
+
+// src/tencent-client.ts
+var TencentError = class extends Error {
+  status;
+  code;
+  constructor(message, options = {}) {
+    super(message);
+    this.name = "TencentError";
+    this.status = options.status ?? null;
+    this.code = options.code ?? "TENCENT_ERROR";
+  }
+};
+var DEFAULT_TIMEOUT_MS = 1e4;
+var TencentClient = class {
+  config;
+  fetchImpl;
+  constructor(options) {
+    this.config = options.config;
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  }
+  get baseUrl() {
+    return this.config.url.replace(/\/+$/, "");
+  }
+  isolation(extra = {}) {
+    return {
+      team_id: this.config.teamId,
+      ...this.config.agentId === "" ? {} : { agent_id: this.config.agentId },
+      ...this.config.userId === "" ? {} : { user_id: this.config.userId },
+      ...this.config.taskId === "" ? {} : { task_id: this.config.taskId },
+      ...extra
+    };
+  }
+  async post(path, body) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.config.timeoutMs || DEFAULT_TIMEOUT_MS);
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.apiKey}`,
+          "x-tdai-service-id": this.config.serviceId
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const text = await response.text();
+      let envelope = null;
+      try {
+        envelope = JSON.parse(text);
+      } catch {
+        throw new TencentError(`tencent ${path}: non-JSON response (${response.status})`, { status: response.status });
+      }
+      if (!response.ok) {
+        const message = typeof envelope?.message === "string" ? envelope.message : `HTTP ${response.status}`;
+        throw new TencentError(`tencent ${path}: ${message}`, { status: response.status, code: envelope?.code === void 0 ? "HTTP_ERROR" : String(envelope.code) });
+      }
+      if (envelope === null || envelope.code !== 0) {
+        throw new TencentError(`tencent ${path}: code ${envelope?.code ?? "null"} ${envelope?.message ?? ""}`.trim(), {
+          status: response.status,
+          code: String(envelope?.code ?? "BIZ_ERROR")
+        });
+      }
+      return envelope.data;
+    } catch (error) {
+      if (error instanceof TencentError) throw error;
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new TencentError(`tencent ${path}: timeout after ${this.config.timeoutMs}ms`, { code: "TIMEOUT" });
+      }
+      throw new TencentError(`tencent ${path}: ${error.message}`, { code: "NETWORK_ERROR" });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  /** 只读连通性：拉取 L1 计数。失败说明配置/网络有问题。 */
+  async ping() {
+    return this.post("/v3/atomic/count", this.isolation());
+  }
+  /** 按语义/关键词检索 L1 原子记忆。 */
+  async searchAtomics(query, limit = 10) {
+    const data = await this.post(
+      "/v3/atomic/search",
+      this.isolation({ query, limit })
+    );
+    return Array.isArray(data.items) ? data.items : [];
+  }
+  /** 列出 L1 原子记忆（无 query 时按时间倒序）。 */
+  async listAtomics(limit = 50) {
+    const data = await this.post(
+      "/v3/atomic/query",
+      this.isolation({ limit })
+    );
+    return Array.isArray(data.items) ? data.items : [];
+  }
+  /** 列出 L2 场景文件。 */
+  async listScenarios() {
+    const data = await this.post(
+      "/v3/scenario/ls",
+      this.isolation()
+    );
+    return Array.isArray(data.entries) ? data.entries : [];
+  }
+  /** 读取 L2 场景文件全文。 */
+  async readScenario(path) {
+    const data = await this.post("/v3/scenario/read", this.isolation({ path }));
+    return typeof data.content === "string" ? data.content : "";
+  }
+  /** 追加一条 conversation 消息（腾讯侧异步抽取为 L1）。 */
+  async addConversation(sessionId, role, content) {
+    return this.post(
+      "/v3/conversation/add",
+      this.isolation({ session_id: sessionId, messages: [{ role, content }] })
+    );
+  }
+  /** 读取 L0 会话消息。 */
+  async queryConversation(sessionId, limit = 20) {
+    return this.post("/v3/conversation/query", this.isolation({ session_id: sessionId, limit }));
+  }
+};
+
+// src/remote/types.ts
+var REMOTE_ROLES = ["feed", "mirror", "authority", "index"];
+var REMOTE_CAPABILITIES = [
+  "read.list",
+  "read.search",
+  "read.get",
+  "write.append",
+  "write.upsert",
+  "write.delete",
+  "scope",
+  "changes",
+  "realtime",
+  "extract",
+  "idempotent"
+];
+var RemoteError = class extends Error {
+  kind;
+  providerId;
+  constructor(providerId, kind, message) {
+    super(`[remote:${providerId}:${kind}] ${message}`);
+    this.name = "RemoteError";
+    this.providerId = providerId;
+    this.kind = kind;
+  }
+  /** 只有网络/超时类值得重试；其它重试只会浪费配额并拖长故障时间。 */
+  get retryable() {
+    return this.kind === "unreachable";
+  }
+};
+function remoteError(providerId, kind, message) {
+  throw new RemoteError(providerId, kind, message);
+}
+function isRemoteError(error) {
+  return error instanceof RemoteError;
+}
+function hasCapability(adapter, capability) {
+  return adapter.capabilities().has(capability);
+}
+function requireCapability(adapter, capability) {
+  if (!hasCapability(adapter, capability)) {
+    remoteError(
+      adapter.id,
+      "unsupported",
+      `provider "${adapter.id}" (${adapter.kind}) does not declare capability "${capability}"`
+    );
+  }
+}
+function requireMethod(adapter, method) {
+  const capability = METHOD_CAPABILITY[method];
+  requireCapability(adapter, capability);
+  const fn = adapter[method];
+  if (typeof fn !== "function") {
+    remoteError(
+      adapter.id,
+      "unsupported",
+      `provider "${adapter.id}" declares "${capability}" but does not implement "${method}()"`
+    );
+  }
+  return fn.bind(adapter);
+}
+var METHOD_CAPABILITY = {
+  list: "read.list",
+  search: "read.search",
+  get: "read.get",
+  append: "write.append",
+  upsert: "write.upsert",
+  delete: "write.delete",
+  changesSince: "changes"
+};
+
+// src/remote/http-json-adapter.ts
+var CAPABILITY_SET = new Set(REMOTE_CAPABILITIES);
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function readString(value) {
+  return typeof value === "string" && value !== "" ? value : void 0;
+}
+function parseEndpoint(raw, name2, errors) {
+  if (raw === void 0) return void 0;
+  const record = asRecord(raw);
+  const method = readString(record.method)?.toUpperCase() ?? "POST";
+  const path = readString(record.path);
+  if (path === void 0) {
+    errors.push(`endpoints.${name2}.path is required`);
+    return void 0;
+  }
+  if (method !== "GET" && method !== "POST" && method !== "PUT" && method !== "PATCH" && method !== "DELETE") {
+    errors.push(`endpoints.${name2}.method "${method}" is not one of GET/POST/PUT/PATCH/DELETE`);
+    return void 0;
+  }
+  return {
+    method,
+    path,
+    ...record.body === void 0 ? {} : { body: asRecord(record.body) },
+    ...record.query === void 0 ? {} : { query: asRecord(record.query) }
+  };
+}
+function parseMapping(raw, errors) {
+  if (raw === void 0) {
+    errors.push("mapping is required when any read endpoint is declared");
+    return void 0;
+  }
+  const record = asRecord(raw);
+  const items = readString(record.items);
+  const id = readString(record.id);
+  if (items === void 0 || id === void 0) {
+    errors.push("mapping.items and mapping.id are required");
+    return void 0;
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value === "string" && !value.startsWith("$")) {
+      errors.push(`mapping.${key} must be a "$." path (got "${value}")`);
+    }
+  }
+  return {
+    items,
+    id,
+    ...record.external_id === void 0 ? {} : { external_id: readString(record.external_id) },
+    ...record.title === void 0 ? {} : { title: readString(record.title) },
+    ...record.summary === void 0 ? {} : { summary: readString(record.summary) },
+    ...record.body === void 0 ? {} : { body: readString(record.body) },
+    ...record.scope === void 0 ? {} : { scope: readString(record.scope) },
+    ...record.tags === void 0 ? {} : { tags: readString(record.tags) },
+    ...record.updated_at === void 0 ? {} : { updated_at: readString(record.updated_at) },
+    ...record.version === void 0 ? {} : { version: readString(record.version) },
+    ...record.next_cursor === void 0 ? {} : { next_cursor: readString(record.next_cursor) },
+    ...record.total === void 0 ? {} : { total: readString(record.total) }
+  };
+}
+function parseHttpJsonSettings(config) {
+  const errors = [];
+  const baseUrl = readString(config.base_url);
+  if (baseUrl === void 0) {
+    errors.push("base_url is required");
+  } else {
+    try {
+      const url = new URL(baseUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        errors.push(`base_url must be http/https (got "${url.protocol}")`);
+      }
+    } catch {
+      errors.push(`base_url is not a valid URL: "${baseUrl}"`);
+    }
+  }
+  const rawCapabilities = Array.isArray(config.capabilities) ? config.capabilities : [];
+  if (rawCapabilities.length === 0) {
+    errors.push("capabilities is required and must be a non-empty list (declare exactly what the service supports)");
+  }
+  const capabilities = [];
+  for (const entry of rawCapabilities) {
+    if (typeof entry !== "string" || !CAPABILITY_SET.has(entry)) {
+      errors.push(`capabilities contains unknown entry "${String(entry)}" (known: ${[...CAPABILITY_SET].join(", ")})`);
+      continue;
+    }
+    capabilities.push(entry);
+  }
+  const endpoints = {};
+  const endpointRecord = asRecord(config.endpoints);
+  const list = parseEndpoint(endpointRecord.list, "list", errors);
+  const search = parseEndpoint(endpointRecord.search, "search", errors);
+  const append = parseEndpoint(endpointRecord.append, "append", errors);
+  if (list !== void 0) endpoints.list = list;
+  if (search !== void 0) endpoints.search = search;
+  if (append !== void 0) endpoints.append = append;
+  if (endpoints.list === void 0 && endpoints.search === void 0 && endpoints.append === void 0) {
+    errors.push("at least one of endpoints.list / endpoints.search / endpoints.append is required");
+  }
+  let mapping;
+  if (endpoints.list !== void 0 || endpoints.search !== void 0) {
+    mapping = parseMapping(config.mapping, errors);
+  } else {
+    const record = asRecord(config.mapping);
+    mapping = { items: "$", id: "$.id", ...record.external_id === void 0 ? {} : { external_id: readString(record.external_id) } };
+  }
+  const authRecord = asRecord(config.auth);
+  let auth = null;
+  if (authRecord.type !== void 0) {
+    const type = readString(authRecord.type);
+    const tokenEnv = readString(authRecord.token_env);
+    if (type !== "bearer" && type !== "header") {
+      errors.push(`auth.type must be "bearer" or "header" (got "${String(authRecord.type)}")`);
+    } else if (tokenEnv === void 0) {
+      errors.push("auth.token_env is required (never put the token itself in config.yaml)");
+    } else {
+      auth = { type, token_env: tokenEnv, ...readString(authRecord.name) === void 0 ? {} : { name: readString(authRecord.name) } };
+    }
+  }
+  const headers = {};
+  for (const [key, value] of Object.entries(asRecord(config.headers))) {
+    if (typeof value === "string") headers[key] = value;
+  }
+  const timeoutRaw = config.timeout_ms;
+  const timeoutMs = typeof timeoutRaw === "number" && Number.isInteger(timeoutRaw) && timeoutRaw >= 100 && timeoutRaw <= 12e4 ? timeoutRaw : 1e4;
+  if (errors.length > 0) return { ok: false, errors };
+  return {
+    ok: true,
+    settings: {
+      base_url: baseUrl,
+      auth,
+      headers,
+      timeout_ms: timeoutMs,
+      endpoints,
+      mapping,
+      capabilities
+    }
+  };
+}
+var VAR_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+function stringifyValue(value) {
+  if (value === void 0 || value === null) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : JSON.stringify(item)).join(",");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+function interpolate(value, vars) {
+  if (typeof value === "string") {
+    const exact = value.match(/^\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}$/);
+    if (exact !== null) {
+      const name2 = exact[1];
+      return name2 in vars ? vars[name2] : null;
+    }
+    return value.replace(VAR_PATTERN, (_match, name2) => stringifyValue(vars[name2]));
+  }
+  if (Array.isArray(value)) return value.map((item) => interpolate(item, vars));
+  if (value !== null && typeof value === "object") {
+    const result = {};
+    for (const [key, entry] of Object.entries(value)) result[key] = interpolate(entry, vars);
+    return result;
+  }
+  return value;
+}
+function lookup(root, path) {
+  if (path === "$" || path === "") return root;
+  if (!path.startsWith("$.")) return void 0;
+  let cursor = root;
+  for (const segment of path.slice(2).split(".")) {
+    if (cursor === null || typeof cursor !== "object") return void 0;
+    cursor = cursor[segment];
+  }
+  return cursor;
+}
+function statusErrorKind(status) {
+  if (status === 401 || status === 403) return "unauthorized";
+  if (status === 409 || status === 412) return "conflict";
+  if (status >= 500) return "unreachable";
+  return "invalid";
+}
+var HttpJsonAdapter = class {
+  id;
+  kind = "http-json";
+  settings;
+  resolveToken;
+  fetchImpl;
+  constructor(options) {
+    this.id = options.id;
+    this.settings = options.settings;
+    this.resolveToken = options.resolveToken;
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  }
+  capabilities() {
+    return new Set(this.settings.capabilities);
+  }
+  async probe() {
+    const startedAt = Date.now();
+    try {
+      if (this.settings.endpoints.list !== void 0) {
+        const response2 = await this.request(this.settings.endpoints.list, { limit: 1, scope: null });
+        const page = this.toPage(response2);
+        return { ok: true, latencyMs: Date.now() - startedAt, detail: `${page.items.length} item(s)` };
+      }
+      const response = await this.rawRequest(this.settings.base_url, { method: "GET" });
+      return {
+        ok: response.status < 500,
+        latencyMs: Date.now() - startedAt,
+        detail: response.status < 500 ? `root responded ${response.status}` : `root responded ${response.status}`
+      };
+    } catch (error) {
+      return { ok: false, latencyMs: Date.now() - startedAt, detail: error.message };
+    }
+  }
+  async list(q) {
+    const spec = this.settings.endpoints.list;
+    if (spec === void 0) {
+      remoteError(this.id, "unsupported", 'capability "read.list" is declared but endpoints.list is not configured');
+    }
+    const response = await this.request(spec, {
+      limit: q.limit,
+      ...q.cursor === void 0 ? {} : { cursor: q.cursor },
+      ...q.scope === void 0 ? {} : { scope: q.scope }
+    });
+    return this.toPage(response);
+  }
+  async search(q) {
+    const spec = this.settings.endpoints.search;
+    if (spec === void 0) {
+      remoteError(this.id, "unsupported", 'capability "read.search" is declared but endpoints.search is not configured');
+    }
+    if (typeof q.text !== "string" || q.text.trim() === "") {
+      remoteError(this.id, "invalid", "http-json search requires a non-empty `text`");
+    }
+    const response = await this.request(spec, {
+      text: q.text,
+      limit: q.limit,
+      ...q.cursor === void 0 ? {} : { cursor: q.cursor },
+      ...q.scope === void 0 ? {} : { scope: q.scope }
+    });
+    return this.toPage(response);
+  }
+  async append(rec, opts) {
+    const spec = this.settings.endpoints.append;
+    if (spec === void 0) {
+      remoteError(this.id, "unsupported", 'capability "write.append" is declared but endpoints.append is not configured');
+    }
+    const response = await this.request(spec, {
+      id: rec.externalId,
+      title: rec.title,
+      summary: rec.summary,
+      body: rec.body,
+      ...rec.scope === void 0 ? {} : { scope: rec.scope },
+      tags: rec.tags,
+      ...rec.updatedAt === void 0 ? {} : { updated_at: rec.updatedAt },
+      ...rec.version === void 0 ? {} : { version: rec.version },
+      idempotency_key: opts.idempotencyKey
+    });
+    const externalId = lookup(response, this.settings.mapping.external_id ?? this.settings.mapping.id);
+    return {
+      // 响应没给 id 时回退幂等键：engine 的 externalIds 台账仍然可用（对无删除能力的
+      // 服务这只影响台账展示；真有 delete 能力的服务应返回真实 id）。
+      externalId: typeof externalId === "string" && externalId !== "" ? externalId : opts.idempotencyKey
+    };
+  }
+  /* ---------------- 内部 ---------------- */
+  authHeaders() {
+    const auth = this.settings.auth;
+    if (auth === null) return {};
+    const token = this.resolveToken();
+    if (token === "") return {};
+    return auth.type === "bearer" ? { authorization: `Bearer ${token}` } : { [auth.name ?? "x-api-key"]: token };
+  }
+  async request(spec, vars) {
+    const base = this.settings.base_url.replace(/\/+$/, "");
+    const path = spec.path.startsWith("/") ? spec.path : `/${spec.path}`;
+    const url = new URL(`${base}${path}`);
+    if (spec.query !== void 0) {
+      const query = interpolate(spec.query, vars);
+      for (const [key, value] of Object.entries(asRecord(query))) {
+        if (value !== null && value !== void 0 && value !== "") url.searchParams.set(key, stringifyValue(value));
+      }
+    }
+    const headers = { ...this.settings.headers, ...this.authHeaders() };
+    const method = spec.method;
+    let body;
+    if (method !== "GET" && method !== "DELETE" && spec.body !== void 0) {
+      headers["content-type"] = "application/json";
+      body = JSON.stringify(interpolate(spec.body, vars));
+    }
+    const response = await this.rawRequest(url.toString(), {
+      method,
+      headers,
+      ...body === void 0 ? {} : { body },
+      signal: AbortSignal.timeout(this.settings.timeout_ms)
+    });
+    const text = await response.text();
+    if (response.status >= 400) {
+      const snippet = text.slice(0, 200);
+      throw new RemoteError(this.id, statusErrorKind(response.status), `HTTP ${response.status}: ${snippet}`);
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new RemoteError(this.id, "invalid", `HTTP ${response.status} with non-JSON body: ${text.slice(0, 120)}`);
+    }
+  }
+  async rawRequest(url, init) {
+    try {
+      return await this.fetchImpl(url, init);
+    } catch (error) {
+      const message = error?.message ?? String(error);
+      const isTimeout = error instanceof Error && error.name === "TimeoutError";
+      throw new RemoteError(this.id, "unreachable", isTimeout ? `request timed out: ${url}` : message);
+    }
+  }
+  /** 响应 → 统一分页。缺 id 的条目丢弃（远端噪声不应阻塞整条流水线）。 */
+  toPage(response) {
+    const mapping = this.settings.mapping;
+    const rawItems = lookup(response, mapping.items);
+    if (!Array.isArray(rawItems)) {
+      remoteError(this.id, "invalid", `mapping.items "${mapping.items}" did not resolve to an array`);
+    }
+    const items = [];
+    for (const raw of rawItems) {
+      const externalId = lookup(raw, mapping.id);
+      if (typeof externalId !== "string" || externalId === "") continue;
+      const body = readStringAt(raw, mapping.body);
+      const summary = readStringAt(raw, mapping.summary) ?? truncate(body ?? "", 240);
+      const title = readStringAt(raw, mapping.title) ?? truncate(summary, 60);
+      const tagsRaw = mapping.tags === void 0 ? void 0 : lookup(raw, mapping.tags);
+      const tags = Array.isArray(tagsRaw) ? tagsRaw.filter((tag) => typeof tag === "string") : typeof tagsRaw === "string" && tagsRaw !== "" ? tagsRaw.split(",").map((tag) => tag.trim()).filter((tag) => tag !== "") : [];
+      const scope = readStringAt(raw, mapping.scope);
+      const updatedAt = readStringAt(raw, mapping.updated_at);
+      const version = readStringAt(raw, mapping.version);
+      items.push({
+        externalId,
+        title,
+        summary,
+        body: body ?? "",
+        tags,
+        ...scope === void 0 ? {} : { scope },
+        ...updatedAt === void 0 ? {} : { updatedAt },
+        ...version === void 0 ? {} : { version },
+        raw
+      });
+    }
+    const nextCursor = mapping.next_cursor === void 0 ? void 0 : readStringAt(response, mapping.next_cursor);
+    const total = mapping.total === void 0 ? void 0 : lookup(response, mapping.total);
+    return {
+      items,
+      ...nextCursor === void 0 ? {} : { cursor: nextCursor },
+      ...typeof total === "number" ? { total } : {}
+    };
+  }
+};
+function readStringAt(root, path) {
+  if (path === void 0) return void 0;
+  const value = lookup(root, path);
+  return typeof value === "string" && value !== "" ? value : void 0;
+}
+function truncate(text, max) {
+  const trimmed = text.replace(/\s+/g, " ").trim();
+  return trimmed.length > max ? `${trimmed.slice(0, max)}\u2026` : trimmed;
+}
+var httpJsonAdapterFactory = (ctx) => {
+  const parsed = parseHttpJsonSettings(ctx.config);
+  if (!parsed.ok) {
+    throw new Error(`invalid http-json config: ${parsed.errors.join("; ")}`);
+  }
+  const token = parsed.settings.auth === null ? "" : ctx.resolveSecret(parsed.settings.auth.token_env);
+  if (parsed.settings.auth !== null && token === "") {
+    throw new Error(
+      `auth token env ${parsed.settings.auth.token_env} is empty (checked process.env and $DSH_HOME/.credentials.yaml refs)`
+    );
+  }
+  return new HttpJsonAdapter({
+    id: ctx.providerId,
+    settings: parsed.settings,
+    resolveToken: () => parsed.settings.auth === null ? "" : ctx.resolveSecret(parsed.settings.auth.token_env),
+    ...ctx.fetchImpl === void 0 ? {} : { fetchImpl: ctx.fetchImpl }
+  });
+};
+
+// src/remote/tencent-adapter.ts
+var CAPABILITIES = /* @__PURE__ */ new Set([
+  "read.list",
+  "read.search",
+  "write.append",
+  "extract"
+]);
+function mapError(providerId, error) {
+  if (error instanceof RemoteError) return error;
+  if (!(error instanceof TencentError)) {
+    return new RemoteError(providerId, "unreachable", error?.message ?? String(error));
+  }
+  if (error.code === "TIMEOUT" || error.code === "NETWORK_ERROR") {
+    return new RemoteError(providerId, "unreachable", error.message);
+  }
+  const status = error.status ?? 0;
+  if (status === 401 || status === 403) {
+    return new RemoteError(providerId, "unauthorized", error.message);
+  }
+  if (status === 409 || status === 412) {
+    return new RemoteError(providerId, "conflict", error.message);
+  }
+  if (status >= 500) {
+    return new RemoteError(providerId, "unreachable", error.message);
+  }
+  return new RemoteError(providerId, "invalid", error.message);
+}
+function toRecord(item) {
+  const summary = typeof item.content === "string" ? item.content.replace(/\s+/g, " ").trim() : "";
+  const title = summary.length > 60 ? `${summary.slice(0, 60)}\u2026` : summary;
+  return {
+    externalId: item.id,
+    title,
+    summary: summary.length > 240 ? `${summary.slice(0, 240)}\u2026` : summary,
+    body: typeof item.content === "string" ? item.content : "",
+    tags: typeof item.type === "string" && item.type !== "" ? [item.type] : [],
+    ...item.updated_at === void 0 ? {} : { updatedAt: item.updated_at },
+    raw: item
+  };
+}
+var TencentAdapter = class {
+  id;
+  kind = "tencent";
+  client;
+  constructor(options) {
+    this.id = options.id;
+    this.client = options.client;
+  }
+  capabilities() {
+    return CAPABILITIES;
+  }
+  async probe() {
+    const startedAt = Date.now();
+    try {
+      const { total } = await this.client.ping();
+      return { ok: true, latencyMs: Date.now() - startedAt, detail: `${total} atomics` };
+    } catch (error) {
+      return { ok: false, latencyMs: Date.now() - startedAt, detail: error.message };
+    }
+  }
+  async list(q) {
+    try {
+      const items = await this.client.listAtomics(q.limit);
+      return { items: items.map(toRecord), total: items.length };
+    } catch (error) {
+      throw mapError(this.id, error);
+    }
+  }
+  async search(q) {
+    if (typeof q.text !== "string" || q.text.trim() === "") {
+      remoteError(this.id, "invalid", "tencent search requires a non-empty `text`");
+    }
+    try {
+      const items = await this.client.searchAtomics(q.text, q.limit);
+      return { items: items.map(toRecord), total: items.length };
+    } catch (error) {
+      throw mapError(this.id, error);
+    }
+  }
+  async append(rec, opts) {
+    try {
+      const sessionId = `dsh-memory-hub:${opts.idempotencyKey}`;
+      const payload = [rec.title, rec.summary, rec.body].filter((part) => part !== "").join("\n\n");
+      await this.client.addConversation(sessionId, "user", payload);
+      return { externalId: sessionId };
+    } catch (error) {
+      throw mapError(this.id, error);
+    }
+  }
+};
+
+// src/remote/registry.ts
+var REMOTE_MODES = ["local-first", "hybrid", "remote-authority"];
+function asRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+function readStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item) => typeof item === "string" && item !== "");
+}
+function readString2(value, fallback) {
+  return typeof value === "string" && value !== "" ? value : fallback;
+}
+function readBool(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function readInt(value, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  if (typeof value !== "number" || !Number.isInteger(value)) return fallback;
+  if (value < min || value > max) return fallback;
+  return value;
+}
+function readRoles(value) {
+  const allowed = new Set(REMOTE_ROLES);
+  const roles = readStringArray(value).filter((role) => allowed.has(role));
+  return [...new Set(roles)];
+}
+function normalizeProvider(raw, index) {
+  const record = asRecord2(raw);
+  const projection = asRecord2(record.projection);
+  const feed = asRecord2(record.feed);
+  const mirror = asRecord2(record.mirror);
+  const forget = asRecord2(record.forget);
+  return {
+    id: readString2(record.id, `provider-${index + 1}`),
+    kind: readString2(record.kind, "tencent"),
+    enabled: readBool(record.enabled, true),
+    roles: readRoles(record.roles),
+    projection: {
+      scopes: readStringArray(projection.scopes),
+      types: readStringArray(projection.types),
+      exclude_tags: readStringArray(projection.exclude_tags)
+    },
+    feed: {
+      scope: readString2(feed.scope, "global"),
+      type: readString2(feed.type, "knowledge"),
+      limit: readInt(feed.limit, 50, 1, 500),
+      tags: readStringArray(feed.tags),
+      scope_from_tags: readBool(feed.scope_from_tags, false)
+    },
+    mirror: {
+      trigger: (() => {
+        const trigger = readString2(mirror.trigger, "manual");
+        return trigger === "accepted" || trigger === "schedule" || trigger === "cited" ? trigger : "manual";
+      })(),
+      include_body: readBool(mirror.include_body, true),
+      max_body_chars: readInt(mirror.max_body_chars, 4e3, 0, 1e6),
+      coordinate_tags: readBool(mirror.coordinate_tags, true),
+      require_citations: readInt(mirror.require_citations, 0, 0, 1e3)
+    },
+    forget: {
+      on_deprecate: readBool(forget.on_deprecate, true),
+      on_merge: readBool(forget.on_merge, false),
+      max_per_run: readInt(forget.max_per_run, 100, 0, 1e5)
+    },
+    inject_max_tokens: readInt(record.inject_max_tokens, 300, 0, 4e3),
+    config: asRecord2(record.config)
+  };
+}
+function legacyTencentToProvider(tencent) {
+  return {
+    id: "tencent",
+    kind: "tencent",
+    enabled: tencent.enabled,
+    roles: ["feed", "mirror"],
+    // '*' = 全部分发：V0.7.x 的 push 没有投影概念、推全部 accepted，这里必须等价。
+    // 空数组在新语义下表示"什么都不分发"，会让旧用户的行为悄悄改变。
+    projection: { scopes: ["*"], types: [], exclude_tags: [] },
+    feed: {
+      scope: tencent.pull_scope,
+      type: tencent.pull_type,
+      limit: tencent.pull_limit,
+      tags: ["tencent"],
+      scope_from_tags: false
+    },
+    mirror: { trigger: "manual", include_body: true, max_body_chars: 4e3, coordinate_tags: true, require_citations: 0 },
+    forget: { on_deprecate: true, on_merge: false, max_per_run: 100 },
+    inject_max_tokens: 300,
+    config: {
+      url: tencent.url,
+      api_key_env: tencent.api_key_env,
+      service_id: tencent.service_id,
+      team_id: tencent.team_id,
+      agent_id: tencent.agent_id,
+      user_id: tencent.user_id,
+      task_id: tencent.task_id,
+      timeout_ms: tencent.timeout_ms
+    }
+  };
+}
+function normalizeRemoteSettings(input) {
+  const remote = asRecord2(input.remote);
+  const rawProviders = Array.isArray(remote.providers) ? remote.providers : [];
+  const explicitProviders = rawProviders.length > 0 ? rawProviders : null;
+  let providers;
+  let enabled;
+  let mode;
+  if (explicitProviders !== null) {
+    providers = explicitProviders.map((entry, index) => normalizeProvider(entry, index));
+    enabled = readBool(remote.enabled, false);
+    const rawMode = readString2(remote.mode, "local-first");
+    mode = REMOTE_MODES.includes(rawMode) ? rawMode : "local-first";
+  } else if (input.tencent !== void 0) {
+    providers = [legacyTencentToProvider(input.tencent)];
+    enabled = input.tencent.enabled;
+    mode = "local-first";
+  } else {
+    providers = [];
+    enabled = false;
+    mode = "local-first";
+  }
+  return { enabled, mode, providers };
+}
+function validateRemoteSettings(settings) {
+  const errors = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const provider of settings.providers) {
+    const label = `provider "${provider.id}"`;
+    if (seen.has(provider.id)) {
+      errors.push(`duplicate provider id "${provider.id}"`);
+    }
+    seen.add(provider.id);
+    if (provider.roles.length === 0 && provider.enabled) {
+      errors.push(`${label} is enabled but declares no role (expected one of ${REMOTE_ROLES.join(", ")})`);
+      continue;
+    }
+    if (provider.roles.includes("mirror") && provider.roles.includes("authority")) {
+      errors.push(
+        `${label} declares both "mirror" and "authority"; they are mutually exclusive (two authorities for the same scope)`
+      );
+    }
+    if (provider.roles.includes("authority") && settings.mode === "local-first") {
+      errors.push(
+        `${label} declares "authority" but remote.mode is "local-first"; set mode to "hybrid" or "remote-authority" to opt in`
+      );
+    }
+    if (provider.roles.includes("authority")) {
+      const projectScope = provider.projection.scopes.find((scope) => scope.startsWith("project"));
+      if (projectScope !== void 0) {
+        errors.push(
+          `${label} declares "authority" but projects scope "${projectScope}"; authority is limited to global and domain:*`
+        );
+      }
+    }
+  }
+  return { ok: errors.length === 0, errors };
+}
+var tencentAdapterFactory = (ctx) => {
+  const apiKeyEnv = readString2(ctx.config.api_key_env, "PROXY_USER_KEY");
+  const apiKey = ctx.resolveSecret(apiKeyEnv);
+  if (apiKey === "") {
+    throw new Error(
+      `api key env ${apiKeyEnv} is empty (checked process.env and $DSH_HOME/.credentials.yaml refs)`
+    );
+  }
+  const client = new TencentClient({
+    ...ctx.fetchImpl === void 0 ? {} : { fetchImpl: ctx.fetchImpl },
+    config: {
+      url: readString2(ctx.config.url, "http://127.0.0.1:8420"),
+      apiKey,
+      serviceId: readString2(ctx.config.service_id, "default"),
+      teamId: readString2(ctx.config.team_id, ""),
+      agentId: readString2(ctx.config.agent_id, ""),
+      userId: readString2(ctx.config.user_id, ""),
+      taskId: readString2(ctx.config.task_id, ""),
+      timeoutMs: readInt(ctx.config.timeout_ms, 1e4, 100, 12e4)
+    }
+  });
+  return new TencentAdapter({ id: ctx.providerId, client });
+};
+var DEFAULT_ADAPTER_FACTORIES = {
+  tencent: tencentAdapterFactory,
+  "http-json": httpJsonAdapterFactory
+};
+var RemoteRegistry = class {
+  settings;
+  handles;
+  constructor(settings, options) {
+    this.settings = settings;
+    const factories = options.factories ?? DEFAULT_ADAPTER_FACTORIES;
+    this.handles = /* @__PURE__ */ new Map();
+    for (const provider of settings.providers) {
+      if (!provider.enabled) {
+        this.handles.set(provider.id, { settings: provider, adapter: null, error: "provider is disabled" });
+        continue;
+      }
+      const factory = factories[provider.kind];
+      if (factory === void 0) {
+        const known = Object.keys(factories).join(", ");
+        this.handles.set(provider.id, {
+          settings: provider,
+          adapter: null,
+          error: `unknown provider kind "${provider.kind}" (registered: ${known})`
+        });
+        continue;
+      }
+      try {
+        const ctx = {
+          providerId: provider.id,
+          config: provider.config,
+          resolveSecret: options.resolveSecret,
+          ...options.fetchImpl === void 0 ? {} : { fetchImpl: options.fetchImpl }
+        };
+        this.handles.set(provider.id, { settings: provider, adapter: factory(ctx), error: null });
+      } catch (error) {
+        this.handles.set(provider.id, {
+          settings: provider,
+          adapter: null,
+          error: error.message
+        });
+      }
+    }
+  }
+  get settingsSnapshot() {
+    return this.settings;
+  }
+  /** 全部 provider（含被禁用与构造失败的），按配置顺序。 */
+  list() {
+    return [...this.handles.values()];
+  }
+  get(providerId) {
+    return this.handles.get(providerId) ?? null;
+  }
+  /** 承担某角色的**可用** provider（enabled 且 adapter 构造成功）。 */
+  byRole(role) {
+    return this.list().filter(
+      (handle) => handle.adapter !== null && handle.settings.enabled && handle.settings.roles.includes(role)
+    );
+  }
+  /** 角色到 provider id 的映射，供 status / 面板展示。 */
+  roleSummary() {
+    const summary = {};
+    for (const role of REMOTE_ROLES) {
+      summary[role] = this.byRole(role).map((handle) => handle.settings.id);
+    }
+    return summary;
+  }
+  async close() {
+    for (const handle of this.handles.values()) {
+      try {
+        await handle.adapter?.close?.();
+      } catch {
+      }
+    }
   }
 };
 
@@ -11625,7 +12640,9 @@ var preflightSchema = external_exports.object({
   min_score: external_exports.number().min(0).max(1e3).default(0),
   // 当前工作区自己的 project 知识在排序时的倍率；1 表示不提升。新手配置默认 1.2。
   local_boost: external_exports.number().min(1).max(3).default(1),
-  inject: external_exports.enum(["compact", "off"]).default("compact")
+  inject: external_exports.enum(["compact", "off"]).default("compact"),
+  // 阶段三：在预检包里加一行"可主动检索/写入记忆"的能力提示，提升采用率。
+  hint_tools: external_exports.boolean().default(true)
 }).default({});
 var gateSchema = external_exports.object({
   mode: external_exports.enum(["enforce", "off"]).default("enforce"),
@@ -11663,6 +12680,85 @@ var reflectPolicySchema = external_exports.object({
   max_sessions: external_exports.number().int().min(1).max(10).default(3),
   min_messages: external_exports.number().int().min(1).max(50).default(4)
 }).default({});
+var tencentSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  // 数据面地址（memory-core），例如 http://127.0.0.1:8420。
+  url: external_exports.string().min(1).default("http://127.0.0.1:8420"),
+  // 鉴权 token 的环境变量名（不落盘密钥），例如 PROXY_USER_KEY。
+  api_key_env: external_exports.string().min(1).default("PROXY_USER_KEY"),
+  service_id: external_exports.string().min(1).default("default"),
+  team_id: external_exports.string().default(""),
+  agent_id: external_exports.string().default(""),
+  user_id: external_exports.string().default(""),
+  task_id: external_exports.string().default(""),
+  // 定时同步间隔（分钟）；0 = 不启用定时，只手动触发。
+  sync_interval_min: external_exports.number().int().min(0).max(10080).default(30),
+  // pull 时生成候选的作用域与类型。
+  pull_scope: external_exports.string().default("global"),
+  pull_type: external_exports.enum(KNOWLEDGE_TYPES).default("knowledge"),
+  pull_limit: external_exports.number().int().min(1).max(500).default(50),
+  timeout_ms: external_exports.number().int().min(100).max(12e4).default(1e4)
+}).default({});
+var remoteProjectionSchema = external_exports.object({
+  // 允许分发出去的作用域模式（`global`、`domain:*`）；空 = 不分发任何作用域。
+  scopes: external_exports.array(external_exports.string()).default([]),
+  types: external_exports.array(external_exports.enum(KNOWLEDGE_TYPES)).default([]),
+  exclude_tags: external_exports.array(external_exports.string()).default([])
+}).default({});
+var remoteProviderSchema = external_exports.object({
+  id: external_exports.string().min(1),
+  kind: external_exports.string().min(1).default("tencent"),
+  enabled: external_exports.boolean().default(true),
+  roles: external_exports.array(external_exports.enum(REMOTE_ROLES)).default([]),
+  projection: remoteProjectionSchema,
+  feed: external_exports.object({
+    scope: external_exports.string().default("global"),
+    type: external_exports.enum(KNOWLEDGE_TYPES).default("knowledge"),
+    limit: external_exports.number().int().min(1).max(500).default(50),
+    tags: external_exports.array(external_exports.string()).default([]),
+    // pull 作用域还原：按远端 mh: 坐标 tags 还原到本地结构（§5.8.2）。
+    scope_from_tags: external_exports.boolean().default(false)
+  }).default({}),
+  mirror: external_exports.object({
+    trigger: external_exports.enum(["manual", "accepted", "schedule", "cited"]).default("manual"),
+    include_body: external_exports.boolean().default(true),
+    max_body_chars: external_exports.number().int().min(0).max(1e6).default(4e3),
+    // push 坐标编码：mh: 命名空间 tags（§5.8.1）。
+    coordinate_tags: external_exports.boolean().default(true),
+    // 萃取驱动的上报门槛（§5.9.2）：被 memory_cite 引用 ≥ N 次才推。0 = 不设门槛。
+    require_citations: external_exports.number().int().min(0).max(1e3).default(0)
+  }).default({}),
+  forget: external_exports.object({
+    // 明确作废 → 远端同步作废。默认开：语义单一。
+    on_deprecate: external_exports.boolean().default(true),
+    // merge 折叠 → 远端作废。**默认关**：被合并项内容已在 target 正文里活着。
+    on_merge: external_exports.boolean().default(false),
+    // 单次传播上限；0 = 不限。可由面板配置。
+    max_per_run: external_exports.number().int().min(0).max(1e5).default(100)
+  }).default({}),
+  // hybrid 组合检索：该 provider 注入预检包的 token 上限；0 = 不参与预检注入。
+  // 上限防止单个远端吃掉整个预检包（proposal-remote-providers §5.7）。
+  inject_max_tokens: external_exports.number().int().min(0).max(4e3).default(300),
+  // provider 自带连接参数，adapter 自己解释（腾讯：url/api_key_env/...）。
+  config: external_exports.record(external_exports.unknown()).default({})
+});
+var remoteSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  mode: external_exports.enum(REMOTE_MODES).default("local-first"),
+  // hybrid 组合检索的整轮 fan-out 死线：到点未返回的远端按 unavailable 处理。
+  // 预检在每回合开头跑，慢远端绝不能拖住回合。
+  hybrid: external_exports.object({
+    deadline_ms: external_exports.number().int().min(200).max(1e4).default(2e3)
+  }).default({}),
+  providers: external_exports.array(remoteProviderSchema).default([])
+}).default({});
+var layersSchema = external_exports.object({
+  enabled: external_exports.boolean().default(false),
+  // 达到该条目数时 status/面板提示启用分层（不强制）。
+  suggest_at_entries: external_exports.number().int().min(100).max(1e7).default(2e4),
+  // 场景归纳目录名（相对 hub root）；空 = 关闭场景归纳。
+  scenario_dir: external_exports.string().default("scenario")
+}).default({});
 var configSchema = external_exports.object({
   version: external_exports.literal(1).default(1),
   hub: external_exports.object({ id: external_exports.string().min(1).default("primary") }).default({}),
@@ -11698,6 +12794,9 @@ var configSchema = external_exports.object({
     mode: external_exports.literal("manual").default("manual"),
     target_scope: external_exports.string().default("global")
   }).default({}),
+  tencent: tencentSchema,
+  remote: remoteSchema,
+  layers: layersSchema,
   storage: external_exports.object({
     watch: external_exports.boolean().default(true),
     lock_stale_ms: external_exports.number().int().positive().default(6e5),
@@ -11709,7 +12808,7 @@ var configSchema = external_exports.object({
     index_candidate_limit: external_exports.number().int().min(100).max(1e6).default(2e3)
   }).default({})
 });
-var DEFAULT_CONFIG_YAML = `# dsh-memory-hub configuration
+var DEFAULT_CONFIG_YAML = `# Memory Hub configuration (npm package: dsh-memory-hub)
 # This file is the portable configuration of your memory store. Back it up with
 # the rest of the directory.
 version: 1
@@ -11808,6 +12907,104 @@ consolidation:
   mode: manual
   target_scope: global
 
+# \u8FDC\u7AEF\u8BB0\u5FC6 provider\uFF08\u53EF\u9009\uFF0C\u9ED8\u8BA4\u5173\u95ED\uFF09\u3002\u5173\u95ED\u65F6\u96F6\u7F51\u7EDC\u8BF7\u6C42\u3001\u4E0D\u6784\u9020\u4EFB\u4F55 adapter\u3002
+#
+# \u8BBE\u8BA1\u8981\u70B9\uFF1A\u8FDC\u7AEF\u6309 [\u89D2\u8272] \u63A5\u5165\uFF0C\u4E0D\u6309\u5382\u5546\u63A5\u5165\u3002
+#   feed      \u8FDC\u7AEF -> \u672C\u5730\u5019\u9009\uFF08\u4EA7\u7269\u6C38\u8FDC\u662F pending/\uFF0C\u7EDD\u4E0D\u81EA\u52A8 commit\uFF09
+#   mirror    \u672C\u5730 -> \u8FDC\u7AEF\uFF08\u53EA\u5206\u53D1\uFF0C\u4E0D\u6539\u672C\u5730\u6743\u5A01\uFF09
+#   authority \u8FDC\u7AEF\u6743\u5A01\uFF0C\u672C\u5730\u53EA\u8BFB\uFF08\u4EC5\u9650 global / domain:*\uFF0C\u4E14\u5FC5\u987B mode != local-first\uFF09
+#   index     \u53EA\u8BFB\u68C0\u7D22\uFF0C\u4E0D\u53C2\u4E0E\u540C\u6B65
+#
+# \u4E0D\u5199 remote.providers \u65F6\uFF0C\u4E0B\u9762\u7684\u65E7 tencent: \u6BB5\u4F1A\u88AB\u81EA\u52A8 desugar \u6210
+# \u4E00\u4E2A {id: tencent, roles: [feed, mirror]} \u7684 provider \u2014\u2014 \u65E7\u914D\u7F6E\u884C\u4E3A\u9010\u5B57\u4E0D\u53D8\u3002
+# \u4E00\u65E6\u5199\u4E86\u975E\u7A7A\u7684 providers\uFF0C\u65E7\u6BB5\u5C31\u88AB\u5FFD\u7565\uFF08\u8FC1\u79FB\u540E\u4E0D\u4F1A\u5077\u5077\u751F\u6548\uFF09\u3002
+#
+# remote:
+#   enabled: false
+#   mode: local-first             # local-first | hybrid | remote-authority
+#   hybrid:
+#     deadline_ms: 2000           # \u7EC4\u5408\u68C0\u7D22\u6574\u8F6E\u6B7B\u7EBF\uFF1A\u5230\u70B9\u672A\u8FD4\u56DE\u7684\u8FDC\u7AEF\u6309 unavailable \u5904\u7406
+#   providers:
+#     - id: tencent               # \u5B9E\u4F8B id\uFF0C\u8D26\u672C\u4E0E\u5DE5\u5177\u53C2\u6570\u90FD\u7528\u5B83
+#       kind: tencent             # \u6CE8\u518C\u8868\u91CC\u7684 adapter kind
+#       enabled: true
+#       roles: [feed, mirror]
+#       inject_max_tokens: 300    # hybrid \u7EC4\u5408\u68C0\u7D22\u7684\u6CE8\u5165\u4E0A\u9650\uFF080 = \u4E0D\u53C2\u4E0E\u9884\u68C0\u6CE8\u5165\uFF09
+#       projection:               # \u54EA\u4E9B\u672C\u5730\u77E5\u8BC6\u5141\u8BB8\u5206\u53D1\u51FA\u53BB
+#         scopes: [global, 'domain:*']
+#         types: [decision, constraint, knowledge, api-catalog, process]
+#         exclude_tags: [local-only]
+#       feed:
+#         scope: global
+#         type: knowledge
+#         limit: 50
+#         tags: [tencent]
+#       mirror:
+#         trigger: manual         # manual | accepted | schedule
+#         include_body: true
+#         max_body_chars: 4000    # \u786C\u9876\uFF1A\u8FDC\u7AEF\u53EA\u6536\u6458\u8981 + \u622A\u65AD\u6B63\u6587
+#       forget:
+#         on_deprecate: true      # \u9ED8\u8BA4\u5F00\uFF1A\u660E\u786E\u4F5C\u5E9F -> \u8FDC\u7AEF\u540C\u6B65\u4F5C\u5E9F
+#         on_merge: false         # \u9ED8\u8BA4\u5173\uFF1Amerge \u662F"\u6298\u53E0\u6210\u4E00\u6761"\u4E0D\u662F"\u5220\u9664"
+#         max_per_run: 100        # \u5355\u6B21\u4F20\u64AD\u4E0A\u9650\uFF080 = \u4E0D\u9650\uFF09\uFF1B\u9762\u677F\u53EF\u6539
+#       config:                   # provider \u81EA\u5E26\u8FDE\u63A5\u53C2\u6570\uFF08\u817E\u8BAF\uFF1A\u89C1\u4E0B\u65B9 tencent \u6BB5\u5B57\u6BB5\uFF09
+#         url: 'http://127.0.0.1:8420'
+#         api_key_env: PROXY_USER_KEY
+#         service_id: default
+#
+#     # kind: http-json \u2014\u2014 \u4E0D\u5199\u4EE3\u7801\u63A5"\u5176\u4ED6\u5BB6"\uFF1A\u7AEF\u70B9\u4E0E\u5B57\u6BB5\u6620\u5C04\u5168\u5728\u914D\u7F6E\u91CC\u3002
+#     # \u80FD\u529B\u5FC5\u987B\u663E\u5F0F\u58F0\u660E\uFF1B\u58F0\u660E\u4E86\u4F46\u6CA1\u914D\u7AEF\u70B9 = \u8C03\u7528\u65F6 unsupported\uFF08\u4E0D\u731C\u3001\u4E0D\u9759\u9ED8\uFF09\u3002
+#     # \u5BC6\u94A5\u53EA\u8D70 token_env\uFF08\u73AF\u5883\u53D8\u91CF\u6216 $DSH_HOME/.credentials.yaml\uFF09\uFF0C\u4E0D\u843D\u76D8\u3002
+#     - id: my-memory
+#       kind: http-json
+#       enabled: true
+#       roles: [index]            # index = \u53EA\u8BFB\u68C0\u7D22\uFF0C\u4E0D\u53C2\u4E0E\u540C\u6B65
+#       config:
+#         base_url: 'https://memory.example.com'
+#         auth: { type: bearer, token_env: MY_MEMORY_TOKEN }   # \u6216 { type: header, token_env: X, name: x-api-key }
+#         headers: { x-tenant: acme }
+#         timeout_ms: 10000
+#         endpoints:
+#           list:   { method: POST, path: /v1/memories/list,   body: { limit: '{{limit}}', cursor: '{{cursor}}' } }
+#           search: { method: POST, path: /v1/memories/search, body: { query: '{{text}}', limit: '{{limit}}' } }
+#           append: { method: POST, path: /v1/memories,        body: { title: '{{title}}', content: '{{body}}', key: '{{idempotency_key}}' } }
+#         mapping:                  # \u53EA\u652F\u6301 $.a.b \u70B9\u8DEF\u5F84\u53D6\u503C\uFF0C\u4E0D\u652F\u6301\u8868\u8FBE\u5F0F
+#           items: '$.data.items'
+#           id: '$.id'
+#           title: '$.title'
+#           summary: '$.summary'
+#           body: '$.content'
+#           scope: '$.metadata.scope'
+#           tags: '$.tags'
+#           updated_at: '$.updated_at'
+#           next_cursor: '$.data.next'
+#         capabilities: [read.list, read.search, write.append]
+
+# \u817E\u8BAF Agent Memory \u6865\uFF08\u53EF\u9009\uFF0C\u9ED8\u8BA4\u5173\u95ED\uFF09\u3002\u5173\u95ED\u65F6\u96F6\u7F51\u7EDC\u8BF7\u6C42\uFF0C\u884C\u4E3A\u4E0E 0.7.1 \u4E00\u81F4\u3002
+# \u5F00\u542F\u540E memory_tencent_pull \u62C9\u53D6\u817E\u8BAF L1/L2 \u751F\u6210 pending \u5019\u9009\uFF08\u4EBA\u5BA1\u540E\u624D\u5165\u5E93\uFF09\uFF0C
+# memory_tencent_push \u628A\u672C\u5730 accepted \u77E5\u8BC6\u5206\u53D1\u5230\u817E\u8BAF\u901A\u9053\u3002
+# \u65B0\u914D\u7F6E\u8BF7\u6539\u7528\u4E0A\u9762\u7684 remote.providers\uFF1B\u672C\u6BB5\u4FDD\u7559\u4E3A\u517C\u5BB9\u5165\u53E3\u3002
+tencent:
+  enabled: false
+  url: 'http://127.0.0.1:8420'    # memory-core \u6570\u636E\u9762
+  api_key_env: PROXY_USER_KEY     # \u8BFB\u53D6 token \u7684\u73AF\u5883\u53D8\u91CF\u540D\uFF08\u4E0D\u843D\u76D8\uFF09
+  service_id: default
+  team_id: ''                     # \u4F8B\uFF1Ateam-oorlv5kamx
+  agent_id: ''                    # \u4F8B\uFF1Aagt-oorq6rzprf
+  user_id: ''                     # \u4F8B\uFF1Ausr-oon04odpor
+  task_id: ''
+  sync_interval_min: 30           # \u5B9A\u65F6\u540C\u6B65\u95F4\u9694\uFF1B0 = \u53EA\u624B\u52A8
+  pull_scope: global
+  pull_type: knowledge
+  pull_limit: 50
+  timeout_ms: 10000
+
+# \u53EF\u9009\u5206\u5C42\u8BB0\u5FC6\uFF08\u9636\u6BB5\u4E09\uFF0C\u9ED8\u8BA4 flat\uFF09\u3002
+layers:
+  enabled: false                  # true \u65F6 status \u63D0\u793A\u5206\u5C42\u5EFA\u8BAE\uFF0C\u68C0\u7D22\u884C\u4E3A\u4E0D\u53D8
+  suggest_at_entries: 20000       # \u6761\u76EE\u6570\u8FBE\u5230\u8BE5\u503C\u65F6\u5EFA\u8BAE\u542F\u7528
+  scenario_dir: scenario          # \u573A\u666F\u5F52\u7EB3\u76EE\u5F55\uFF08\u7A7A\u5B57\u7B26\u4E32 = \u5173\u95ED\uFF09
+
 storage:
   watch: true
   lock_stale_ms: 600000
@@ -11844,888 +13041,10 @@ function defaultConfig() {
   return configSchema.parse({});
 }
 
-// src/hub-readme.ts
-import { readFile as readFile3 } from "node:fs/promises";
-import { join as join2 } from "node:path";
-var HUB_README_VERSION = 3;
-var PRIMARY_NAME = "README.md";
-var FALLBACK_NAME = "MEMORY-HUB.md";
-var MARKER_PATTERN = /<!--\s*dsh-memory-hub:hub-readme\s+(\d+)\s*-->/;
-async function ensureHubReadme(hub) {
-  if (hub.readOnly) return "skipped";
-  const plan = await planWrite(hub.root);
-  if (plan === null) return "skipped";
-  await ensureDir(hub.root);
-  await writeAtomic(join2(hub.root, plan.name), renderHubReadme(hub, plan.name === FALLBACK_NAME));
-  return plan.action;
-}
-async function readMaybe(path) {
-  try {
-    return await readFile3(path, "utf8");
-  } catch {
-    return null;
-  }
-}
-async function planWrite(root) {
-  const primary = await readMaybe(join2(root, PRIMARY_NAME));
-  const primaryPlan = evaluate(PRIMARY_NAME, primary);
-  if (primaryPlan === "skip") return null;
-  if (primaryPlan !== "fallback") return primaryPlan;
-  const fallback = await readMaybe(join2(root, FALLBACK_NAME));
-  const fallbackPlan = evaluate(FALLBACK_NAME, fallback);
-  if (fallbackPlan === "fallback" || fallbackPlan === "skip") return null;
-  return fallbackPlan;
-}
-function evaluate(name2, existing) {
-  if (existing === null) return { name: name2, action: "created" };
-  const match = MARKER_PATTERN.exec(existing);
-  if (match === null) return "fallback";
-  const version = Number(match[1]);
-  if (!Number.isFinite(version) || version >= HUB_README_VERSION) return "skip";
-  return { name: name2, action: "updated" };
-}
-function renderHubReadme(hub, fallbackName = false) {
-  const root = hub.displayRoot();
-  const hubId = hub.config.hub.id;
-  const types = KNOWLEDGE_TYPES.map(
-    (type) => `| \`${type}\` | \`${TYPE_PREFIX[type]}\` | ${TYPE_PURPOSE[type]} |`
-  ).join("\n");
-  const nameNote = fallbackName ? "> \u6839\u76EE\u5F55\u7684 `README.md` \u662F\u4F60\u81EA\u5DF1\u7684\u6587\u6863\uFF0C\u6240\u4EE5\u8BF4\u660E\u4E66\u653E\u5728 `MEMORY-HUB.md`\u3002\n" : "";
-  return `# \u8FD9\u662F Memory Hub \u6570\u636E\u76EE\u5F55\uFF08\u81EA\u52A8\u751F\u6210\uFF09
-
-<!-- dsh-memory-hub:hub-readme ${HUB_README_VERSION} -->
-
-> Hub id\uFF1A\`${hubId}\` \xB7 \u6839\u76EE\u5F55\uFF1A\`${root}\`
->
-${nameNote}> \u672C\u6587\u4EF6\u7531 dsh-memory-hub \u5728\u521D\u59CB\u5316/\u5347\u7EA7\u65F6\u751F\u6210\uFF0C**\u53EF\u4EE5\u7F16\u8F91**\uFF08\u4FDD\u7559\u4E0A\u9762\u7684\u6807\u8BB0\u5373\u53EF\uFF0C\u540C\u7248\u672C\u4E0D\u4F1A\u88AB\u8986\u76D6\uFF09\u3002
-> \u60F3\u5FEB\u901F\u4E86\u89E3\u201C\u6BCF\u4E2A\u6587\u4EF6\u5939\u5E72\u4EC0\u4E48\u3001\u4EC0\u4E48\u80FD\u6539\u201D\uFF0C\u5148\u8BFB\u5B8C\u8FD9\u4E00\u9875\u3002
-
-## \u4E00\u5206\u949F\u7406\u89E3
-
-- \u8FD9\u662F\u4E00\u4E2A**\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u5E93**\uFF1A\u4E00\u6761\u77E5\u8BC6 = \u4E00\u4E2A\u5E26 YAML frontmatter \u7684 Markdown \u6587\u4EF6\u3002
-- **Markdown / YAML / JSONL \u662F\u552F\u4E00\u6743\u5A01\u6570\u636E**\uFF1B\u7D22\u5F15\u3001\u62A5\u544A\u3001\u6C34\u4F4D\u90FD\u662F\u53EF\u5220\u7684\u6D3E\u751F\u7269\u3002
-- \u77E5\u8BC6\u8FDB\u5165\u8FD9\u91CC\u53EA\u6709\u4E00\u6761\u5408\u6CD5\u8DEF\u5F84\uFF1A**\u5019\u9009\uFF08pending/\uFF09\u2192 \u4EBA\u5DE5\u6279\u51C6 \u2192 \u6743\u5A01\u77E5\u8BC6\uFF08knowledge/\uFF09**\u3002
-- \u6A21\u578B\u4E0D\u80FD\u81EA\u6279\uFF0C\u9762\u677F\u53EA\u63D0\u4F9B\u6279\u51C6/\u62D2\u7EDD\uFF1B\u672C\u76EE\u5F55\u91CC\u6CA1\u6709\u4EFB\u4F55\u201C\u6A21\u578B\u81EA\u52A8\u6539\u5199\u6B63\u6587\u201D\u7684\u901A\u9053\u3002
-
-## \u76EE\u5F55\u5730\u56FE
-
-| \u8DEF\u5F84 | \u4F5C\u7528 | \u8C01\u5199 | \u80FD\u624B\u52A8\u6539\u5417 | \u5220\u4E86\u4F1A\u600E\u6837 |
-| --- | --- | --- | --- | --- |
-| \`config.yaml\` | Hub \u914D\u7F6E\uFF1A\u6838\u5FC3/\u5B50\u5DE5\u4F5C\u533A\u3001\u7B56\u7565\u3001\u65F6\u6548 | \u9762\u677F / \u4F60 | \u2705 \u53EF\u4EE5\uFF08\u6539\u5B8C\u91CD\u542F\u6216\u4FDD\u5B58\uFF09 | \u4E22\u5931\u5DE5\u4F5C\u533A\u4E0E\u7B56\u7565\u914D\u7F6E |
-| \`README.md\` / \`MEMORY-HUB.md\` | \u672C\u8BF4\u660E | \u63D2\u4EF6\u751F\u6210 | \u2705 \u53EF\u4EE5\uFF08\u4FDD\u7559\u6807\u8BB0\uFF09 | \u4E0B\u6B21\u542F\u52A8\u91CD\u65B0\u751F\u6210 |
-| \`knowledge/<type>/<ID>.md\` | **\u6743\u5A01\u77E5\u8BC6**\uFF0C\u6309\u7C7B\u578B\u5206\u76EE\u5F55 | \u4EC5 \`memory_commit\` \u5BA1\u6279\u901A\u8FC7\u540E | \u26A0\uFE0F \u53EF\u4EE5\u6539\uFF0C\u4F46\u4F1A\u7ED5\u8FC7\u5BA1\u6279\u8BB0\u5F55\uFF1B\u4F18\u5148\u7528\u5DE5\u5177 | \u77E5\u8BC6\u6C38\u4E45\u4E22\u5931\uFF08\u6709 git \u5907\u4EFD\u53EF\u6062\u590D\uFF09 |
-| \`pending/<PRO-ID>.md\` | **\u5019\u9009**\uFF0C\u5C1A\u672A\u6210\u4E3A\u6743\u5A01\u77E5\u8BC6 | \u6A21\u578B \`memory_propose\` / \u7EF4\u62A4\u626B\u63CF | \u26A0\uFE0F \u5EFA\u8BAE\u5728\u9762\u677F\u6279\u51C6\u6216\u62D2\u7EDD\uFF0C\u4E0D\u8981\u624B\u6539\u72B6\u6001 | \u5019\u9009\u4E22\u5931\uFF0C\u4E0D\u5F71\u54CD\u5DF2\u63A5\u53D7\u77E5\u8BC6 |
-| \`pending/archive/\` | \u5DF2\u5904\u7406\u5019\u9009\u7684\u5F52\u6863\uFF08\u6279\u51C6/\u62D2\u7EDD\u540E\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5BA1\u8BA1\u7EBF\u7D22\u4E22\u5931 |
-| \`records/ledger.jsonl\` | \u8FFD\u52A0\u5F0F\u8D26\u672C\uFF1A\u63D0\u6848\u3001\u6279\u51C6\u3001\u5F15\u7528\u3001\u4EFB\u52A1 | \u63D2\u4EF6\uFF08\u53EA\u8FFD\u52A0\uFF09 | \u274C \u4E0D\u8981\u624B\u6539 | \u5BA1\u8BA1/\u5F15\u7528\u8BA1\u6570\u4E22\u5931 |
-| \`records/sequences.json\` | \u4E0B\u4E00\u4E2A ID \u5E8F\u53F7 | \u63D2\u4EF6 | \u274C \u4E0D\u8981\u624B\u6539 | \u53EF\u80FD\u649E\u53F7\uFF08\u53EF\u81EA\u52A8\u56DE\u586B\uFF0C\u4F46\u4E0D\u5EFA\u8BAE\uFF09 |
-| \`records/index.sqlite\` | \u6D3E\u751F\u5168\u6587\u7D22\u5F15\uFF08\u5927 Hub \u624D\u6709\uFF09 | \u63D2\u4EF6\u81EA\u52A8\u91CD\u5EFA | \u2705 \u53EF\u5220 | \u4E0B\u6B21\u542F\u52A8\u81EA\u52A8\u91CD\u5EFA |
-| \`records/reflect-state.json\` | \u56DE\u987E\u6C34\u4F4D\uFF08\u54EA\u4E9B\u4F1A\u8BDD\u5DF2\u56DE\u987E\uFF09 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u540C\u4E00\u4F1A\u8BDD\u53EF\u80FD\u88AB\u91CD\u590D\u56DE\u987E |
-| \`records/maintenance-state.json\` | \u7EF4\u62A4\u4E0A\u6B21\u8FD0\u884C\u65F6\u95F4 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u53EA\u5F71\u54CD\u201C\u4ECA\u5929\u662F\u5426\u5DF2\u8DD1\u201D\u5224\u65AD |
-| \`records/.writer.lock\` | \u8BE5\u6839\u7684\u5199\u9501\uFF08\u79DF\u7EA6 + fencing token\uFF09 | \u5F53\u524D\u5199\u8005\uFF08\u5FC3\u8DF3 15s\uFF09 | \u26A0\uFE0F \u53EA\u6709\u786E\u8BA4\u6CA1\u6709\u5176\u4ED6 DSH \u5728\u8DD1\u65F6\u624D\u5220 | \u4E0B\u4E00\u4E2A\u5199\u8005\u4F1A\u91CD\u65B0\u521B\u5EFA\uFF1B\u6D3B\u5199\u8005\u7684\u9501\u88AB\u5220\u4F1A\u77ED\u6682\u51FA\u73B0\u4E24\u4E2A\u5199\u8005 |
-| \`history/\` | \u6BCF\u6B21\u63D0\u4EA4\u7684\u65E7\u7248\u672C\u5FEB\u7167 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5386\u53F2\u7248\u672C\u4E22\u5931\uFF08\u5F53\u524D\u7248\u672C\u4E0D\u53D7\u5F71\u54CD\uFF09 |
-| \`reports/\` | \u7EF4\u62A4\u62A5\u544A\uFF08\`latest.md\` + \u65F6\u95F4\u6233\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u4E22\u5931\u5386\u53F2\u4F53\u68C0\u8BB0\u5F55 |
-| \`index/\` | \u65E7\u7248\u672C\u53EF\u80FD\u9057\u7559\u7684\u7A7A\u76EE\u5F55\uFF08\u65B0 Hub \u4E0D\u518D\u521B\u5EFA\uFF09 | \u2014 | \u2705 \u53EF\u5220 | \u65E0\u5F71\u54CD |
-
-**\u5224\u65AD\u6807\u51C6**\uFF1A\`knowledge/\`\u3001\`pending/\`\u3001\`records/ledger.jsonl\`\u3001\`records/sequences.json\`\u3001\`config.yaml\` \u662F\u6743\u5A01\u6570\u636E\uFF0C\u5220/\u6539\u524D\u5148\u5907\u4EFD\uFF1B\`records/index.sqlite\`\u3001\`records/reflect-state.json\`\u3001\`records/maintenance-state.json\`\u3001\`reports/\`\u3001\`index/\` \u662F\u6D3E\u751F\u7269\u6216\u8F85\u52A9\u6570\u636E\uFF0C\u53EF\u5220\u3002
-
-## \u4E5D\u7C7B\u77E5\u8BC6\uFF08\u6CE8\u610F \`assets\` \u7684\u542B\u4E49\uFF09
-
-| \u7C7B\u578B | \u524D\u7F00 | \u7528\u9014 |
-| --- | --- | --- |
-${types}
-
-### \`assets\` \u5230\u5E95\u662F\u4EC0\u4E48
-
-\`assets\` **\u4E0D\u662F**\u4EE3\u7801\u8D44\u4EA7\u3001\u6784\u5EFA\u4EA7\u7269\u6216\u4F9D\u8D56\u5305\uFF0C\u800C\u662F**\u5916\u90E8\u8D44\u6E90\u7684\u7D22\u5F15\u6761\u76EE**\uFF1A
-
-- \u8BBE\u8BA1\u7A3F\u3001\u539F\u578B\u3001\u622A\u56FE\u3001\u5F55\u5C4F\u3001\u6F14\u793A\u6587\u7A3F\u7684\u4F4D\u7F6E\uFF1B
-- \u6A21\u677F\u3001\u6E05\u5355\u3001\u63D0\u793A\u8BCD\u3001\u811A\u672C\u7247\u6BB5\u7B49\u201C\u62FF\u6765\u5373\u7528\u201D\u7684\u7D20\u6750\u8BF4\u660E\uFF1B
-- \u5927\u6587\u4EF6\u672C\u4F53\u7559\u5728\u539F\u5904\uFF08\u7F51\u76D8\u3001\u4ED3\u5E93\u3001\u5171\u4EAB\u76D8\uFF09\uFF0C\u8FD9\u91CC\u53EA\u8BB0**\u5728\u54EA\u91CC\u3001\u600E\u4E48\u7528\u3001\u9002\u7528\u8FB9\u754C**\u3002
-
-\u5199 \`assets\` \u65F6\u6B63\u6587\u53EF\u4EE5\u5F88\u77ED\uFF0C\u4F46 \`source_refs\` \u5FC5\u987B\u6307\u5411\u771F\u5B9E\u4F4D\u7F6E\uFF08\`url:\` / \`file:\` / \`note:\`\uFF09\uFF0C\u5426\u5219\u4EE5\u540E\u6CA1\u4EBA\u627E\u5F97\u5230\u3002
-
-## \u4F5C\u7528\u57DF\u4E0E\u91D1\u5B57\u5854
-
-| \u4F5C\u7528\u57DF | \u653E\u4EC0\u4E48 | \u4F8B\u5B50 |
-| --- | --- | --- |
-| \`project:<\u5F53\u524D\u5DE5\u4F5C\u533A>\` | \u672C\u4ED3\u7279\u5B9A\u51B3\u7B56\u3001\u7EA6\u675F\u3001\u6D41\u7A0B\u3001\u5751 | \u672C\u4ED3\u7528 pnpm |
-| \`scope: "core"\` | \u53EF\u590D\u7528\u5230\u540C\u6838\u5FC3\u4ED3\u5176\u4ED6\u5B50\u5DE5\u4F5C\u533A\u7684\u7ECF\u9A8C | \u63D2\u4EF6\u53D1\u5E03 checklist |
-| \`domain:<id>\` | \u8DE8\u9879\u76EE\u7684\u9886\u57DF\u77E5\u8BC6 | \u67D0\u534F\u8BAE/\u6846\u67B6\u7684\u901A\u7528\u7EA6\u675F |
-| \`global\` | \u7A33\u5B9A\u3001\u8DE8\u9879\u76EE\u7684\u901A\u7528\u7EA6\u5B9A\uFF08\u614E\u7528\uFF09 | \u63D0\u4EA4\u4FE1\u606F\u89C4\u8303 |
-
-- \u5B50\u5DE5\u4F5C\u533A\u53EF\u89C1\uFF1A\u81EA\u5DF1\u7684 \`project:<id>\` + \u6838\u5FC3 \`project:<core-id>\` + \`global\`\uFF08\u53EA\u53D6\u5F53\u524D Hub \u81EA\u5DF1\u7684 global\uFF09\u3002
-- \u540C\u7EA7\u5B50\u5DE5\u4F5C\u533A\u4E92\u76F8\u4E0D\u53EF\u89C1\uFF1B\u5411\u4E0A\u664B\u5347\u9760\u84B8\u998F/\u6C47\u603B\uFF0C\u4E0D\u662F\u81EA\u52A8\u6CC4\u6F0F\u3002
-- \u6BCF\u4E2A \`core_workspaces[].root\` \u662F\u4E00\u4E2A\u72EC\u7ACB Hub\uFF1B\u672C\u76EE\u5F55\u5C31\u662F\u5176\u4E2D\u4E00\u4E2A\u3002
-
-## \u5199\u5165\u6D41\u7A0B\uFF08\u552F\u4E00\u5408\u6CD5\u8DEF\u5F84\uFF09
-
-\`\`\`text
-\u6A21\u578B memory_propose  \u2192  pending/PRO-xxxx.md\uFF08\u5019\u9009\uFF0Ccandidate\uFF09
-        \u2193 \u4EBA\u5728 DSH \u5BA1\u6279\u6216\u9762\u677F\u70B9\u201C\u6279\u51C6\u201D
-memory_commit        \u2192  knowledge/<type>/<ID>.md\uFF08accepted\uFF09
-        \u2193 \u540C\u65F6
-history/ \u5FEB\u7167 + records/ledger.jsonl \u8FFD\u52A0\u4E8B\u4EF6 + \u5E8F\u53F7 +1
-\`\`\`
-
-- \u62D2\u7EDD\uFF1A\u5019\u9009\u5F52\u6863\u5230 \`pending/archive/\`\uFF0C\u4E0D\u5220\u9664\u539F\u6709\u77E5\u8BC6\u3002
-- \u66F4\u65B0\uFF1A\`operation: update\` \u4F1A +1 \u7248\u672C\u5E76\u4FDD\u7559\u65E7\u7248\u672C\u5230 \`history/\`\u3002
-- \u5408\u5E76\uFF1A\`operation: merge\` \u628A\u591A\u6761\u5E76\u8FDB\u4E00\u6761\uFF0C\u88AB\u5E76\u6761\u76EE\u53D8 \`superseded\` \u5E76\u5199 \`superseded_by\`\u3002
-- \u7981\u6B62\uFF1A\u6A21\u578B\u81EA\u6279\u3001\u4F2A\u9020\u5BA1\u6279\u3001\u624B\u6539\u8D26\u672C\u5192\u5145\u63D0\u4EA4\u3002
-
-## \u5E38\u7528\u5DE5\u5177
-
-| \u76EE\u7684 | \u5DE5\u5177 |
-| --- | --- |
-| \u770B\u72B6\u6001 / \u8BCA\u65AD | \`memory_status\` |
-| \u68C0\u7D22 | \`memory_search\`\uFF08\u5148 \`detail: "ids"\` \u626B\uFF0C\u518D \`memory_get\`\uFF09 |
-| \u8BFB\u6B63\u6587 | \`memory_get\`\uFF08\u9ED8\u8BA4\u6458\u8981\uFF0C\u6309\u8282\u8BFB\uFF09 |
-| \u6807\u8BB0\u5B9E\u9645\u4F7F\u7528 | \`memory_cite\` |
-| \u521B\u5EFA\u5019\u9009 | \`memory_propose\` |
-| \u63D0\u4EA4\u5019\u9009 | \`memory_commit\`\uFF08\u89E6\u53D1\u4EBA\u5DE5\u5BA1\u6279\uFF09 |
-| \u8FD1\u91CD\u590D\u68C0\u67E5 | \`memory_duplicates\` |
-| \u56DE\u987E\u5DF2\u7ED3\u675F\u4F1A\u8BDD | \`memory_reflect\` |
-| \u591C\u95F4\u5DE1\u68C0 | \`memory_maintenance\`\uFF08\u53EA\u62A5\u544A / \u53EA\u751F\u6210\u5019\u9009\uFF09 |
-| \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
-
-\u5B8C\u6574\u5DE5\u4F5C\u6D41\u89C1\u9879\u76EE\u4ED3\u5E93\u7684 \`docs/06-operations/\` \u4E0E\u7CFB\u7EDF \`memory-hub\` skill\u3002
-
-## \u7EF4\u62A4\u4E0E\u5907\u4EFD
-
-- \u7EF4\u62A4\u6BCF\u5929 03:00\uFF08\u53EF\u914D\u7F6E\uFF09\u786E\u5B9A\u6027\u5DE1\u68C0\uFF1A\u5199\u62A5\u544A\u3001\u5FC5\u8981\u65F6\u751F\u6210 \`pending/\` \u5019\u9009\uFF0C**\u4E0D\u81EA\u52A8 commit\u3001\u4E0D\u5220\u9664\u3001\u4E0D\u6539\u5199\u6B63\u6587**\u3002
-- \u5907\u4EFD\uFF1A\u6574\u4E2A\u76EE\u5F55 \`git init\` \u6216\u590D\u5236\u5373\u53EF\uFF1B\`git\` \u5FFD\u7565 \`records/index.sqlite\` \u7B49\u6D3E\u751F\u7269\u66F4\u7701\u7A7A\u95F4\u3002
-- \u4F53\u91CF\u53C2\u8003\uFF1A\u7EA6 2.5KB/\u6761\uFF08Markdown\uFF09\uFF1B3 \u4E07\u6761\u4EE5\u4E0A\u624D\u4F1A\u51FA\u73B0 \`records/index.sqlite\`\u3002
-
-## \u5B89\u5168\u8FB9\u754C
-
-- \u4E0D\u8981\u5F80\u8FD9\u91CC\u5199\u5BC6\u94A5\u3001token\u3001\u5BC6\u7801\u3001\u79C1\u94A5\uFF1B\`memory_propose\` \u4F1A\u626B\u63CF\u5E76\u6807\u8BB0\u53EF\u7591\u5185\u5BB9\uFF0C\u4F46\u4ECD\u9700\u4EBA\u5224\u65AD\u3002
-- \u53EA\u8BFB Hub\uFF08\`readOnly: true\`\u3001\u914D\u7F6E\u635F\u574F\u6216\u5199\u9501\u88AB\u5360\u7528\uFF09\u4E0D\u4F1A\u63A5\u53D7\u4EFB\u4F55\u5199\u5165\u3002
-- \u5199\u9501\u662F**\u79DF\u7EA6**\uFF1A\u5D29\u6E83\uFF08pid \u4E0D\u5B58\u5728\uFF09\u3001\u5FC3\u8DF3\u8D85 \`storage.lock_stale_ms\`\uFF08\u6302\u6B7B/\u5047\u6B7B\uFF09\u3001\u6216\u8DE8\u673A\u6B8B\u7559\u90FD\u4F1A\u88AB\u81EA\u52A8\u56DE\u6536\uFF0C\u4E0D\u9700\u8981\u624B\u52A8\u5220\u9501\uFF1B\u5BF9\u65B9\u9000\u51FA\u540E\u672C\u8FDB\u7A0B\u4F1A\u5728\u4E0B\u4E00\u6B21\u5199\u5165\u65F6\u81EA\u52A8\u63A5\u7BA1\u3002
-- \u9762\u677F\u53EA\u5141\u8BB8\u56DE\u73AF\u5730\u5740\u8BF7\u6C42\uFF0C\u4E14\u53EA\u63D0\u4F9B\u201C\u6279\u51C6/\u62D2\u7EDD\u201D\u4E24\u4E2A\u5199\u64CD\u4F5C\u3002
-
-## \u5E38\u89C1\u8BEF\u7528
-
-| \u8BEF\u7528 | \u540E\u679C | \u6B63\u786E\u505A\u6CD5 |
-| --- | --- | --- |
-| \u628A \`assets\` \u5F53\u4EE3\u7801\u8D44\u4EA7/\u6784\u5EFA\u4EA7\u7269 | \u8BB0\u4E86\u6CA1\u7528\u7684\u4E1C\u897F\uFF0C\u771F\u7D20\u6750\u53CD\u800C\u627E\u4E0D\u5230 | \u53EA\u8BB0\u5916\u90E8\u8D44\u6E90\u4F4D\u7F6E\u4E0E\u7528\u6CD5 |
-| \u628A \`pending/\` \u5F53\u6743\u5A01\u77E5\u8BC6\u5F15\u7528 | \u672A\u6279\u51C6\u7684\u5185\u5BB9\u88AB\u5F53\u6210\u4E8B\u5B9E | \u770B \`status\`\uFF0C\u53EA\u6709 \`accepted\` \u53C2\u4E0E\u9ED8\u8BA4\u68C0\u7D22 |
-| \u624B\u6539 \`knowledge/\` \u7ED5\u8FC7\u5BA1\u6279 | \u6CA1\u6709\u8D26\u672C\u4E0E\u5386\u53F2\u7248\u672C\uFF0C\u5BA1\u8BA1\u65AD\u94FE | \u8D70 \`memory_propose\` \u2192 \u5BA1\u6279 |
-| \u628A\u65E5\u5FD7/\u957F\u6587\u6574\u7BC7\u585E\u8FDB\u77E5\u8BC6 | \u68C0\u7D22\u53D8\u5DEE\u3001\u4E0A\u4E0B\u6587\u53D8\u8D35 | \u5199\u7ED3\u8BBA + \u5173\u952E\u7247\u6BB5 + \u8DEF\u5F84 |
-| \u624B\u6539 \`records/ledger.jsonl\` | \u5F15\u7528\u8BA1\u6570\u3001\u5BA1\u8BA1\u5931\u771F | \u53EA\u8BFB\uFF1B\u9700\u8981\u4FEE\u6B63\u7528\u65B0\u4E8B\u4EF6 |
-`;
-}
-var TYPE_PURPOSE = {
-  decision: "\u5DF2\u505A\u51FA\u7684\u9009\u62E9\u4E0E\u7406\u7531",
-  constraint: "\u4E0D\u53EF\u8FDD\u53CD\u7684\u8FB9\u754C",
-  knowledge: "\u5DF2\u786E\u8BA4\u7684\u4E8B\u5B9E/\u673A\u5236",
-  "api-catalog": "\u63A5\u53E3\u3001\u547D\u4EE4\u3001\u534F\u8BAE\u6E05\u5355",
-  process: "\u53EF\u590D\u73B0\u7684\u6D41\u7A0B/\u6B65\u9AA4",
-  "open-questions": "\u672A\u51B3\u95EE\u9898\u4E0E\u5F85\u9A8C\u8BC1\u5047\u8BBE",
-  "runtime-base": "\u73AF\u5883\u3001\u7248\u672C\u3001\u90E8\u7F72\u524D\u63D0",
-  playbooks: "\u6392\u969C/\u64CD\u4F5C\u624B\u518C",
-  assets: "\u5916\u90E8\u8D44\u6E90\uFF08\u8BBE\u8BA1\u7A3F/\u622A\u56FE/\u6A21\u677F/\u5F55\u5C4F\uFF09\u7684\u7D22\u5F15\uFF0C\u4E0D\u662F\u4EE3\u7801\u8D44\u4EA7"
-};
-
-// src/lock.ts
-import { readFileSync, rmSync, statSync } from "node:fs";
-import { open as open2, readFile as readFile4, rename as rename2, rm as rm2, stat as stat2 } from "node:fs/promises";
-import { hostname } from "node:os";
-import { basename as basename2, dirname as dirname2, join as join3 } from "node:path";
-var LOCK_HEARTBEAT_MS = 15e3;
-var LOCK_FORMAT_VERSION = 2;
-function snapshotSync(path) {
-  let raw;
-  let mtimeMs;
-  try {
-    mtimeMs = statSync(path).mtimeMs;
-    raw = readFileSync(path, "utf8");
-  } catch (error) {
-    const code = error.code;
-    if (code === "ENOENT") return { kind: "missing" };
-    return { kind: "corrupt", mtimeMs: Date.now() };
-  }
-  const owner = parseOwner(raw);
-  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
-}
-function observeLock(path, staleMs, token = null) {
-  const snapshot = snapshotSync(path);
-  if (snapshot.kind === "missing") {
-    return { state: "missing", owner: null, expiresAt: null, reclaimable: null };
-  }
-  if (snapshot.kind === "corrupt") {
-    return {
-      state: "corrupt",
-      owner: null,
-      expiresAt: ownerExpiresAt(snapshot, staleMs),
-      reclaimable: decideReclaim(snapshot, staleMs, Date.now())
-    };
-  }
-  const owned = token !== null && snapshot.owner.token === token;
-  return {
-    state: owned ? "owned" : "foreign",
-    owner: snapshot.owner,
-    expiresAt: ownerExpiresAt(snapshot, staleMs),
-    reclaimable: decideReclaim(snapshot, staleMs, Date.now())
-  };
-}
-var UNKNOWN_LIVENESS_GRACE_MS = 6e4;
-function liveness(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return "dead";
-  if (pid === process.pid) return "alive";
-  try {
-    process.kill(pid, 0);
-    return "alive";
-  } catch (error) {
-    const code = error.code;
-    if (code === "ESRCH") return "dead";
-    return "unknown";
-  }
-}
-function sameHost(host) {
-  return host.toLowerCase() === hostname().toLowerCase();
-}
-function parseOwner(raw) {
-  try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
-    if (typeof parsed.heartbeatAt !== "string" || Number.isNaN(Date.parse(parsed.heartbeatAt))) return null;
-    return {
-      pid: parsed.pid,
-      host: typeof parsed.host === "string" ? parsed.host : "unknown",
-      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : parsed.heartbeatAt,
-      heartbeatAt: parsed.heartbeatAt,
-      token: typeof parsed.token === "string" && parsed.token !== "" ? parsed.token : null
-    };
-  } catch {
-    return null;
-  }
-}
-async function readSnapshot(path) {
-  let raw;
-  let mtimeMs;
-  try {
-    const info = await stat2(path);
-    mtimeMs = info.mtimeMs;
-    raw = await readFile4(path, "utf8");
-  } catch (error) {
-    const code = error.code;
-    if (code === "ENOENT") return { kind: "missing" };
-    return { kind: "corrupt", mtimeMs: Date.now() };
-  }
-  const owner = parseOwner(raw);
-  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
-}
-function lastSignalMs(owner) {
-  return Date.parse(owner.heartbeatAt);
-}
-function decideReclaim(snapshot, staleMs, now) {
-  if (snapshot.kind === "missing") return null;
-  if (snapshot.kind === "corrupt") return now - snapshot.mtimeMs > staleMs ? "corrupt" : null;
-  if (!sameHost(snapshot.owner.host)) return "foreign-host";
-  const state = liveness(snapshot.owner.pid);
-  if (state === "dead") return "dead-process";
-  const age = now - lastSignalMs(snapshot.owner);
-  if (state === "alive") {
-    return age > staleMs ? "stale-heartbeat" : null;
-  }
-  return age > Math.min(staleMs, UNKNOWN_LIVENESS_GRACE_MS) ? "stale-heartbeat" : null;
-}
-function ownerExpiresAt(snapshot, staleMs) {
-  if (snapshot.kind === "missing") return null;
-  if (snapshot.kind === "corrupt") return snapshot.mtimeMs + staleMs;
-  return lastSignalMs(snapshot.owner) + staleMs;
-}
-function describeSnapshot(snapshot) {
-  return snapshot.kind === "ok" ? snapshot.owner : null;
-}
-async function reclaim(path, expected) {
-  const temp = join3(dirname2(path), `.${basename2(path)}.reclaim.${process.pid}.${randomHex(4)}`);
-  try {
-    await rename2(path, temp);
-  } catch (error) {
-    if (error.code === "ENOENT") return true;
-    return false;
-  }
-  const renamed = await readSnapshot(temp);
-  const unchanged = expected.kind === "corrupt" ? renamed.kind === "corrupt" : expected.kind === "ok" && renamed.kind === "ok" && renamed.owner.token === expected.owner.token && renamed.owner.heartbeatAt === expected.owner.heartbeatAt;
-  if (!unchanged) {
-    try {
-      const raw = await readFile4(temp, "utf8");
-      const handle = await open2(path, "wx");
-      try {
-        await handle.writeFile(raw, "utf8");
-      } finally {
-        await handle.close();
-      }
-    } catch {
-    }
-    await rm2(temp, { force: true }).catch(() => {
-    });
-    return false;
-  }
-  await rm2(temp, { force: true }).catch(() => {
-  });
-  return true;
-}
-var activeLocks = /* @__PURE__ */ new Set();
-var exitHookInstalled = false;
-function installExitHook() {
-  if (exitHookInstalled) return;
-  exitHookInstalled = true;
-  process.once("exit", () => {
-    for (const lock of [...activeLocks]) lock.releaseSync();
-  });
-}
-var WriterLock = class _WriterLock {
-  constructor(path, info, staleMs, heartbeatMs) {
-    this.path = path;
-    this.info = info;
-    this.staleMs = staleMs;
-    this.heartbeatMs = heartbeatMs;
-    activeLocks.add(this);
-    installExitHook();
-    this.startHeartbeat();
-  }
-  timer = null;
-  lost = false;
-  releasing = false;
-  onLostCallback = null;
-  static async acquire(path, staleMs, options = {}) {
-    await ensureDir(dirname2(path));
-    const heartbeatMs = options.heartbeatMs ?? Math.min(LOCK_HEARTBEAT_MS, Math.max(250, Math.floor(staleMs / 4)));
-    let reclaimed = null;
-    for (let round2 = 0; round2 < 4; round2 += 1) {
-      const snapshot = await readSnapshot(path);
-      if (snapshot.kind === "missing") {
-        const created = await _WriterLock.create(path, staleMs, heartbeatMs, reclaimed);
-        if (created !== null) return created;
-        continue;
-      }
-      const cause = decideReclaim(snapshot, staleMs, Date.now());
-      if (cause === null) {
-        return {
-          lock: null,
-          owner: describeSnapshot(snapshot),
-          reclaimed,
-          ownerExpiresAt: ownerExpiresAt(snapshot, staleMs)
-        };
-      }
-      if (!await reclaim(path, snapshot)) continue;
-      reclaimed = cause;
-    }
-    const final = await readSnapshot(path);
-    return {
-      lock: null,
-      owner: describeSnapshot(final),
-      reclaimed,
-      ownerExpiresAt: ownerExpiresAt(final, staleMs)
-    };
-  }
-  static async create(path, staleMs, heartbeatMs, reclaimed) {
-    const now = nowIso();
-    const info = {
-      pid: process.pid,
-      host: hostname(),
-      startedAt: now,
-      heartbeatAt: now,
-      token: randomHex(8)
-    };
-    let handle;
-    try {
-      handle = await open2(path, "wx");
-    } catch (error) {
-      if (error.code === "EEXIST") return null;
-      throw new MemoryError("STORAGE_ERROR", `cannot create writer lock ${path}: ${error.message}`);
-    }
-    try {
-      await handle.writeFile(serialize(info), "utf8");
-    } finally {
-      await handle.close();
-    }
-    const check = await readSnapshot(path);
-    if (check.kind !== "ok" || check.owner.token !== info.token) return null;
-    const lock = new _WriterLock(path, info, staleMs, heartbeatMs);
-    return { lock, owner: null, reclaimed, ownerExpiresAt: lock.expiresAt };
-  }
-  /** 租约到期时间（epoch ms）；超过它，其他写者可以接管。 */
-  get expiresAt() {
-    return Date.parse(this.info.heartbeatAt) + this.staleMs;
-  }
-  get owner() {
-    return this.info;
-  }
-  /** 锁是否已丢失（被其他写者按租约接管，或文件被删除）。 */
-  get isLost() {
-    return this.lost;
-  }
-  /** 注册“锁已丢失”回调；`reason` 区分“被别人接管”和“文件被删”。 */
-  onLost(callback) {
-    this.onLostCallback = callback;
-  }
-  /**
-   * Current relationship between this writer and the lock file.
-   *
-   * `missing` is deliberately separate from `foreign`: a lock file that was
-   * deleted (manual cleanup, or the old owner released it) leaves the root free,
-   * so this process may take it again; a `foreign` file means somebody else is
-   * the writer now and this process must not write.
-   */
-  state() {
-    if (this.lost) return "missing";
-    return observeLock(this.path, this.staleMs, this.info.token).state;
-  }
-  /**
-   * Fencing check: the lock file must still carry this writer's token. Called
-   * before every write, so a writer that lost its lease stops writing instead
-   * of racing the new owner.
-   */
-  async verifyOwnership() {
-    return this.state() === "owned";
-  }
-  startHeartbeat() {
-    this.timer = setInterval(() => {
-      void this.beat();
-    }, this.heartbeatMs);
-    this.timer.unref?.();
-  }
-  async beat() {
-    if (this.lost || this.releasing) return;
-    try {
-      const state = this.state();
-      if (state === "foreign" || state === "corrupt") {
-        this.markLost("foreign");
-        return;
-      }
-      if (state === "missing") {
-        this.markLost("missing");
-        return;
-      }
-      this.info.heartbeatAt = nowIso();
-      await writeAtomic(this.path, serialize(this.info));
-    } catch {
-    }
-  }
-  markLost(reason) {
-    if (this.lost) return;
-    this.lost = true;
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    activeLocks.delete(this);
-    try {
-      this.onLostCallback?.(reason);
-    } catch {
-    }
-  }
-  /**
-   * Stop tracking this handle without deciding who owns the file.
-   *
-   * Used when a caller has already observed the lock file and knows this handle
-   * is stale: keeping the heartbeat timer alive would let a dead handle keep
-   * refreshing a file it no longer owns (or would have refreshed).
-   */
-  detach() {
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    this.lost = true;
-    activeLocks.delete(this);
-  }
-  async release() {
-    this.releasing = true;
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-    activeLocks.delete(this);
-    if (this.lost) return;
-    if (!await this.verifyOwnership()) return;
-    await rm2(this.path, { force: true }).catch(() => {
-    });
-  }
-  /** Synchronous best-effort release for the process exit hook. */
-  releaseSync() {
-    if (this.lost) return;
-    try {
-      const owner = parseOwner(readFileSync(this.path, "utf8"));
-      if (owner === null || owner.token !== this.info.token || owner.pid !== this.info.pid) return;
-      rmSync(this.path, { force: true });
-    } catch {
-    }
-  }
-};
-function serialize(info) {
-  return JSON.stringify({ v: LOCK_FORMAT_VERSION, ...info });
-}
-
-// src/hub.ts
-function expandHome(value) {
-  if (value === "~") return homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) return join4(homedir(), value.slice(2));
-  return value;
-}
-function resolveHubRoot(configured) {
-  const trimmed = configured?.trim();
-  if (trimmed !== void 0 && trimmed !== "") return resolve(expandHome(trimmed));
-  const dshHome = process.env.DSH_HOME?.trim();
-  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join4(homedir(), ".dsh");
-  return join4(base, "memory-hub");
-}
-function describeBlocker(path, owner, expiresAt) {
-  if (owner === null) return `another writer holds ${path} (unreadable lock file)`;
-  const lease = expiresAt === null ? "" : `, lease expires at ${new Date(expiresAt).toISOString()}`;
-  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host}${lease})`;
-}
-var Hub = class _Hub {
-  root;
-  config;
-  configError = null;
-  /** Effective write gate: `false` only when this root can be written. */
-  readOnly;
-  readOnlyReason = null;
-  /** Why `readOnly` is set: forced by config, unreadable config.yaml, or a busy writer lock. */
-  readOnlySource = null;
-  /** Explicit `readOnly: true`: the only source that also blocks config edits. */
-  forcedReadOnly;
-  lock = null;
-  lockOwner = null;
-  lockOwnerExpiresAt = null;
-  lockReclaimed = null;
-  /** Set when another writer took this root over mid-session (lease stolen). */
-  lockLost = false;
-  acquiring = null;
-  configSource = null;
-  lockAllowed;
-  constructor(root, config, forcedReadOnly, readOnlyReason, configSource, lockAllowed) {
-    this.root = root;
-    this.config = config;
-    this.forcedReadOnly = forcedReadOnly;
-    this.readOnly = forcedReadOnly;
-    this.readOnlyReason = forcedReadOnly ? readOnlyReason ?? "configured read-only" : null;
-    this.readOnlySource = forcedReadOnly ? "forced" : null;
-    this.configSource = configSource ?? null;
-    this.lockAllowed = lockAllowed;
-  }
-  static async open(options = {}) {
-    const isDataRoot = options.config !== void 0;
-    const root = isDataRoot ? resolve(expandHome(options.root ?? "")) : resolveHubRoot(options.root);
-    if (root === "") {
-      throw new MemoryError("INVALID_INPUT", "hub root must not be empty");
-    }
-    const forcedReadOnly = options.readOnly === true;
-    const lockAllowed = options.lock !== false;
-    const externalConfigPath = options.configPath;
-    let config;
-    let configSource;
-    let configError = null;
-    if (isDataRoot && options.config !== void 0) {
-      config = options.config;
-      configSource = externalConfigPath ?? void 0;
-      await ensureLayout(root);
-    } else {
-      const configPath = join4(root, "config.yaml");
-      config = defaultConfig();
-      configSource = configPath;
-      await ensureLayout(root);
-      if (!await pathExists(configPath)) {
-        try {
-          await writeAtomic(configPath, DEFAULT_CONFIG_YAML);
-        } catch (error) {
-          configError = `cannot create config.yaml: ${error.message}`;
-        }
-      }
-      try {
-        const loaded = await readConfigFile(configPath);
-        if (loaded !== null) config = loaded;
-      } catch (error) {
-        configError = error.message;
-      }
-    }
-    const hub = new _Hub(
-      root,
-      config,
-      forcedReadOnly,
-      options.readOnlyReason,
-      configSource,
-      lockAllowed
-    );
-    hub.configError = configError;
-    if (configError !== null) {
-      hub.markReadOnly("config", configError);
-    } else if (!forcedReadOnly && lockAllowed) {
-      await hub.acquireLock();
-    }
-    if (!hub.readOnly) {
-      try {
-        await ensureHubReadme(hub);
-      } catch {
-      }
-    }
-    return hub;
-  }
-  /**
-   * Mark this hub read-only. `config` and `lock` degradations are local to this
-   * root; `forced` comes from the plugin configuration and applies everywhere.
-   */
-  markReadOnly(source, reason) {
-    this.readOnly = true;
-    this.readOnlyReason = reason;
-    this.readOnlySource = source;
-  }
-  /** Whether this hub may write `config.yaml` (atomic file write, not a knowledge write). */
-  canWriteConfig() {
-    return !this.forcedReadOnly;
-  }
-  /** 写锁诊断（面板 / `memory_status` 用）。 */
-  lockInfo() {
-    const onDisk = this.forcedReadOnly ? "missing" : this.lock !== null ? this.lock.state() : observeLock(this.lockPath(), this.config.storage.lock_stale_ms).state;
-    return {
-      held: this.lock !== null && onDisk === "owned",
-      owner: this.lock === null ? this.lockOwner : null,
-      expiresAt: this.lock !== null ? this.lock.expiresAt : this.lockOwnerExpiresAt,
-      reclaimed: this.lockReclaimed,
-      onDisk
-    };
-  }
-  /**
-   * Re-derive the in-memory read-only flag from the lock file on disk.
-   *
-   * A `lock` degradation is a *cached* judgement: when this hub opened, another
-   * writer held the root. That judgement goes stale the moment the other process
-   * exits, deletes the file, or stops refreshing its heartbeat — and a stale
-   * flag is indistinguishable from a real one for `memory_status` and the panel,
-   * which is exactly how "pid is gone, lock file is gone, but memory still says
-   * locked" happens.
-   *
-   * This is synchronous so read-only report paths (status / overview / config)
-   * can call it without becoming async. It never acquires the lock; a freed root
-   * is simply reported writable, and the next write takes the lock through the
-   * normal compare-and-set path.
-   */
-  revalidateLock() {
-    if (this.forcedReadOnly || this.readOnlySource === "config" || !this.lockAllowed) return;
-    try {
-      const path = this.lockPath();
-      const seen = observeLock(path, this.config.storage.lock_stale_ms, this.lock?.owner.token ?? null);
-      if (this.lock !== null) {
-        if (seen.state === "owned") return;
-        this.lock.releaseSync();
-        this.lock.detach();
-        this.lock = null;
-        if (seen.state === "missing") {
-          this.lockLost = false;
-          this.lockOwner = null;
-          this.lockOwnerExpiresAt = null;
-          this.markWritable();
-          return;
-        }
-        this.lockLost = true;
-        this.lockOwner = seen.owner;
-        this.lockOwnerExpiresAt = seen.expiresAt;
-        this.markReadOnly("lock", `lost the lease on ${path}; another writer took the root over`);
-        return;
-      }
-      if (seen.state === "missing") {
-        this.lockOwner = null;
-        this.lockOwnerExpiresAt = null;
-        this.markWritable();
-        return;
-      }
-      if (seen.owner === null) {
-        this.markReadOnly("lock", describeBlocker(path, null, seen.expiresAt));
-        return;
-      }
-      this.lockOwner = seen.owner;
-      this.lockOwnerExpiresAt = seen.expiresAt;
-      if (seen.reclaimable === null) {
-        this.markReadOnly("lock", describeBlocker(path, seen.owner, seen.expiresAt));
-        return;
-      }
-      this.markWritable();
-    } catch {
-    }
-  }
-  /**
-   * Whether this root may write *right now*.
-   *
-   * This is the recovery path for a degraded root: a hub that lost the lock at
-   * startup (another DSH process was running) re-tries the acquisition on its
-   * next write instead of staying read-only until the next restart. It also
-   * fences the lock: if another writer has taken this root over — the lease
-   * expired, or the lock file was replaced — this hub drops its stale handle and
-   * either takes the lock back (only when it is genuinely free) or reports that
-   * writing is no longer allowed.
-   */
-  async ensureWritable() {
-    if (this.forcedReadOnly) return false;
-    if (this.readOnlySource === "config") return false;
-    if (this.lock !== null) {
-      const state = this.lock.state();
-      if (state === "owned") {
-        if (this.readOnlySource === "lock") this.markWritable();
-        return true;
-      }
-      await this.lock.release();
-      this.lock = null;
-      if (state === "missing") {
-        this.lockLost = false;
-        this.lockOwner = null;
-        this.lockOwnerExpiresAt = null;
-        this.markWritable();
-      } else {
-        this.lockLost = true;
-        this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
-      }
-    }
-    if (!this.lockAllowed) return !this.readOnly;
-    if (this.acquiring !== null) return this.acquiring;
-    const run = this.acquireLock().finally(() => {
-      this.acquiring = null;
-    });
-    this.acquiring = run;
-    return run;
-  }
-  async acquireLock() {
-    const attempt = await WriterLock.acquire(this.lockPath(), this.config.storage.lock_stale_ms);
-    this.lockReclaimed = attempt.reclaimed;
-    if (attempt.lock === null) {
-      this.lockOwner = attempt.owner;
-      this.lockOwnerExpiresAt = attempt.ownerExpiresAt;
-      const blocker = describeBlocker(this.lockPath(), attempt.owner, attempt.ownerExpiresAt);
-      this.markReadOnly("lock", this.lockLost ? `lost the lease; ${blocker}` : blocker);
-      return false;
-    }
-    this.lockOwner = null;
-    this.lockOwnerExpiresAt = null;
-    this.lock = attempt.lock;
-    this.lockLost = false;
-    attempt.lock.onLost((reason) => {
-      this.lock = null;
-      if (reason === "missing") {
-        this.lockLost = false;
-        this.lockOwner = null;
-        this.lockOwnerExpiresAt = null;
-        this.markWritable();
-        return;
-      }
-      this.lockLost = true;
-      this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
-    });
-    this.markWritable();
-    return true;
-  }
-  /** Restore the writable state after `forced`/`config` degradation is gone. */
-  markWritable() {
-    if (this.forcedReadOnly) return;
-    this.readOnly = false;
-    this.readOnlyReason = null;
-    this.readOnlySource = null;
-  }
-  /**
-   * Re-read `config.yaml`. When the previous read-only state came from a bad
-   * config, a successful reload also restores write access (and takes the lock
-   * that was skipped while the hub was degraded).
-   */
-  async reloadConfig() {
-    const path = this.configPath();
-    if (path === null) {
-      this.configError = "no config source for this hub";
-      return;
-    }
-    try {
-      const loaded = await readConfigFile(path);
-      if (loaded === null) {
-        this.configError = "config.yaml is missing";
-        return;
-      }
-      this.config = loaded;
-      this.configError = null;
-      if (this.readOnlySource === "config") await this.recoverWrites();
-    } catch (error) {
-      this.configError = error.message;
-    }
-  }
-  async recoverWrites() {
-    this.markWritable();
-    if (!this.lockAllowed) return;
-    if (this.lock === null) await this.acquireLock();
-  }
-  async close() {
-    if (this.lock !== null) {
-      await this.lock.release();
-      this.lock = null;
-    }
-  }
-  configPath() {
-    if (this.configSource !== null) return this.configSource;
-    return join4(this.root, "config.yaml");
-  }
-  lockPath() {
-    return join4(this.root, "records", ".writer.lock");
-  }
-  ledgerPath() {
-    return join4(this.root, "records", "ledger.jsonl");
-  }
-  sequencesPath() {
-    return join4(this.root, "records", "sequences.json");
-  }
-  /** 派生检索索引（可删除、可重建；不是权威数据）。 */
-  indexPath() {
-    return join4(this.root, "records", "index.sqlite");
-  }
-  pendingDir() {
-    return join4(this.root, "pending");
-  }
-  pendingArchiveDir() {
-    return join4(this.root, "pending", "archive");
-  }
-  pendingPath(id) {
-    return join4(this.pendingDir(), `${id}.md`);
-  }
-  pendingArchivePath(id) {
-    return join4(this.pendingArchiveDir(), `${id}.md`);
-  }
-  knowledgeDir(type) {
-    return join4(this.root, "knowledge", type);
-  }
-  knowledgePath(type, id) {
-    return join4(this.knowledgeDir(type), `${id}.md`);
-  }
-  historyPath(type, id, version) {
-    return join4(this.root, "history", type, `${id}@v${version}.md`);
-  }
-  displayRoot() {
-    const home = homedir();
-    if (this.root === home) return "~";
-    if (this.root.startsWith(home)) {
-      const suffix = this.root.slice(home.length).replace(/^[/\\]/, "");
-      return `~/${suffix.replace(/\\/g, "/")}`;
-    }
-    return this.root;
-  }
-  prefixFor(type) {
-    return TYPE_PREFIX[type];
-  }
-};
-async function ensureLayout(root) {
-  try {
-    await ensureDir(root);
-    for (const type of KNOWLEDGE_TYPES) {
-      await ensureDir(join4(root, "knowledge", type));
-    }
-    await ensureDir(join4(root, "pending", "archive"));
-    await ensureDir(join4(root, "history"));
-    await ensureDir(join4(root, "records"));
-  } catch (error) {
-    throw new MemoryError("STORAGE_ERROR", `cannot initialize memory hub at ${root}: ${error.message}`);
-  }
-}
-
 // src/store.ts
-import { readFileSync as readFileSync2 } from "node:fs";
-import { readdir, readFile as readFile5, stat as stat3 } from "node:fs/promises";
-import { basename as basename3, join as join5, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { readdir, readFile as readFile3, stat as stat2 } from "node:fs/promises";
+import { basename as basename2, join as join2, relative, sep } from "node:path";
 
 // src/frontmatter.ts
 var import_yaml2 = __toESM(require_dist(), 1);
@@ -12909,7 +13228,7 @@ function parseKnowledgeFile(raw, path) {
   if (fm.format > CURRENT_FORMAT) {
     throw new MemoryError(
       "INVALID_INPUT",
-      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade dsh-memory-hub instead of editing the file`
+      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade Memory Hub instead of editing the file`
     );
   }
   assertIdMatchesType(fm.id, fm.type, path);
@@ -13386,7 +13705,7 @@ function makeSnippet(record, queryTokens) {
 
 // src/index-sqlite.ts
 import { mkdir as mkdir2 } from "node:fs/promises";
-import { dirname as dirname3 } from "node:path";
+import { dirname as dirname2 } from "node:path";
 var SQLITE_INDEX_FORMAT = 1;
 var DEFAULT_CANDIDATE_LIMIT = 5e3;
 var SCHEMA = `
@@ -13488,7 +13807,7 @@ var SqliteIndex = class _SqliteIndex {
     if (DatabaseSync === void 0) return { reason: "node:sqlite did not export DatabaseSync" };
     let db = null;
     try {
-      await mkdir2(dirname3(options.path), { recursive: true });
+      await mkdir2(dirname2(options.path), { recursive: true });
       db = new DatabaseSync(options.path);
       db.exec("PRAGMA journal_mode = WAL");
       db.exec("PRAGMA synchronous = NORMAL");
@@ -13824,9 +14143,9 @@ var KnowledgeStore = class {
     const parsed = [];
     for (const { type, dir, files } of knowledgeFiles) {
       for (const file of files) {
-        const path = join5(dir, file);
+        const path = join2(dir, file);
         try {
-          const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
+          const record = parseKnowledgeFile(await readFile3(path, "utf8"), path);
           if (record.type !== type) {
             throw new MemoryError("INVALID_INPUT", `${path}: type ${record.type} is stored in ${type}/`);
           }
@@ -13861,14 +14180,14 @@ var KnowledgeStore = class {
     const pendingFiles = (await readdirSafe(this.hub.pendingDir())).filter((file) => file.endsWith(".md") && PROPOSAL_ID_PATTERN.test(file.slice(0, -3))).sort((left, right) => right.localeCompare(left));
     for (const [index, file] of pendingFiles.entries()) {
       const id = file.slice(0, -3);
-      const path = join5(this.hub.pendingDir(), file);
+      const path = join2(this.hub.pendingDir(), file);
       if (index >= PENDING_EAGER_LIMIT) {
         this.pendingBacklog.set(id, path);
         this.bumpSequence("PRO", sequenceOf(id));
         continue;
       }
       try {
-        const proposal = parseProposalFile(await readFile5(path, "utf8"), path);
+        const proposal = parseProposalFile(await readFile3(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
         this.bumpSequence("PRO", sequenceOf(proposal.id));
       } catch (error) {
@@ -13927,7 +14246,7 @@ var KnowledgeStore = class {
     const path = this.pendingBacklog.get(id);
     if (path === void 0) return null;
     try {
-      const proposal = parseProposalFile(readFileSync2(path, "utf8"), path);
+      const proposal = parseProposalFile(readFileSync(path, "utf8"), path);
       this.proposals.set(proposal.id, proposal);
       this.pendingBacklog.delete(id);
       return proposal;
@@ -14171,7 +14490,7 @@ var KnowledgeStore = class {
   async knowledgeFingerprint(count) {
     let maxMtime = 0;
     for (const type of Object.keys(TYPE_PREFIX)) {
-      const info = await stat3(this.hub.knowledgeDir(type)).catch(() => null);
+      const info = await stat2(this.hub.knowledgeDir(type)).catch(() => null);
       if (info !== null) maxMtime = Math.max(maxMtime, Math.floor(info.mtimeMs));
     }
     return `${count}:${maxMtime}`;
@@ -14429,8 +14748,8 @@ var KnowledgeStore = class {
             operation: "create",
             type: record.type,
             scope: options.targetScope,
-            title: truncate(`[promoted] ${record.title}`, 200),
-            summary: truncate(`[promoted] ${record.summary}`, 240),
+            title: truncate2(`[promoted] ${record.title}`, 200),
+            summary: truncate2(`[promoted] ${record.summary}`, 240),
             content: record.body,
             tags: record.tags,
             related: record.related,
@@ -14453,8 +14772,8 @@ var KnowledgeStore = class {
       operation: "create",
       type: record.type,
       scope: targetScope,
-      title: truncate(`[promoted] ${record.title}`, 200),
-      summary: truncate(`[promoted] ${record.summary}`, 240),
+      title: truncate2(`[promoted] ${record.title}`, 200),
+      summary: truncate2(`[promoted] ${record.summary}`, 240),
       tags: record.tags,
       sourceRefs: [`note:${key}`],
       related: record.related,
@@ -14478,9 +14797,9 @@ var KnowledgeStore = class {
     };
   }
   async refreshPath(path) {
-    const info = await stat3(path).catch(() => null);
+    const info = await stat2(path).catch(() => null);
     if (info === null) {
-      const touchedKnowledge = isUnder(join5(this.hub.root, "knowledge"), path);
+      const touchedKnowledge = isUnder(join2(this.hub.root, "knowledge"), path);
       this.removePath(path);
       if (touchedKnowledge) await this.refreshIndexFingerprint();
       return;
@@ -14488,7 +14807,7 @@ var KnowledgeStore = class {
     if (!info.isFile()) return;
     if (isUnder(this.hub.pendingDir(), path) && !isUnder(this.hub.pendingArchiveDir(), path)) {
       try {
-        const proposal = parseProposalFile(await readFile5(path, "utf8"), path);
+        const proposal = parseProposalFile(await readFile3(path, "utf8"), path);
         this.proposals.set(proposal.id, proposal);
         this.pendingBacklog.delete(proposal.id);
       } catch (error) {
@@ -14496,9 +14815,9 @@ var KnowledgeStore = class {
       }
       return;
     }
-    if (!isUnder(join5(this.hub.root, "knowledge"), path)) return;
+    if (!isUnder(join2(this.hub.root, "knowledge"), path)) return;
     try {
-      const record = parseKnowledgeFile(await readFile5(path, "utf8"), path);
+      const record = parseKnowledgeFile(await readFile3(path, "utf8"), path);
       this.docs.set(record.id, record);
       this.index.add(record);
       this.bumpSequence(TYPE_PREFIX[record.type], sequenceOf(record.id));
@@ -14508,7 +14827,7 @@ var KnowledgeStore = class {
     await this.refreshIndexFingerprint();
   }
   removePath(path) {
-    const name2 = basename3(path);
+    const name2 = basename2(path);
     const id = name2.endsWith(".md") ? name2.slice(0, -3) : name2;
     if (this.docs.has(id)) {
       this.docs.delete(id);
@@ -14527,7 +14846,7 @@ var KnowledgeStore = class {
   async allocate(key) {
     const next = (this.sequences[key] ?? 0) + 1;
     this.sequences[key] = next;
-    await ensureDir(join5(this.hub.root, "records"));
+    await ensureDir(join2(this.hub.root, "records"));
     await writeAtomic(this.hub.sequencesPath(), `${JSON.stringify(this.sequences, null, 2)}
 `);
     return next;
@@ -14561,231 +14880,12 @@ async function readdirSafe(path) {
     throw error;
   }
 }
-function truncate(value, max) {
+function truncate2(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 
-// src/ledger.ts
-import { open as open3, writeFile } from "node:fs/promises";
-import { dirname as dirname4 } from "node:path";
-function emptyState() {
-  return {
-    tasks: /* @__PURE__ */ new Map(),
-    citations: [],
-    proposalIds: /* @__PURE__ */ new Set(),
-    diagnostics: []
-  };
-}
-var Ledger = class {
-  constructor(file) {
-    this.file = file;
-  }
-  queue = Promise.resolve();
-  async load(options = {}) {
-    const raw = await readTextOrNull(this.file);
-    if (raw === null || raw.trim() === "") return emptyState();
-    let content = raw;
-    if (!content.endsWith("\n")) {
-      const cut = content.lastIndexOf("\n");
-      content = cut >= 0 ? content.slice(0, cut + 1) : "";
-      if (options.repair !== false && content !== raw) {
-        await writeFile(this.file, content, "utf8");
-      }
-    }
-    const state = emptyState();
-    for (const line of content.split("\n")) {
-      if (line.trim() === "") continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        state.diagnostics.push(`ignored unparsable ledger line: ${line.slice(0, 120)}`);
-        continue;
-      }
-      if (event === null || typeof event !== "object" || typeof event.type !== "string") {
-        state.diagnostics.push("ignored ledger line without a type");
-        continue;
-      }
-      applyEvent(state, event);
-    }
-    return state;
-  }
-  append(event) {
-    const line = JSON.stringify({ ...event, v: 1, at: nowIso() }) + "\n";
-    const run = this.queue.then(async () => {
-      try {
-        await ensureDir(dirname4(this.file));
-        const handle = await open3(this.file, "a");
-        try {
-          await handle.write(line);
-          await handle.sync();
-        } finally {
-          await handle.close();
-        }
-      } catch (error) {
-        throw new MemoryError("STORAGE_ERROR", `cannot append ledger ${this.file}: ${error.message}`);
-      }
-    });
-    this.queue = run.catch(() => {
-    });
-    return run;
-  }
-  async close() {
-    await this.queue.catch(() => {
-    });
-  }
-};
-function applyEvent(state, event) {
-  switch (event.type) {
-    case "task.created": {
-      state.tasks.set(event.taskId, {
-        taskId: event.taskId,
-        sessionId: event.sessionId,
-        turn: event.turn,
-        workspaceId: event.workspaceId,
-        intentHash: event.intentHash,
-        createdAt: event.at,
-        preflight: null,
-        assessment: null,
-        closedAt: null
-      });
-      break;
-    }
-    case "preflight.recorded": {
-      const task = state.tasks.get(event.taskId);
-      if (task === void 0) break;
-      task.preflight = {
-        id: event.preflightId,
-        taskId: event.taskId,
-        sessionId: task.sessionId,
-        turn: task.turn,
-        workspaceId: task.workspaceId,
-        status: event.status,
-        hits: event.hits,
-        tokens: event.tokens,
-        createdAt: event.at
-      };
-      break;
-    }
-    case "citation.added": {
-      state.citations.push({
-        id: event.citationId,
-        taskId: event.taskId,
-        knowledgeId: event.knowledgeId,
-        version: event.version,
-        purpose: event.purpose,
-        createdAt: event.at
-      });
-      break;
-    }
-    case "proposal.created":
-    case "proposal.committed": {
-      state.proposalIds.add(event.proposalId);
-      break;
-    }
-    case "task.closed": {
-      const task = state.tasks.get(event.taskId);
-      if (task === void 0) break;
-      task.assessment = event.assessment;
-      task.closedAt = event.at;
-      break;
-    }
-    default:
-      break;
-  }
-}
-
 // src/service.ts
-import { createHash as createHash3 } from "node:crypto";
-import { realpath } from "node:fs/promises";
-
-// package.json
-var package_default = {
-  name: "dsh-memory-hub",
-  version: "0.7.1",
-  description: "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Every hub root gets a generated README that explains each folder.",
-  license: "MIT",
-  author: "zhiwuli0228",
-  homepage: "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
-  repository: {
-    type: "git",
-    url: "git+https://github.com/zhiwuli0228/dsh-memory-hub.git"
-  },
-  bugs: {
-    url: "https://github.com/zhiwuli0228/dsh-memory-hub/issues"
-  },
-  type: "module",
-  main: "dist/index.js",
-  exports: {
-    ".": "./dist/index.js",
-    "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg",
-    "./package.json": "./package.json"
-  },
-  files: [
-    "dist/index.js",
-    "client.js",
-    "cordis.patch.yml",
-    "locale/*.json",
-    "icon.svg",
-    "README.md",
-    "LICENSE",
-    "docs/*.md"
-  ],
-  engines: {
-    node: ">=20",
-    dsh: ">=0.2.1-rc.5"
-  },
-  publishConfig: {
-    access: "public"
-  },
-  scripts: {
-    build: "node esbuild.config.mjs",
-    typecheck: "tsc --noEmit",
-    test: "vitest run",
-    "test:watch": "vitest",
-    check: "npm run typecheck && npm run build && npm run test"
-  },
-  keywords: [
-    "deepseek-harness",
-    "dsh",
-    "dsh-plugin",
-    "memory",
-    "long-term-memory",
-    "knowledge-base"
-  ],
-  dsh: {
-    manifestVersion: 1,
-    bundle: {
-      patch: "./cordis.patch.yml"
-    },
-    client: {
-      platform: "web",
-      immediately: true,
-      inject: [
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar"
-      ]
-    }
-  },
-  devDependencies: {
-    "@types/node": "^24.3.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    esbuild: "^0.25.9",
-    react: "^19.3.1",
-    "react-dom": "^19.3.1",
-    typescript: "^5.9.2",
-    vitest: "^3.2.4",
-    yaml: "^2.8.1",
-    zod: "^3.25.76"
-  }
-};
-
-// src/service.ts
-import { isAbsolute, join as join6, relative as relative2, sep as sep2 } from "node:path";
-var import_yaml3 = __toESM(require_dist(), 1);
+var import_yaml4 = __toESM(require_dist(), 1);
 
 // src/maintenance.ts
 import { createHash } from "node:crypto";
@@ -14971,8 +15071,8 @@ function analyzeMaintenance(store, options) {
           operation: "deprecate",
           type: duplicate.type,
           scope: formatScope(duplicate.scope),
-          title: truncate2(`[\u7EF4\u62A4] \u5E9F\u5F03\u91CD\u590D\uFF1A${duplicate.id}`, 200),
-          summary: truncate2(`${duplicate.id} \u4E0E ${keeper.id} \u5B8C\u5168\u76F8\u540C\uFF0C\u5EFA\u8BAE\u5E9F\u5F03\u91CD\u590D\u9879\u3002`, 240),
+          title: truncate3(`[\u7EF4\u62A4] \u5E9F\u5F03\u91CD\u590D\uFF1A${duplicate.id}`, 200),
+          summary: truncate3(`${duplicate.id} \u4E0E ${keeper.id} \u5B8C\u5168\u76F8\u540C\uFF0C\u5EFA\u8BAE\u5E9F\u5F03\u91CD\u590D\u9879\u3002`, 240),
           target: duplicate.id,
           expectedVersion: duplicate.version,
           reason: `exact duplicate of ${keeper.id}`,
@@ -15023,6 +15123,45 @@ function analyzeMaintenance(store, options) {
       message: lastCitedAt === null ? `${record.id} \u521B\u5EFA\u4EE5\u6765 ${age} \u5929\u4ECE\u672A\u88AB\u5F15\u7528\uFF1A${record.title}` : `${record.id} \u5DF2 ${age} \u5929\u672A\u88AB\u5F15\u7528\uFF08\u6700\u8FD1\u5F15\u7528 ${formatDay(lastCitedAt)}\uFF09\uFF1A${record.title}`,
       ids: [record.id]
     });
+  }
+  const agenda = options.agenda;
+  if (agenda !== void 0 && agenda.size > 0) {
+    const threshold = 3;
+    const agendaRecords = [];
+    for (const [knowledgeId, count] of agenda) {
+      const record = store.docs.get(knowledgeId);
+      if (record === void 0 || record.status !== "accepted") continue;
+      agendaRecords.push(record);
+      if (count >= threshold) {
+        issues.push({
+          code: "distill-hint",
+          severity: "info",
+          message: `${record.id} \u5728\u8BAE\u7A0B\u4E2D\u51FA\u73B0 ${count} \u6B21\uFF0C\u4F7F\u7528\u4FE1\u53F7\u5DF2\u8DB3\u591F\uFF0C\u5EFA\u8BAE\u84B8\u998F\u63D0\u70BC\uFF1A${record.title}`,
+          ids: [record.id]
+        });
+      }
+    }
+    const topicGroups = /* @__PURE__ */ new Map();
+    for (const record of agendaRecords) {
+      for (const tag of record.tags) {
+        if (tag === "" || tag.startsWith("maint-") || tag.startsWith("mh:")) continue;
+        const ids = topicGroups.get(tag) ?? [];
+        if (!ids.includes(record.id)) ids.push(record.id);
+        topicGroups.set(tag, ids);
+      }
+    }
+    let topicHints = 0;
+    for (const [tag, ids] of [...topicGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (ids.length < threshold) continue;
+      if (topicHints >= 10) break;
+      topicHints += 1;
+      issues.push({
+        code: "distill-hint",
+        severity: "info",
+        message: `\u4E3B\u9898\u300C${tag}\u300D\u4E0B\u6709 ${ids.length} \u6761\u6761\u76EE\u6B63\u5728\u88AB\u4F7F\u7528\uFF08${ids.join("\u3001")}\uFF09\uFF0C\u5EFA\u8BAE\u84B8\u998F\u6210\u4E00\u6761\u63D0\u70BC\u6761\u76EE`,
+        ids
+      });
+    }
   }
   for (const diagnostic of store.diagnostics) {
     issues.push({
@@ -15084,8 +15223,8 @@ function analyzeMaintenance(store, options) {
           operation: "create",
           type: record.type,
           scope: `project:${coreId}`,
-          title: truncate2(`[promoted] ${record.title}`, 200),
-          summary: truncate2(`[promoted] ${record.summary}`, 240),
+          title: truncate3(`[promoted] ${record.title}`, 200),
+          summary: truncate3(`[promoted] ${record.summary}`, 240),
           content: record.body,
           sourceRefs: [`note:${key}`, ...record.sourceRefs].slice(0, 20),
           tags: mergeTags(record.tags, ["maintenance", token, "promoted"]),
@@ -15214,7 +15353,7 @@ function ageDays(value, nowMs) {
 function mergeTags(existing, extra) {
   return [.../* @__PURE__ */ new Set([...extra, ...existing])].slice(0, 12);
 }
-function truncate2(value, max) {
+function truncate3(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 
@@ -15320,10 +15459,905 @@ function assessProposalRisk(input) {
 
 // src/reflect.ts
 import { createHash as createHash2 } from "node:crypto";
-import { readFile as readFile6, writeFile as writeFile2 } from "node:fs/promises";
+import { readFile as readFile6, writeFile } from "node:fs/promises";
 
 // src/distill.ts
 import { resolve as resolve2 } from "node:path";
+
+// src/hub.ts
+import { homedir } from "node:os";
+import { join as join5, resolve } from "node:path";
+
+// src/hub-readme.ts
+import { readFile as readFile4 } from "node:fs/promises";
+import { join as join3 } from "node:path";
+var HUB_README_VERSION = 3;
+var PRIMARY_NAME = "README.md";
+var FALLBACK_NAME = "MEMORY-HUB.md";
+var MARKER_PATTERN = /<!--\s*dsh-memory-hub:hub-readme\s+(\d+)\s*-->/;
+async function ensureHubReadme(hub) {
+  if (hub.readOnly) return "skipped";
+  const plan = await planWrite(hub.root);
+  if (plan === null) return "skipped";
+  await ensureDir(hub.root);
+  await writeAtomic(join3(hub.root, plan.name), renderHubReadme(hub, plan.name === FALLBACK_NAME));
+  return plan.action;
+}
+async function readMaybe(path) {
+  try {
+    return await readFile4(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+async function planWrite(root) {
+  const primary = await readMaybe(join3(root, PRIMARY_NAME));
+  const primaryPlan = evaluate(PRIMARY_NAME, primary);
+  if (primaryPlan === "skip") return null;
+  if (primaryPlan !== "fallback") return primaryPlan;
+  const fallback = await readMaybe(join3(root, FALLBACK_NAME));
+  const fallbackPlan = evaluate(FALLBACK_NAME, fallback);
+  if (fallbackPlan === "fallback" || fallbackPlan === "skip") return null;
+  return fallbackPlan;
+}
+function evaluate(name2, existing) {
+  if (existing === null) return { name: name2, action: "created" };
+  const match = MARKER_PATTERN.exec(existing);
+  if (match === null) return "fallback";
+  const version = Number(match[1]);
+  if (!Number.isFinite(version) || version >= HUB_README_VERSION) return "skip";
+  return { name: name2, action: "updated" };
+}
+function renderHubReadme(hub, fallbackName = false) {
+  const root = hub.displayRoot();
+  const hubId = hub.config.hub.id;
+  const types = KNOWLEDGE_TYPES.map(
+    (type) => `| \`${type}\` | \`${TYPE_PREFIX[type]}\` | ${TYPE_PURPOSE[type]} |`
+  ).join("\n");
+  const nameNote = fallbackName ? "> \u6839\u76EE\u5F55\u7684 `README.md` \u662F\u4F60\u81EA\u5DF1\u7684\u6587\u6863\uFF0C\u6240\u4EE5\u8BF4\u660E\u4E66\u653E\u5728 `MEMORY-HUB.md`\u3002\n" : "";
+  return `# \u8FD9\u662F Memory Hub \u6570\u636E\u76EE\u5F55\uFF08\u81EA\u52A8\u751F\u6210\uFF09
+
+<!-- dsh-memory-hub:hub-readme ${HUB_README_VERSION} -->
+
+> Hub id\uFF1A\`${hubId}\` \xB7 \u6839\u76EE\u5F55\uFF1A\`${root}\`
+>
+${nameNote}> \u672C\u6587\u4EF6\u7531 Memory Hub \u5728\u521D\u59CB\u5316/\u5347\u7EA7\u65F6\u751F\u6210\uFF0C**\u53EF\u4EE5\u7F16\u8F91**\uFF08\u4FDD\u7559\u4E0A\u9762\u7684\u6807\u8BB0\u5373\u53EF\uFF0C\u540C\u7248\u672C\u4E0D\u4F1A\u88AB\u8986\u76D6\uFF09\u3002
+> \u60F3\u5FEB\u901F\u4E86\u89E3\u201C\u6BCF\u4E2A\u6587\u4EF6\u5939\u5E72\u4EC0\u4E48\u3001\u4EC0\u4E48\u80FD\u6539\u201D\uFF0C\u5148\u8BFB\u5B8C\u8FD9\u4E00\u9875\u3002
+
+## \u4E00\u5206\u949F\u7406\u89E3
+
+- \u8FD9\u662F\u4E00\u4E2A**\u6587\u4EF6\u539F\u751F\u7684\u957F\u671F\u8BB0\u5FC6\u5E93**\uFF1A\u4E00\u6761\u77E5\u8BC6 = \u4E00\u4E2A\u5E26 YAML frontmatter \u7684 Markdown \u6587\u4EF6\u3002
+- **Markdown / YAML / JSONL \u662F\u552F\u4E00\u6743\u5A01\u6570\u636E**\uFF1B\u7D22\u5F15\u3001\u62A5\u544A\u3001\u6C34\u4F4D\u90FD\u662F\u53EF\u5220\u7684\u6D3E\u751F\u7269\u3002
+- \u77E5\u8BC6\u8FDB\u5165\u8FD9\u91CC\u53EA\u6709\u4E00\u6761\u5408\u6CD5\u8DEF\u5F84\uFF1A**\u5019\u9009\uFF08pending/\uFF09\u2192 \u4EBA\u5DE5\u6279\u51C6 \u2192 \u6743\u5A01\u77E5\u8BC6\uFF08knowledge/\uFF09**\u3002
+- \u6A21\u578B\u4E0D\u80FD\u81EA\u6279\uFF0C\u9762\u677F\u53EA\u63D0\u4F9B\u6279\u51C6/\u62D2\u7EDD\uFF1B\u672C\u76EE\u5F55\u91CC\u6CA1\u6709\u4EFB\u4F55\u201C\u6A21\u578B\u81EA\u52A8\u6539\u5199\u6B63\u6587\u201D\u7684\u901A\u9053\u3002
+
+## \u76EE\u5F55\u5730\u56FE
+
+| \u8DEF\u5F84 | \u4F5C\u7528 | \u8C01\u5199 | \u80FD\u624B\u52A8\u6539\u5417 | \u5220\u4E86\u4F1A\u600E\u6837 |
+| --- | --- | --- | --- | --- |
+| \`config.yaml\` | Hub \u914D\u7F6E\uFF1A\u6838\u5FC3/\u5B50\u5DE5\u4F5C\u533A\u3001\u7B56\u7565\u3001\u65F6\u6548 | \u9762\u677F / \u4F60 | \u2705 \u53EF\u4EE5\uFF08\u6539\u5B8C\u91CD\u542F\u6216\u4FDD\u5B58\uFF09 | \u4E22\u5931\u5DE5\u4F5C\u533A\u4E0E\u7B56\u7565\u914D\u7F6E |
+| \`README.md\` / \`MEMORY-HUB.md\` | \u672C\u8BF4\u660E | \u63D2\u4EF6\u751F\u6210 | \u2705 \u53EF\u4EE5\uFF08\u4FDD\u7559\u6807\u8BB0\uFF09 | \u4E0B\u6B21\u542F\u52A8\u91CD\u65B0\u751F\u6210 |
+| \`knowledge/<type>/<ID>.md\` | **\u6743\u5A01\u77E5\u8BC6**\uFF0C\u6309\u7C7B\u578B\u5206\u76EE\u5F55 | \u4EC5 \`memory_commit\` \u5BA1\u6279\u901A\u8FC7\u540E | \u26A0\uFE0F \u53EF\u4EE5\u6539\uFF0C\u4F46\u4F1A\u7ED5\u8FC7\u5BA1\u6279\u8BB0\u5F55\uFF1B\u4F18\u5148\u7528\u5DE5\u5177 | \u77E5\u8BC6\u6C38\u4E45\u4E22\u5931\uFF08\u6709 git \u5907\u4EFD\u53EF\u6062\u590D\uFF09 |
+| \`pending/<PRO-ID>.md\` | **\u5019\u9009**\uFF0C\u5C1A\u672A\u6210\u4E3A\u6743\u5A01\u77E5\u8BC6 | \u6A21\u578B \`memory_propose\` / \u7EF4\u62A4\u626B\u63CF | \u26A0\uFE0F \u5EFA\u8BAE\u5728\u9762\u677F\u6279\u51C6\u6216\u62D2\u7EDD\uFF0C\u4E0D\u8981\u624B\u6539\u72B6\u6001 | \u5019\u9009\u4E22\u5931\uFF0C\u4E0D\u5F71\u54CD\u5DF2\u63A5\u53D7\u77E5\u8BC6 |
+| \`pending/archive/\` | \u5DF2\u5904\u7406\u5019\u9009\u7684\u5F52\u6863\uFF08\u6279\u51C6/\u62D2\u7EDD\u540E\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5BA1\u8BA1\u7EBF\u7D22\u4E22\u5931 |
+| \`records/ledger.jsonl\` | \u8FFD\u52A0\u5F0F\u8D26\u672C\uFF1A\u63D0\u6848\u3001\u6279\u51C6\u3001\u5F15\u7528\u3001\u4EFB\u52A1 | \u63D2\u4EF6\uFF08\u53EA\u8FFD\u52A0\uFF09 | \u274C \u4E0D\u8981\u624B\u6539 | \u5BA1\u8BA1/\u5F15\u7528\u8BA1\u6570\u4E22\u5931 |
+| \`records/sequences.json\` | \u4E0B\u4E00\u4E2A ID \u5E8F\u53F7 | \u63D2\u4EF6 | \u274C \u4E0D\u8981\u624B\u6539 | \u53EF\u80FD\u649E\u53F7\uFF08\u53EF\u81EA\u52A8\u56DE\u586B\uFF0C\u4F46\u4E0D\u5EFA\u8BAE\uFF09 |
+| \`records/index.sqlite\` | \u6D3E\u751F\u5168\u6587\u7D22\u5F15\uFF08\u5927 Hub \u624D\u6709\uFF09 | \u63D2\u4EF6\u81EA\u52A8\u91CD\u5EFA | \u2705 \u53EF\u5220 | \u4E0B\u6B21\u542F\u52A8\u81EA\u52A8\u91CD\u5EFA |
+| \`records/reflect-state.json\` | \u56DE\u987E\u6C34\u4F4D\uFF08\u54EA\u4E9B\u4F1A\u8BDD\u5DF2\u56DE\u987E\uFF09 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u540C\u4E00\u4F1A\u8BDD\u53EF\u80FD\u88AB\u91CD\u590D\u56DE\u987E |
+| \`records/maintenance-state.json\` | \u7EF4\u62A4\u4E0A\u6B21\u8FD0\u884C\u65F6\u95F4 | \u63D2\u4EF6 | \u2705 \u53EF\u5220 | \u53EA\u5F71\u54CD\u201C\u4ECA\u5929\u662F\u5426\u5DF2\u8DD1\u201D\u5224\u65AD |
+| \`records/.writer.lock\` | \u8BE5\u6839\u7684\u5199\u9501\uFF08\u79DF\u7EA6 + fencing token\uFF09 | \u5F53\u524D\u5199\u8005\uFF08\u5FC3\u8DF3 15s\uFF09 | \u26A0\uFE0F \u53EA\u6709\u786E\u8BA4\u6CA1\u6709\u5176\u4ED6 DSH \u5728\u8DD1\u65F6\u624D\u5220 | \u4E0B\u4E00\u4E2A\u5199\u8005\u4F1A\u91CD\u65B0\u521B\u5EFA\uFF1B\u6D3B\u5199\u8005\u7684\u9501\u88AB\u5220\u4F1A\u77ED\u6682\u51FA\u73B0\u4E24\u4E2A\u5199\u8005 |
+| \`history/\` | \u6BCF\u6B21\u63D0\u4EA4\u7684\u65E7\u7248\u672C\u5FEB\u7167 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u5386\u53F2\u7248\u672C\u4E22\u5931\uFF08\u5F53\u524D\u7248\u672C\u4E0D\u53D7\u5F71\u54CD\uFF09 |
+| \`reports/\` | \u7EF4\u62A4\u62A5\u544A\uFF08\`latest.md\` + \u65F6\u95F4\u6233\uFF09 | \u63D2\u4EF6 | \u53EA\u8BFB\u67E5\u9605 | \u4E22\u5931\u5386\u53F2\u4F53\u68C0\u8BB0\u5F55 |
+| \`index/\` | \u65E7\u7248\u672C\u53EF\u80FD\u9057\u7559\u7684\u7A7A\u76EE\u5F55\uFF08\u65B0 Hub \u4E0D\u518D\u521B\u5EFA\uFF09 | \u2014 | \u2705 \u53EF\u5220 | \u65E0\u5F71\u54CD |
+
+**\u5224\u65AD\u6807\u51C6**\uFF1A\`knowledge/\`\u3001\`pending/\`\u3001\`records/ledger.jsonl\`\u3001\`records/sequences.json\`\u3001\`config.yaml\` \u662F\u6743\u5A01\u6570\u636E\uFF0C\u5220/\u6539\u524D\u5148\u5907\u4EFD\uFF1B\`records/index.sqlite\`\u3001\`records/reflect-state.json\`\u3001\`records/maintenance-state.json\`\u3001\`reports/\`\u3001\`index/\` \u662F\u6D3E\u751F\u7269\u6216\u8F85\u52A9\u6570\u636E\uFF0C\u53EF\u5220\u3002
+
+## \u4E5D\u7C7B\u77E5\u8BC6\uFF08\u6CE8\u610F \`assets\` \u7684\u542B\u4E49\uFF09
+
+| \u7C7B\u578B | \u524D\u7F00 | \u7528\u9014 |
+| --- | --- | --- |
+${types}
+
+### \`assets\` \u5230\u5E95\u662F\u4EC0\u4E48
+
+\`assets\` **\u4E0D\u662F**\u4EE3\u7801\u8D44\u4EA7\u3001\u6784\u5EFA\u4EA7\u7269\u6216\u4F9D\u8D56\u5305\uFF0C\u800C\u662F**\u5916\u90E8\u8D44\u6E90\u7684\u7D22\u5F15\u6761\u76EE**\uFF1A
+
+- \u8BBE\u8BA1\u7A3F\u3001\u539F\u578B\u3001\u622A\u56FE\u3001\u5F55\u5C4F\u3001\u6F14\u793A\u6587\u7A3F\u7684\u4F4D\u7F6E\uFF1B
+- \u6A21\u677F\u3001\u6E05\u5355\u3001\u63D0\u793A\u8BCD\u3001\u811A\u672C\u7247\u6BB5\u7B49\u201C\u62FF\u6765\u5373\u7528\u201D\u7684\u7D20\u6750\u8BF4\u660E\uFF1B
+- \u5927\u6587\u4EF6\u672C\u4F53\u7559\u5728\u539F\u5904\uFF08\u7F51\u76D8\u3001\u4ED3\u5E93\u3001\u5171\u4EAB\u76D8\uFF09\uFF0C\u8FD9\u91CC\u53EA\u8BB0**\u5728\u54EA\u91CC\u3001\u600E\u4E48\u7528\u3001\u9002\u7528\u8FB9\u754C**\u3002
+
+\u5199 \`assets\` \u65F6\u6B63\u6587\u53EF\u4EE5\u5F88\u77ED\uFF0C\u4F46 \`source_refs\` \u5FC5\u987B\u6307\u5411\u771F\u5B9E\u4F4D\u7F6E\uFF08\`url:\` / \`file:\` / \`note:\`\uFF09\uFF0C\u5426\u5219\u4EE5\u540E\u6CA1\u4EBA\u627E\u5F97\u5230\u3002
+
+## \u4F5C\u7528\u57DF\u4E0E\u91D1\u5B57\u5854
+
+| \u4F5C\u7528\u57DF | \u653E\u4EC0\u4E48 | \u4F8B\u5B50 |
+| --- | --- | --- |
+| \`project:<\u5F53\u524D\u5DE5\u4F5C\u533A>\` | \u672C\u4ED3\u7279\u5B9A\u51B3\u7B56\u3001\u7EA6\u675F\u3001\u6D41\u7A0B\u3001\u5751 | \u672C\u4ED3\u7528 pnpm |
+| \`scope: "core"\` | \u53EF\u590D\u7528\u5230\u540C\u6838\u5FC3\u4ED3\u5176\u4ED6\u5B50\u5DE5\u4F5C\u533A\u7684\u7ECF\u9A8C | \u63D2\u4EF6\u53D1\u5E03 checklist |
+| \`domain:<id>\` | \u8DE8\u9879\u76EE\u7684\u9886\u57DF\u77E5\u8BC6 | \u67D0\u534F\u8BAE/\u6846\u67B6\u7684\u901A\u7528\u7EA6\u675F |
+| \`global\` | \u7A33\u5B9A\u3001\u8DE8\u9879\u76EE\u7684\u901A\u7528\u7EA6\u5B9A\uFF08\u614E\u7528\uFF09 | \u63D0\u4EA4\u4FE1\u606F\u89C4\u8303 |
+
+- \u5B50\u5DE5\u4F5C\u533A\u53EF\u89C1\uFF1A\u81EA\u5DF1\u7684 \`project:<id>\` + \u6838\u5FC3 \`project:<core-id>\` + \`global\`\uFF08\u53EA\u53D6\u5F53\u524D Hub \u81EA\u5DF1\u7684 global\uFF09\u3002
+- \u540C\u7EA7\u5B50\u5DE5\u4F5C\u533A\u4E92\u76F8\u4E0D\u53EF\u89C1\uFF1B\u5411\u4E0A\u664B\u5347\u9760\u84B8\u998F/\u6C47\u603B\uFF0C\u4E0D\u662F\u81EA\u52A8\u6CC4\u6F0F\u3002
+- \u6BCF\u4E2A \`core_workspaces[].root\` \u662F\u4E00\u4E2A\u72EC\u7ACB Hub\uFF1B\u672C\u76EE\u5F55\u5C31\u662F\u5176\u4E2D\u4E00\u4E2A\u3002
+
+## \u5199\u5165\u6D41\u7A0B\uFF08\u552F\u4E00\u5408\u6CD5\u8DEF\u5F84\uFF09
+
+\`\`\`text
+\u6A21\u578B memory_propose  \u2192  pending/PRO-xxxx.md\uFF08\u5019\u9009\uFF0Ccandidate\uFF09
+        \u2193 \u4EBA\u5728 DSH \u5BA1\u6279\u6216\u9762\u677F\u70B9\u201C\u6279\u51C6\u201D
+memory_commit        \u2192  knowledge/<type>/<ID>.md\uFF08accepted\uFF09
+        \u2193 \u540C\u65F6
+history/ \u5FEB\u7167 + records/ledger.jsonl \u8FFD\u52A0\u4E8B\u4EF6 + \u5E8F\u53F7 +1
+\`\`\`
+
+- \u62D2\u7EDD\uFF1A\u5019\u9009\u5F52\u6863\u5230 \`pending/archive/\`\uFF0C\u4E0D\u5220\u9664\u539F\u6709\u77E5\u8BC6\u3002
+- \u66F4\u65B0\uFF1A\`operation: update\` \u4F1A +1 \u7248\u672C\u5E76\u4FDD\u7559\u65E7\u7248\u672C\u5230 \`history/\`\u3002
+- \u5408\u5E76\uFF1A\`operation: merge\` \u628A\u591A\u6761\u5E76\u8FDB\u4E00\u6761\uFF0C\u88AB\u5E76\u6761\u76EE\u53D8 \`superseded\` \u5E76\u5199 \`superseded_by\`\u3002
+- \u7981\u6B62\uFF1A\u6A21\u578B\u81EA\u6279\u3001\u4F2A\u9020\u5BA1\u6279\u3001\u624B\u6539\u8D26\u672C\u5192\u5145\u63D0\u4EA4\u3002
+
+## \u5E38\u7528\u5DE5\u5177
+
+| \u76EE\u7684 | \u5DE5\u5177 |
+| --- | --- |
+| \u770B\u72B6\u6001 / \u8BCA\u65AD | \`memory_status\` |
+| \u68C0\u7D22 | \`memory_search\`\uFF08\u5148 \`detail: "ids"\` \u626B\uFF0C\u518D \`memory_get\`\uFF09 |
+| \u8BFB\u6B63\u6587 | \`memory_get\`\uFF08\u9ED8\u8BA4\u6458\u8981\uFF0C\u6309\u8282\u8BFB\uFF09 |
+| \u6807\u8BB0\u5B9E\u9645\u4F7F\u7528 | \`memory_cite\` |
+| \u521B\u5EFA\u5019\u9009 | \`memory_propose\` |
+| \u63D0\u4EA4\u5019\u9009 | \`memory_commit\`\uFF08\u89E6\u53D1\u4EBA\u5DE5\u5BA1\u6279\uFF09 |
+| \u8FD1\u91CD\u590D\u68C0\u67E5 | \`memory_duplicates\` |
+| \u56DE\u987E\u5DF2\u7ED3\u675F\u4F1A\u8BDD | \`memory_reflect\` |
+| \u591C\u95F4\u5DE1\u68C0 | \`memory_maintenance\`\uFF08\u53EA\u62A5\u544A / \u53EA\u751F\u6210\u5019\u9009\uFF09 |
+| \u7ED3\u675F\u4EFB\u52A1 | \`memory_close_task\` |
+
+\u5B8C\u6574\u5DE5\u4F5C\u6D41\u89C1\u9879\u76EE\u4ED3\u5E93\u7684 \`docs/06-operations/\` \u4E0E\u7CFB\u7EDF \`memory-hub\` skill\u3002
+
+## \u7EF4\u62A4\u4E0E\u5907\u4EFD
+
+- \u7EF4\u62A4\u6BCF\u5929 03:00\uFF08\u53EF\u914D\u7F6E\uFF09\u786E\u5B9A\u6027\u5DE1\u68C0\uFF1A\u5199\u62A5\u544A\u3001\u5FC5\u8981\u65F6\u751F\u6210 \`pending/\` \u5019\u9009\uFF0C**\u4E0D\u81EA\u52A8 commit\u3001\u4E0D\u5220\u9664\u3001\u4E0D\u6539\u5199\u6B63\u6587**\u3002
+- \u5907\u4EFD\uFF1A\u6574\u4E2A\u76EE\u5F55 \`git init\` \u6216\u590D\u5236\u5373\u53EF\uFF1B\`git\` \u5FFD\u7565 \`records/index.sqlite\` \u7B49\u6D3E\u751F\u7269\u66F4\u7701\u7A7A\u95F4\u3002
+- \u4F53\u91CF\u53C2\u8003\uFF1A\u7EA6 2.5KB/\u6761\uFF08Markdown\uFF09\uFF1B3 \u4E07\u6761\u4EE5\u4E0A\u624D\u4F1A\u51FA\u73B0 \`records/index.sqlite\`\u3002
+
+## \u5B89\u5168\u8FB9\u754C
+
+- \u4E0D\u8981\u5F80\u8FD9\u91CC\u5199\u5BC6\u94A5\u3001token\u3001\u5BC6\u7801\u3001\u79C1\u94A5\uFF1B\`memory_propose\` \u4F1A\u626B\u63CF\u5E76\u6807\u8BB0\u53EF\u7591\u5185\u5BB9\uFF0C\u4F46\u4ECD\u9700\u4EBA\u5224\u65AD\u3002
+- \u53EA\u8BFB Hub\uFF08\`readOnly: true\`\u3001\u914D\u7F6E\u635F\u574F\u6216\u5199\u9501\u88AB\u5360\u7528\uFF09\u4E0D\u4F1A\u63A5\u53D7\u4EFB\u4F55\u5199\u5165\u3002
+- \u5199\u9501\u662F**\u79DF\u7EA6**\uFF1A\u5D29\u6E83\uFF08pid \u4E0D\u5B58\u5728\uFF09\u3001\u5FC3\u8DF3\u8D85 \`storage.lock_stale_ms\`\uFF08\u6302\u6B7B/\u5047\u6B7B\uFF09\u3001\u6216\u8DE8\u673A\u6B8B\u7559\u90FD\u4F1A\u88AB\u81EA\u52A8\u56DE\u6536\uFF0C\u4E0D\u9700\u8981\u624B\u52A8\u5220\u9501\uFF1B\u5BF9\u65B9\u9000\u51FA\u540E\u672C\u8FDB\u7A0B\u4F1A\u5728\u4E0B\u4E00\u6B21\u5199\u5165\u65F6\u81EA\u52A8\u63A5\u7BA1\u3002
+- \u9762\u677F\u53EA\u5141\u8BB8\u56DE\u73AF\u5730\u5740\u8BF7\u6C42\uFF0C\u4E14\u53EA\u63D0\u4F9B\u201C\u6279\u51C6/\u62D2\u7EDD\u201D\u4E24\u4E2A\u5199\u64CD\u4F5C\u3002
+
+## \u5E38\u89C1\u8BEF\u7528
+
+| \u8BEF\u7528 | \u540E\u679C | \u6B63\u786E\u505A\u6CD5 |
+| --- | --- | --- |
+| \u628A \`assets\` \u5F53\u4EE3\u7801\u8D44\u4EA7/\u6784\u5EFA\u4EA7\u7269 | \u8BB0\u4E86\u6CA1\u7528\u7684\u4E1C\u897F\uFF0C\u771F\u7D20\u6750\u53CD\u800C\u627E\u4E0D\u5230 | \u53EA\u8BB0\u5916\u90E8\u8D44\u6E90\u4F4D\u7F6E\u4E0E\u7528\u6CD5 |
+| \u628A \`pending/\` \u5F53\u6743\u5A01\u77E5\u8BC6\u5F15\u7528 | \u672A\u6279\u51C6\u7684\u5185\u5BB9\u88AB\u5F53\u6210\u4E8B\u5B9E | \u770B \`status\`\uFF0C\u53EA\u6709 \`accepted\` \u53C2\u4E0E\u9ED8\u8BA4\u68C0\u7D22 |
+| \u624B\u6539 \`knowledge/\` \u7ED5\u8FC7\u5BA1\u6279 | \u6CA1\u6709\u8D26\u672C\u4E0E\u5386\u53F2\u7248\u672C\uFF0C\u5BA1\u8BA1\u65AD\u94FE | \u8D70 \`memory_propose\` \u2192 \u5BA1\u6279 |
+| \u628A\u65E5\u5FD7/\u957F\u6587\u6574\u7BC7\u585E\u8FDB\u77E5\u8BC6 | \u68C0\u7D22\u53D8\u5DEE\u3001\u4E0A\u4E0B\u6587\u53D8\u8D35 | \u5199\u7ED3\u8BBA + \u5173\u952E\u7247\u6BB5 + \u8DEF\u5F84 |
+| \u624B\u6539 \`records/ledger.jsonl\` | \u5F15\u7528\u8BA1\u6570\u3001\u5BA1\u8BA1\u5931\u771F | \u53EA\u8BFB\uFF1B\u9700\u8981\u4FEE\u6B63\u7528\u65B0\u4E8B\u4EF6 |
+`;
+}
+var TYPE_PURPOSE = {
+  decision: "\u5DF2\u505A\u51FA\u7684\u9009\u62E9\u4E0E\u7406\u7531",
+  constraint: "\u4E0D\u53EF\u8FDD\u53CD\u7684\u8FB9\u754C",
+  knowledge: "\u5DF2\u786E\u8BA4\u7684\u4E8B\u5B9E/\u673A\u5236",
+  "api-catalog": "\u63A5\u53E3\u3001\u547D\u4EE4\u3001\u534F\u8BAE\u6E05\u5355",
+  process: "\u53EF\u590D\u73B0\u7684\u6D41\u7A0B/\u6B65\u9AA4",
+  "open-questions": "\u672A\u51B3\u95EE\u9898\u4E0E\u5F85\u9A8C\u8BC1\u5047\u8BBE",
+  "runtime-base": "\u73AF\u5883\u3001\u7248\u672C\u3001\u90E8\u7F72\u524D\u63D0",
+  playbooks: "\u6392\u969C/\u64CD\u4F5C\u624B\u518C",
+  assets: "\u5916\u90E8\u8D44\u6E90\uFF08\u8BBE\u8BA1\u7A3F/\u622A\u56FE/\u6A21\u677F/\u5F55\u5C4F\uFF09\u7684\u7D22\u5F15\uFF0C\u4E0D\u662F\u4EE3\u7801\u8D44\u4EA7"
+};
+
+// src/lock.ts
+import { readFileSync as readFileSync2, rmSync, statSync } from "node:fs";
+import { open as open2, readFile as readFile5, rename as rename2, rm as rm2, stat as stat3 } from "node:fs/promises";
+import { hostname } from "node:os";
+import { basename as basename3, dirname as dirname3, join as join4 } from "node:path";
+var LOCK_HEARTBEAT_MS = 15e3;
+var LOCK_FORMAT_VERSION = 2;
+function snapshotSync(path) {
+  let raw;
+  let mtimeMs;
+  try {
+    mtimeMs = statSync(path).mtimeMs;
+    raw = readFileSync2(path, "utf8");
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return { kind: "corrupt", mtimeMs: Date.now() };
+  }
+  const owner = parseOwner(raw);
+  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
+}
+function observeLock(path, staleMs, token = null) {
+  const snapshot = snapshotSync(path);
+  if (snapshot.kind === "missing") {
+    return { state: "missing", owner: null, expiresAt: null, reclaimable: null };
+  }
+  if (snapshot.kind === "corrupt") {
+    return {
+      state: "corrupt",
+      owner: null,
+      expiresAt: ownerExpiresAt(snapshot, staleMs),
+      reclaimable: decideReclaim(snapshot, staleMs, Date.now())
+    };
+  }
+  const owned = token !== null && snapshot.owner.token === token;
+  return {
+    state: owned ? "owned" : "foreign",
+    owner: snapshot.owner,
+    expiresAt: ownerExpiresAt(snapshot, staleMs),
+    reclaimable: decideReclaim(snapshot, staleMs, Date.now())
+  };
+}
+var UNKNOWN_LIVENESS_GRACE_MS = 6e4;
+function liveness(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return "dead";
+  if (pid === process.pid) return "alive";
+  try {
+    process.kill(pid, 0);
+    return "alive";
+  } catch (error) {
+    const code = error.code;
+    if (code === "ESRCH") return "dead";
+    return "unknown";
+  }
+}
+function sameHost(host) {
+  return host.toLowerCase() === hostname().toLowerCase();
+}
+function parseOwner(raw) {
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed.pid !== "number" || !Number.isInteger(parsed.pid) || parsed.pid <= 0) return null;
+    if (typeof parsed.heartbeatAt !== "string" || Number.isNaN(Date.parse(parsed.heartbeatAt))) return null;
+    return {
+      pid: parsed.pid,
+      host: typeof parsed.host === "string" ? parsed.host : "unknown",
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : parsed.heartbeatAt,
+      heartbeatAt: parsed.heartbeatAt,
+      token: typeof parsed.token === "string" && parsed.token !== "" ? parsed.token : null
+    };
+  } catch {
+    return null;
+  }
+}
+async function readSnapshot(path) {
+  let raw;
+  let mtimeMs;
+  try {
+    const info = await stat3(path);
+    mtimeMs = info.mtimeMs;
+    raw = await readFile5(path, "utf8");
+  } catch (error) {
+    const code = error.code;
+    if (code === "ENOENT") return { kind: "missing" };
+    return { kind: "corrupt", mtimeMs: Date.now() };
+  }
+  const owner = parseOwner(raw);
+  return owner === null ? { kind: "corrupt", mtimeMs } : { kind: "ok", owner, mtimeMs };
+}
+function lastSignalMs(owner) {
+  return Date.parse(owner.heartbeatAt);
+}
+function decideReclaim(snapshot, staleMs, now) {
+  if (snapshot.kind === "missing") return null;
+  if (snapshot.kind === "corrupt") return now - snapshot.mtimeMs > staleMs ? "corrupt" : null;
+  if (!sameHost(snapshot.owner.host)) return "foreign-host";
+  const state = liveness(snapshot.owner.pid);
+  if (state === "dead") return "dead-process";
+  const age = now - lastSignalMs(snapshot.owner);
+  if (state === "alive") {
+    return age > staleMs ? "stale-heartbeat" : null;
+  }
+  return age > Math.min(staleMs, UNKNOWN_LIVENESS_GRACE_MS) ? "stale-heartbeat" : null;
+}
+function ownerExpiresAt(snapshot, staleMs) {
+  if (snapshot.kind === "missing") return null;
+  if (snapshot.kind === "corrupt") return snapshot.mtimeMs + staleMs;
+  return lastSignalMs(snapshot.owner) + staleMs;
+}
+function describeSnapshot(snapshot) {
+  return snapshot.kind === "ok" ? snapshot.owner : null;
+}
+async function reclaim(path, expected) {
+  const temp = join4(dirname3(path), `.${basename3(path)}.reclaim.${process.pid}.${randomHex(4)}`);
+  try {
+    await rename2(path, temp);
+  } catch (error) {
+    if (error.code === "ENOENT") return true;
+    return false;
+  }
+  const renamed = await readSnapshot(temp);
+  const unchanged = expected.kind === "corrupt" ? renamed.kind === "corrupt" : expected.kind === "ok" && renamed.kind === "ok" && renamed.owner.token === expected.owner.token && renamed.owner.heartbeatAt === expected.owner.heartbeatAt;
+  if (!unchanged) {
+    try {
+      const raw = await readFile5(temp, "utf8");
+      const handle = await open2(path, "wx");
+      try {
+        await handle.writeFile(raw, "utf8");
+      } finally {
+        await handle.close();
+      }
+    } catch {
+    }
+    await rm2(temp, { force: true }).catch(() => {
+    });
+    return false;
+  }
+  await rm2(temp, { force: true }).catch(() => {
+  });
+  return true;
+}
+var activeLocks = /* @__PURE__ */ new Set();
+var exitHookInstalled = false;
+function installExitHook() {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once("exit", () => {
+    for (const lock of [...activeLocks]) lock.releaseSync();
+  });
+}
+var WriterLock = class _WriterLock {
+  constructor(path, info, staleMs, heartbeatMs) {
+    this.path = path;
+    this.info = info;
+    this.staleMs = staleMs;
+    this.heartbeatMs = heartbeatMs;
+    activeLocks.add(this);
+    installExitHook();
+    this.startHeartbeat();
+  }
+  timer = null;
+  lost = false;
+  releasing = false;
+  onLostCallback = null;
+  /** 当前进程内该 root 已持有的活跃锁（未丢失）；没有则 null。 */
+  static sharedFor(path) {
+    for (const lock of activeLocks) {
+      if (lock.path === path && !lock.isLost) return lock;
+    }
+    return null;
+  }
+  static async acquire(path, staleMs, options = {}) {
+    await ensureDir(dirname3(path));
+    const shared = _WriterLock.sharedFor(path);
+    if (shared !== null) {
+      return { lock: shared, owner: null, reclaimed: null, ownerExpiresAt: shared.expiresAt };
+    }
+    const heartbeatMs = options.heartbeatMs ?? Math.min(LOCK_HEARTBEAT_MS, Math.max(250, Math.floor(staleMs / 4)));
+    let reclaimed = null;
+    for (let round2 = 0; round2 < 4; round2 += 1) {
+      const snapshot = await readSnapshot(path);
+      if (snapshot.kind === "missing") {
+        const created = await _WriterLock.create(path, staleMs, heartbeatMs, reclaimed);
+        if (created !== null) return created;
+        continue;
+      }
+      const cause = decideReclaim(snapshot, staleMs, Date.now());
+      if (cause === null) {
+        return {
+          lock: null,
+          owner: describeSnapshot(snapshot),
+          reclaimed,
+          ownerExpiresAt: ownerExpiresAt(snapshot, staleMs)
+        };
+      }
+      if (!await reclaim(path, snapshot)) continue;
+      reclaimed = cause;
+    }
+    const final = await readSnapshot(path);
+    return {
+      lock: null,
+      owner: describeSnapshot(final),
+      reclaimed,
+      ownerExpiresAt: ownerExpiresAt(final, staleMs)
+    };
+  }
+  static async create(path, staleMs, heartbeatMs, reclaimed) {
+    const now = nowIso();
+    const info = {
+      pid: process.pid,
+      host: hostname(),
+      startedAt: now,
+      heartbeatAt: now,
+      token: randomHex(8)
+    };
+    let handle;
+    try {
+      handle = await open2(path, "wx");
+    } catch (error) {
+      if (error.code === "EEXIST") return null;
+      throw new MemoryError("STORAGE_ERROR", `cannot create writer lock ${path}: ${error.message}`);
+    }
+    try {
+      await handle.writeFile(serialize(info), "utf8");
+    } finally {
+      await handle.close();
+    }
+    const check = await readSnapshot(path);
+    if (check.kind !== "ok" || check.owner.token !== info.token) return null;
+    const lock = new _WriterLock(path, info, staleMs, heartbeatMs);
+    return { lock, owner: null, reclaimed, ownerExpiresAt: lock.expiresAt };
+  }
+  /** 租约到期时间（epoch ms）；超过它，其他写者可以接管。 */
+  get expiresAt() {
+    return Date.parse(this.info.heartbeatAt) + this.staleMs;
+  }
+  get owner() {
+    return this.info;
+  }
+  /** 锁是否已丢失（被其他写者按租约接管，或文件被删除）。 */
+  get isLost() {
+    return this.lost;
+  }
+  /** 注册“锁已丢失”回调；`reason` 区分“被别人接管”和“文件被删”。 */
+  onLost(callback) {
+    this.onLostCallback = callback;
+  }
+  /**
+   * Current relationship between this writer and the lock file.
+   *
+   * `missing` is deliberately separate from `foreign`: a lock file that was
+   * deleted (manual cleanup, or the old owner released it) leaves the root free,
+   * so this process may take it again; a `foreign` file means somebody else is
+   * the writer now and this process must not write.
+   */
+  state() {
+    if (this.lost) return "missing";
+    return observeLock(this.path, this.staleMs, this.info.token).state;
+  }
+  /**
+   * Fencing check: the lock file must still carry this writer's token. Called
+   * before every write, so a writer that lost its lease stops writing instead
+   * of racing the new owner.
+   */
+  async verifyOwnership() {
+    return this.state() === "owned";
+  }
+  startHeartbeat() {
+    this.timer = setInterval(() => {
+      void this.beat();
+    }, this.heartbeatMs);
+    this.timer.unref?.();
+  }
+  async beat() {
+    if (this.lost || this.releasing) return;
+    try {
+      const state = this.state();
+      if (state === "foreign" || state === "corrupt") {
+        this.markLost("foreign");
+        return;
+      }
+      if (state === "missing") {
+        this.markLost("missing");
+        return;
+      }
+      this.info.heartbeatAt = nowIso();
+      await writeAtomic(this.path, serialize(this.info));
+    } catch {
+    }
+  }
+  markLost(reason) {
+    if (this.lost) return;
+    this.lost = true;
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    activeLocks.delete(this);
+    try {
+      this.onLostCallback?.(reason);
+    } catch {
+    }
+  }
+  /**
+   * Stop tracking this handle without deciding who owns the file.
+   *
+   * Used when a caller has already observed the lock file and knows this handle
+   * is stale: keeping the heartbeat timer alive would let a dead handle keep
+   * refreshing a file it no longer owns (or would have refreshed).
+   */
+  detach() {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.lost = true;
+    activeLocks.delete(this);
+  }
+  async release() {
+    this.releasing = true;
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    activeLocks.delete(this);
+    if (this.lost) return;
+    if (!await this.verifyOwnership()) return;
+    await rm2(this.path, { force: true }).catch(() => {
+    });
+  }
+  /** Synchronous best-effort release for the process exit hook. */
+  releaseSync() {
+    if (this.lost) return;
+    try {
+      const owner = parseOwner(readFileSync2(this.path, "utf8"));
+      if (owner === null || owner.token !== this.info.token || owner.pid !== this.info.pid) return;
+      rmSync(this.path, { force: true });
+    } catch {
+    }
+  }
+};
+function serialize(info) {
+  return JSON.stringify({ v: LOCK_FORMAT_VERSION, ...info });
+}
+
+// src/hub.ts
+function expandHome(value) {
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) return join5(homedir(), value.slice(2));
+  return value;
+}
+function resolveHubRoot(configured) {
+  const trimmed = configured?.trim();
+  if (trimmed !== void 0 && trimmed !== "") return resolve(expandHome(trimmed));
+  const dshHome = process.env.DSH_HOME?.trim();
+  const base = dshHome !== void 0 && dshHome !== "" ? resolve(expandHome(dshHome)) : join5(homedir(), ".dsh");
+  return join5(base, "memory-hub");
+}
+function describeBlocker(path, owner, expiresAt) {
+  if (owner === null) return `another writer holds ${path} (unreadable lock file)`;
+  const lease = expiresAt === null ? "" : `, lease expires at ${new Date(expiresAt).toISOString()}`;
+  return `another writer holds ${path} (pid ${owner.pid} on ${owner.host}${lease})`;
+}
+var Hub = class _Hub {
+  root;
+  config;
+  configError = null;
+  /** Effective write gate: `false` only when this root can be written. */
+  readOnly;
+  readOnlyReason = null;
+  /** Why `readOnly` is set: forced by config, unreadable config.yaml, or a busy writer lock. */
+  readOnlySource = null;
+  /** Explicit `readOnly: true`: the only source that also blocks config edits. */
+  forcedReadOnly;
+  lock = null;
+  lockOwner = null;
+  lockOwnerExpiresAt = null;
+  lockReclaimed = null;
+  /** Set when another writer took this root over mid-session (lease stolen). */
+  lockLost = false;
+  acquiring = null;
+  configSource = null;
+  lockAllowed;
+  constructor(root, config, forcedReadOnly, readOnlyReason, configSource, lockAllowed) {
+    this.root = root;
+    this.config = config;
+    this.forcedReadOnly = forcedReadOnly;
+    this.readOnly = forcedReadOnly;
+    this.readOnlyReason = forcedReadOnly ? readOnlyReason ?? "configured read-only" : null;
+    this.readOnlySource = forcedReadOnly ? "forced" : null;
+    this.configSource = configSource ?? null;
+    this.lockAllowed = lockAllowed;
+  }
+  static async open(options = {}) {
+    const isDataRoot = options.config !== void 0;
+    const root = isDataRoot ? resolve(expandHome(options.root ?? "")) : resolveHubRoot(options.root);
+    if (root === "") {
+      throw new MemoryError("INVALID_INPUT", "hub root must not be empty");
+    }
+    const forcedReadOnly = options.readOnly === true;
+    const lockAllowed = options.lock !== false;
+    const externalConfigPath = options.configPath;
+    let config;
+    let configSource;
+    let configError = null;
+    if (isDataRoot && options.config !== void 0) {
+      config = options.config;
+      configSource = externalConfigPath ?? void 0;
+      await ensureLayout(root);
+    } else {
+      const configPath = join5(root, "config.yaml");
+      config = defaultConfig();
+      configSource = configPath;
+      await ensureLayout(root);
+      if (!await pathExists(configPath)) {
+        try {
+          await writeAtomic(configPath, DEFAULT_CONFIG_YAML);
+        } catch (error) {
+          configError = `cannot create config.yaml: ${error.message}`;
+        }
+      }
+      try {
+        const loaded = await readConfigFile(configPath);
+        if (loaded !== null) config = loaded;
+      } catch (error) {
+        configError = error.message;
+      }
+    }
+    const hub = new _Hub(
+      root,
+      config,
+      forcedReadOnly,
+      options.readOnlyReason,
+      configSource,
+      lockAllowed
+    );
+    hub.configError = configError;
+    if (configError !== null) {
+      hub.markReadOnly("config", configError);
+    } else if (!forcedReadOnly && lockAllowed) {
+      await hub.acquireLock();
+    }
+    if (!hub.readOnly) {
+      try {
+        await ensureHubReadme(hub);
+      } catch {
+      }
+    }
+    return hub;
+  }
+  /**
+   * Mark this hub read-only. `config` and `lock` degradations are local to this
+   * root; `forced` comes from the plugin configuration and applies everywhere.
+   */
+  markReadOnly(source, reason) {
+    this.readOnly = true;
+    this.readOnlyReason = reason;
+    this.readOnlySource = source;
+  }
+  /** Whether this hub may write `config.yaml` (atomic file write, not a knowledge write). */
+  canWriteConfig() {
+    return !this.forcedReadOnly;
+  }
+  /** 写锁诊断（面板 / `memory_status` 用）。 */
+  lockInfo() {
+    const onDisk = this.forcedReadOnly ? "missing" : this.lock !== null ? this.lock.state() : observeLock(this.lockPath(), this.config.storage.lock_stale_ms).state;
+    return {
+      held: this.lock !== null && onDisk === "owned",
+      owner: this.lock === null ? this.lockOwner : null,
+      expiresAt: this.lock !== null ? this.lock.expiresAt : this.lockOwnerExpiresAt,
+      reclaimed: this.lockReclaimed,
+      onDisk
+    };
+  }
+  /**
+   * Re-derive the in-memory read-only flag from the lock file on disk.
+   *
+   * A `lock` degradation is a *cached* judgement: when this hub opened, another
+   * writer held the root. That judgement goes stale the moment the other process
+   * exits, deletes the file, or stops refreshing its heartbeat — and a stale
+   * flag is indistinguishable from a real one for `memory_status` and the panel,
+   * which is exactly how "pid is gone, lock file is gone, but memory still says
+   * locked" happens.
+   *
+   * This is synchronous so read-only report paths (status / overview / config)
+   * can call it without becoming async. It never acquires the lock; a freed root
+   * is simply reported writable, and the next write takes the lock through the
+   * normal compare-and-set path.
+   */
+  revalidateLock() {
+    if (this.forcedReadOnly || this.readOnlySource === "config" || !this.lockAllowed) return;
+    try {
+      const path = this.lockPath();
+      const seen = observeLock(path, this.config.storage.lock_stale_ms, this.lock?.owner.token ?? null);
+      if (this.lock !== null) {
+        if (seen.state === "owned") return;
+        this.lock.releaseSync();
+        this.lock.detach();
+        this.lock = null;
+        if (seen.state === "missing") {
+          this.lockLost = false;
+          this.lockOwner = null;
+          this.lockOwnerExpiresAt = null;
+          this.markWritable();
+          return;
+        }
+        this.lockLost = true;
+        this.lockOwner = seen.owner;
+        this.lockOwnerExpiresAt = seen.expiresAt;
+        this.markReadOnly("lock", `lost the lease on ${path}; another writer took the root over`);
+        return;
+      }
+      if (seen.state === "missing") {
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+        return;
+      }
+      if (seen.owner === null) {
+        this.markReadOnly("lock", describeBlocker(path, null, seen.expiresAt));
+        return;
+      }
+      this.lockOwner = seen.owner;
+      this.lockOwnerExpiresAt = seen.expiresAt;
+      if (seen.reclaimable === null) {
+        this.markReadOnly("lock", describeBlocker(path, seen.owner, seen.expiresAt));
+        return;
+      }
+      this.markWritable();
+    } catch {
+    }
+  }
+  /**
+   * Whether this root may write *right now*.
+   *
+   * This is the recovery path for a degraded root: a hub that lost the lock at
+   * startup (another DSH process was running) re-tries the acquisition on its
+   * next write instead of staying read-only until the next restart. It also
+   * fences the lock: if another writer has taken this root over — the lease
+   * expired, or the lock file was replaced — this hub drops its stale handle and
+   * either takes the lock back (only when it is genuinely free) or reports that
+   * writing is no longer allowed.
+   */
+  async ensureWritable() {
+    if (this.forcedReadOnly) return false;
+    if (this.readOnlySource === "config") return false;
+    if (this.lock !== null) {
+      const state = this.lock.state();
+      if (state === "owned") {
+        if (this.readOnlySource === "lock") this.markWritable();
+        return true;
+      }
+      await this.lock.release();
+      this.lock = null;
+      if (state === "missing") {
+        this.lockLost = false;
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+      } else {
+        this.lockLost = true;
+        this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
+      }
+    }
+    if (!this.lockAllowed) return !this.readOnly;
+    if (this.acquiring !== null) return this.acquiring;
+    const run = this.acquireLock().finally(() => {
+      this.acquiring = null;
+    });
+    this.acquiring = run;
+    return run;
+  }
+  async acquireLock() {
+    const attempt = await WriterLock.acquire(this.lockPath(), this.config.storage.lock_stale_ms);
+    this.lockReclaimed = attempt.reclaimed;
+    if (attempt.lock === null) {
+      this.lockOwner = attempt.owner;
+      this.lockOwnerExpiresAt = attempt.ownerExpiresAt;
+      const blocker = describeBlocker(this.lockPath(), attempt.owner, attempt.ownerExpiresAt);
+      this.markReadOnly("lock", this.lockLost ? `lost the lease; ${blocker}` : blocker);
+      return false;
+    }
+    this.lockOwner = null;
+    this.lockOwnerExpiresAt = null;
+    this.lock = attempt.lock;
+    this.lockLost = false;
+    attempt.lock.onLost((reason) => {
+      this.lock = null;
+      if (reason === "missing") {
+        this.lockLost = false;
+        this.lockOwner = null;
+        this.lockOwnerExpiresAt = null;
+        this.markWritable();
+        return;
+      }
+      this.lockLost = true;
+      this.markReadOnly("lock", `lost the lease on ${this.lockPath()}; another writer took the root over`);
+    });
+    this.markWritable();
+    return true;
+  }
+  /** Restore the writable state after `forced`/`config` degradation is gone. */
+  markWritable() {
+    if (this.forcedReadOnly) return;
+    this.readOnly = false;
+    this.readOnlyReason = null;
+    this.readOnlySource = null;
+  }
+  /**
+   * Re-read `config.yaml`. When the previous read-only state came from a bad
+   * config, a successful reload also restores write access (and takes the lock
+   * that was skipped while the hub was degraded).
+   */
+  async reloadConfig() {
+    const path = this.configPath();
+    if (path === null) {
+      this.configError = "no config source for this hub";
+      return;
+    }
+    try {
+      const loaded = await readConfigFile(path);
+      if (loaded === null) {
+        this.configError = "config.yaml is missing";
+        return;
+      }
+      this.config = loaded;
+      this.configError = null;
+      if (this.readOnlySource === "config") await this.recoverWrites();
+    } catch (error) {
+      this.configError = error.message;
+    }
+  }
+  async recoverWrites() {
+    this.markWritable();
+    if (!this.lockAllowed) return;
+    if (this.lock === null) await this.acquireLock();
+  }
+  async close() {
+    if (this.lock !== null) {
+      await this.lock.release();
+      this.lock = null;
+    }
+  }
+  configPath() {
+    if (this.configSource !== null) return this.configSource;
+    return join5(this.root, "config.yaml");
+  }
+  lockPath() {
+    return join5(this.root, "records", ".writer.lock");
+  }
+  ledgerPath() {
+    return join5(this.root, "records", "ledger.jsonl");
+  }
+  sequencesPath() {
+    return join5(this.root, "records", "sequences.json");
+  }
+  /** 派生检索索引（可删除、可重建；不是权威数据）。 */
+  indexPath() {
+    return join5(this.root, "records", "index.sqlite");
+  }
+  pendingDir() {
+    return join5(this.root, "pending");
+  }
+  pendingArchiveDir() {
+    return join5(this.root, "pending", "archive");
+  }
+  pendingPath(id) {
+    return join5(this.pendingDir(), `${id}.md`);
+  }
+  pendingArchivePath(id) {
+    return join5(this.pendingArchiveDir(), `${id}.md`);
+  }
+  knowledgeDir(type) {
+    return join5(this.root, "knowledge", type);
+  }
+  knowledgePath(type, id) {
+    return join5(this.knowledgeDir(type), `${id}.md`);
+  }
+  historyPath(type, id, version) {
+    return join5(this.root, "history", type, `${id}@v${version}.md`);
+  }
+  displayRoot() {
+    const home = homedir();
+    if (this.root === home) return "~";
+    if (this.root.startsWith(home)) {
+      const suffix = this.root.slice(home.length).replace(/^[/\\]/, "");
+      return `~/${suffix.replace(/\\/g, "/")}`;
+    }
+    return this.root;
+  }
+  prefixFor(type) {
+    return TYPE_PREFIX[type];
+  }
+};
+async function ensureLayout(root) {
+  try {
+    await ensureDir(root);
+    for (const type of KNOWLEDGE_TYPES) {
+      await ensureDir(join5(root, "knowledge", type));
+    }
+    await ensureDir(join5(root, "pending", "archive"));
+    await ensureDir(join5(root, "history"));
+    await ensureDir(join5(root, "records"));
+  } catch (error) {
+    throw new MemoryError("STORAGE_ERROR", `cannot initialize memory hub at ${root}: ${error.message}`);
+  }
+}
+
+// src/distill.ts
 var DISTILL_TITLE_PREFIX = "memory-hub:distill:";
 function localTimeZone() {
   try {
@@ -15649,7 +16683,7 @@ function buildDigest(snapshot, options) {
     const text2 = pendingAssistant.trim();
     pendingAssistant = null;
     if (text2 === "") return;
-    entries.push({ role: "assistant", text: truncate3(text2, MAX_ENTRY_CHARS) });
+    entries.push({ role: "assistant", text: truncate4(text2, MAX_ENTRY_CHARS) });
     messageCount += 1;
   };
   for (const event of snapshot.events) {
@@ -15660,7 +16694,7 @@ function buildDigest(snapshot, options) {
       const text2 = messageText(data).trim();
       if (text2 === "") continue;
       flushAssistant();
-      entries.push({ role: "user", text: truncate3(text2, MAX_ENTRY_CHARS) });
+      entries.push({ role: "user", text: truncate4(text2, MAX_ENTRY_CHARS) });
       messageCount += 1;
       continue;
     }
@@ -15689,7 +16723,7 @@ function buildDigest(snapshot, options) {
       const code = typeof error.code === "string" ? error.code : "error";
       const reason = typeof error.reason === "string" ? error.reason : "";
       const label = typeof error.name === "string" ? error.name : code;
-      failures.push({ name: name2, error: truncate3(reason === "" ? label : `${label}: ${reason}`, 200) });
+      failures.push({ name: name2, error: truncate4(reason === "" ? label : `${label}: ${reason}`, 200) });
     }
   }
   flushAssistant();
@@ -15748,7 +16782,7 @@ function messageText(message) {
   }
   return "";
 }
-function truncate3(value, max) {
+function truncate4(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 function digestHash(digest) {
@@ -15813,7 +16847,7 @@ var ReflectStateFile = class {
   async mark(entry) {
     if (!this.loaded) await this.load();
     this.state.sessions = [entry, ...this.state.sessions.filter((item) => item.sessionId !== entry.sessionId)].slice(0, this.limit);
-    await writeFile2(this.file, `${JSON.stringify(this.state, null, 2)}
+    await writeFile(this.file, `${JSON.stringify(this.state, null, 2)}
 `, "utf8");
   }
 };
@@ -15900,6 +16934,1212 @@ function localTimeZone2() {
   }
 }
 
+// src/tencent-sync.ts
+var EMPTY_STATE = { lastPullAt: null, lastPushAt: null, outboxPending: 0, lastError: null, pushedIds: [], pulledIds: [] };
+function statePath(recordsDir) {
+  return `${recordsDir.replace(/\/+$/, "")}/tencent-state.json`;
+}
+function outboxPath(recordsDir) {
+  return `${recordsDir.replace(/\/+$/, "")}/outbox.jsonl`;
+}
+async function readState(recordsDir) {
+  const raw = await readTextOrNull(statePath(recordsDir));
+  if (raw === null) return { ...EMPTY_STATE };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      lastPullAt: typeof parsed.lastPullAt === "string" ? parsed.lastPullAt : null,
+      lastPushAt: typeof parsed.lastPushAt === "string" ? parsed.lastPushAt : null,
+      outboxPending: Number.isFinite(parsed.outboxPending) ? Number(parsed.outboxPending) : 0,
+      lastError: typeof parsed.lastError === "string" ? parsed.lastError : null,
+      pushedIds: Array.isArray(parsed.pushedIds) ? parsed.pushedIds.filter((id) => typeof id === "string") : [],
+      pulledIds: Array.isArray(parsed.pulledIds) ? parsed.pulledIds.filter((id) => typeof id === "string") : []
+    };
+  } catch {
+    return { ...EMPTY_STATE };
+  }
+}
+async function writeState(recordsDir, state) {
+  await ensureDir(recordsDir);
+  await writeAtomic(statePath(recordsDir), JSON.stringify(state, null, 2));
+}
+async function readOutbox(recordsDir) {
+  const raw = await readTextOrNull(outboxPath(recordsDir));
+  if (raw === null || raw.trim() === "") return [];
+  const entries = [];
+  for (const line of raw.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+    }
+  }
+  return entries;
+}
+async function appendOutbox(recordsDir, entry) {
+  await ensureDir(recordsDir);
+  const { appendFile: appendFile3 } = await import("node:fs/promises");
+  await appendFile3(outboxPath(recordsDir), `${JSON.stringify(entry)}
+`, "utf8");
+}
+async function rewriteOutbox(recordsDir, entries) {
+  await writeAtomic(outboxPath(recordsDir), entries.map((entry) => JSON.stringify(entry)).join("\n"));
+}
+function clientOpId(prefix, id) {
+  return `${prefix}:${id}`;
+}
+var TencentSync = class {
+  recordsDir;
+  host;
+  rawClient;
+  pullLimit;
+  pullScope;
+  pullType;
+  pushSessionPrefix;
+  constructor(options) {
+    this.recordsDir = options.recordsDir;
+    this.host = options.host;
+    this.rawClient = options.client;
+    this.pullLimit = options.pullLimit;
+    this.pullScope = options.pullScope;
+    this.pullType = options.pullType;
+    this.pushSessionPrefix = options.pushSessionPrefix;
+  }
+  async status() {
+    const state = await readState(this.recordsDir);
+    return { enabled: true, state, url: this.rawClient.baseUrl };
+  }
+  /** 底层 client（只读使用：ping 等）。 */
+  get client() {
+    return this.rawClient;
+  }
+  /** 把一条腾讯 atomic 转成候选内容（type 判断 + 标题化）。 */
+  toCandidate(atomic) {
+    const content = atomic.content.trim();
+    const title = content.slice(0, 60).replace(/\s+/g, " ").replace(/[。；;,.!?]+$/, "");
+    const summary = content.length > 220 ? `${content.slice(0, 217)}\u2026` : content;
+    const type = atomic.type === "persona" ? "persona" : atomic.type === "instruction" ? "instruction" : "episodic";
+    const tags = ["tencent", `t:${type}`, ...atomic.team_id !== void 0 ? [`team:${atomic.team_id}`] : []];
+    return {
+      title: title === "" ? `\u817E\u8BAF\u8BB0\u5FC6 ${atomic.id}` : title,
+      summary,
+      content: `# ${title}
+
+> \u6765\u6E90\uFF1A\u817E\u8BAF Agent Memory \u81EA\u52A8\u62BD\u53D6\uFF08atomic ${atomic.id}\uFF09
+
+${content}`,
+      tags
+    };
+  }
+  /** 拉取腾讯 L1/L2 增量 → 生成 pending 候选。不 commit。 */
+  async pull() {
+    let pulled = 0;
+    let proposed = 0;
+    let skipped = 0;
+    const state = await readState(this.recordsDir);
+    const processed = new Set(state.pulledIds);
+    const errors = [];
+    try {
+      const atomics = await this.rawClient.listAtomics(this.pullLimit);
+      const scenarios = await this.rawClient.listScenarios();
+      pulled = atomics.length + scenarios.length;
+      for (const atomic of atomics) {
+        if (processed.has(atomic.id)) {
+          skipped += 1;
+          continue;
+        }
+        const candidate = this.toCandidate(atomic);
+        try {
+          await this.host.proposeCandidate({
+            type: this.pullType,
+            scope: this.pullScope,
+            title: candidate.title,
+            summary: candidate.summary,
+            content: candidate.content,
+            sourceRefs: [`note:tencent:${atomic.id}`],
+            tags: candidate.tags
+          });
+          proposed += 1;
+          processed.add(atomic.id);
+        } catch (error) {
+          skipped += 1;
+          errors.push(`atomic ${atomic.id}: ${error.message}`);
+        }
+      }
+      for (const scenario of scenarios) {
+        if (processed.has(`scenario:${scenario.path}`)) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          const content = await this.rawClient.readScenario(scenario.path);
+          await this.host.proposeCandidate({
+            type: "process",
+            scope: this.pullScope,
+            title: `\u573A\u666F\uFF1A${scenario.path}`,
+            summary: scenario.summary,
+            content: `# \u573A\u666F\uFF1A${scenario.path}
+
+> \u6765\u6E90\uFF1A\u817E\u8BAF Agent Memory L2 \u573A\u666F\uFF08\u81EA\u52A8\u5F52\u7EB3\uFF09
+
+${content || scenario.summary}`,
+            sourceRefs: [`note:tencent:scenario:${scenario.path}`],
+            tags: ["tencent", "scenario"]
+          });
+          proposed += 1;
+          processed.add(`scenario:${scenario.path}`);
+        } catch (error) {
+          skipped += 1;
+          errors.push(`scenario ${scenario.path}: ${error.message}`);
+        }
+      }
+      state.lastPullAt = (/* @__PURE__ */ new Date()).toISOString();
+      state.pulledIds = [...processed].slice(-2e3);
+      state.lastError = errors.length > 0 ? `pull ${errors.length} item(s) failed: ${errors[0]}` : null;
+      await writeState(this.recordsDir, state);
+      await this.host.audit({ type: "tencent.pull", payload: { pulled, proposed, skipped } });
+    } catch (error) {
+      state.lastError = `pull failed: ${error.message}`;
+      await writeState(this.recordsDir, state);
+      return { pulled, proposed, skipped, state };
+    }
+    return { pulled, proposed, skipped, state };
+  }
+  /** 把本地 accepted 知识 push 到腾讯 conversation 通道。 */
+  async push() {
+    let pushed = 0;
+    let outboxed = 0;
+    const state = await readState(this.recordsDir);
+    const pushedSet = new Set(state.pushedIds);
+    try {
+      const entries = await readOutbox(this.recordsDir);
+      const remaining = [];
+      for (const entry of entries) {
+        try {
+          await this.rawClient.addConversation(this.sessionFor(entry.id), "user", this.renderPushBody(entry));
+          pushed += 1;
+          pushedSet.add(entry.id);
+          await this.host.audit({ type: "tencent.push", payload: { id: entry.id, fromOutbox: true } });
+        } catch {
+          remaining.push(entry);
+          outboxed += 1;
+        }
+      }
+      await rewriteOutbox(this.recordsDir, remaining);
+      const accepted = await this.host.listAcceptedKnowledge();
+      for (const record of accepted) {
+        if (pushedSet.has(record.id)) continue;
+        const opId = clientOpId("push", record.id);
+        const entry = {
+          op: "push",
+          id: record.id,
+          clientOpId: opId,
+          scope: formatScopeShort(record.scope),
+          title: record.title,
+          summary: record.summary,
+          body: record.body,
+          at: (/* @__PURE__ */ new Date()).toISOString()
+        };
+        try {
+          await this.rawClient.addConversation(this.sessionFor(record.id), "user", this.renderPushBody(entry));
+          pushed += 1;
+          pushedSet.add(record.id);
+          await this.host.audit({ type: "tencent.push", payload: { id: record.id, fromOutbox: false } });
+        } catch {
+          await appendOutbox(this.recordsDir, entry);
+          outboxed += 1;
+        }
+      }
+      state.lastPushAt = (/* @__PURE__ */ new Date()).toISOString();
+      state.outboxPending = (await readOutbox(this.recordsDir)).length;
+      state.pushedIds = [...pushedSet].slice(-2e3);
+      state.lastError = null;
+      await writeState(this.recordsDir, state);
+    } catch (error) {
+      state.lastError = `push failed: ${error.message}`;
+      await writeState(this.recordsDir, state);
+      if (error instanceof TencentError) {
+        return { pushed, outboxed, state };
+      }
+      throw error;
+    }
+    return { pushed, outboxed, state };
+  }
+  sessionFor(id) {
+    return `${this.pushSessionPrefix}-${id.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 60)}`;
+  }
+  renderPushBody(entry) {
+    const scope = entry.scope;
+    return [
+      `\u3010\u8BB0\u5FC6\u5171\u4EAB\u3011${scope} \xB7 ${entry.title}`,
+      `\u6458\u8981\uFF1A${entry.summary}`,
+      `\u6B63\u6587\uFF1A${entry.body.slice(0, 4e3)}`,
+      `\u6765\u6E90\u77E5\u8BC6 id\uFF1A${entry.id}`,
+      "(\u7531 dsh-memory-hub \u63A8\u9001\uFF0C\u817E\u8BAF\u4FA7\u81EA\u52A8\u62BD\u53D6\u4E3A\u56E2\u961F\u8BB0\u5FC6)"
+    ].join("\n");
+  }
+};
+function formatScopeShort(scope) {
+  if (scope === null || typeof scope !== "object") return "unknown";
+  const value = scope;
+  if (value.level === "global") return "global";
+  if (value.level === "domain") return `domain:${value.id ?? "?"}`;
+  if (value.level === "project") return `project:${value.workspaceId ?? "?"}`;
+  return "unknown";
+}
+
+// src/remote/sync.ts
+import { appendFile } from "node:fs/promises";
+import { readFileSync as readFileSync3 } from "node:fs";
+import { join as join6 } from "node:path";
+var EMPTY_STATE2 = {
+  lastPullAt: null,
+  lastPushAt: null,
+  lastForgetAt: null,
+  lastError: null,
+  pulledIds: [],
+  pushedIds: [],
+  forgottenIds: [],
+  externalIds: {}
+};
+var BOUND = 2e3;
+function boundList(list) {
+  return list.slice(-BOUND);
+}
+function boundMap(map) {
+  const keys = Object.keys(map);
+  if (keys.length <= BOUND) return map;
+  const next = {};
+  for (const key of keys.slice(-BOUND)) next[key] = map[key];
+  return next;
+}
+function safeProviderId(providerId) {
+  return providerId.replace(/[^A-Za-z0-9_.-]/g, "-");
+}
+function formatScopeShort2(scope) {
+  if (scope.level === "global") return "global";
+  if (scope.level === "domain") return `domain:${scope.id}`;
+  return `project:${scope.workspaceId}`;
+}
+function scopeMatchesPattern(pattern, scope) {
+  if (pattern.endsWith("*")) return scope.startsWith(pattern.slice(0, -1));
+  return pattern === scope;
+}
+var RemoteSync = class {
+  providerId;
+  dir;
+  host;
+  adapter;
+  settings;
+  origin;
+  citationCount;
+  constructor(options) {
+    this.providerId = options.providerId;
+    this.dir = join6(options.recordsDir.replace(/\/+$/, ""), "remote", safeProviderId(options.providerId));
+    this.host = options.host;
+    this.adapter = options.adapter;
+    this.settings = options.settings;
+    this.origin = options.origin ?? { coreId: null, workspaceId: null, hubKey: "local" };
+    this.citationCount = options.citationCount ?? (() => 0);
+  }
+  /* ---------------- 状态文件 ---------------- */
+  statePath() {
+    return join6(this.dir, "state.json");
+  }
+  outboxPath() {
+    return join6(this.dir, "outbox.jsonl");
+  }
+  orphansPath() {
+    return join6(this.dir, "orphans.jsonl");
+  }
+  async readState() {
+    const raw = await readTextOrNull(this.statePath());
+    if (raw === null) return { ...EMPTY_STATE2, externalIds: {} };
+    try {
+      const parsed = JSON.parse(raw);
+      const strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+      const externalIds = {};
+      if (parsed.externalIds !== null && typeof parsed.externalIds === "object") {
+        for (const [key, value] of Object.entries(parsed.externalIds)) {
+          if (typeof value === "string" && value !== "") externalIds[key] = value;
+        }
+      }
+      return {
+        lastPullAt: typeof parsed.lastPullAt === "string" ? parsed.lastPullAt : null,
+        lastPushAt: typeof parsed.lastPushAt === "string" ? parsed.lastPushAt : null,
+        lastForgetAt: typeof parsed.lastForgetAt === "string" ? parsed.lastForgetAt : null,
+        lastError: typeof parsed.lastError === "string" ? parsed.lastError : null,
+        pulledIds: strings(parsed.pulledIds),
+        pushedIds: strings(parsed.pushedIds),
+        forgottenIds: strings(parsed.forgottenIds),
+        externalIds
+      };
+    } catch {
+      return { ...EMPTY_STATE2, externalIds: {} };
+    }
+  }
+  async writeState(state) {
+    await ensureDir(this.dir);
+    await writeAtomic(this.statePath(), JSON.stringify(state, null, 2));
+  }
+  async readOutbox() {
+    const raw = await readTextOrNull(this.outboxPath());
+    if (raw === null || raw.trim() === "") return [];
+    const entries = [];
+    for (const line of raw.split("\n")) {
+      if (line.trim() === "") continue;
+      try {
+        const parsed = JSON.parse(line);
+        if ((parsed.op === "push" || parsed.op === "forget") && typeof parsed.knowledgeId === "string" && typeof parsed.clientOpId === "string") {
+          entries.push(parsed);
+        }
+      } catch {
+      }
+    }
+    return entries;
+  }
+  async writeOutbox(entries) {
+    await ensureDir(this.dir);
+    await writeAtomic(this.outboxPath(), entries.map((entry) => JSON.stringify(entry)).join("\n"));
+  }
+  async appendOutbox(entry) {
+    await ensureDir(this.dir);
+    await appendFile(this.outboxPath(), `${JSON.stringify(entry)}
+`, "utf8");
+  }
+  async readOrphans() {
+    const raw = await readTextOrNull(this.orphansPath());
+    if (raw === null || raw.trim() === "") return [];
+    const entries = [];
+    for (const line of raw.split("\n")) {
+      if (line.trim() === "") continue;
+      try {
+        entries.push(JSON.parse(line));
+      } catch {
+      }
+    }
+    return entries;
+  }
+  async recordOrphan(entry) {
+    await ensureDir(this.dir);
+    await appendFile(this.orphansPath(), `${JSON.stringify(entry)}
+`, "utf8");
+  }
+  /* ---------------- 角色守卫 ---------------- */
+  requireRole(role) {
+    if (!this.settings.roles.includes(role)) {
+      throw new MemoryError(
+        "INVALID_INPUT",
+        `provider "${this.providerId}" does not have the "${role}" role (declared: ${this.settings.roles.join(", ") || "none"})`
+      );
+    }
+  }
+  /* ---------------- 投影 ---------------- */
+  /** mirror 的投影过滤：scopes / types / exclude_tags。空 scopes = 不允许任何分发。 */
+  projectionAllows(record) {
+    const projection = this.settings.projection;
+    if (projection.scopes.length === 0) return false;
+    const scope = formatScopeShort2(record.scope);
+    if (!projection.scopes.some((pattern) => scopeMatchesPattern(pattern, scope))) return false;
+    if (projection.types.length > 0 && !projection.types.includes(record.type)) return false;
+    if (projection.exclude_tags.some((tag) => record.tags.includes(tag))) return false;
+    return true;
+  }
+  remoteRecordFrom(entry) {
+    const body = this.settings.mirror.include_body ? entry.body.slice(0, this.settings.mirror.max_body_chars) : "";
+    return {
+      externalId: "",
+      title: entry.title,
+      summary: entry.summary,
+      body,
+      scope: entry.scope,
+      tags: entry.tags,
+      raw: { knowledgeId: entry.knowledgeId, version: entry.version }
+    };
+  }
+  entryFromRecord(record) {
+    return {
+      op: "push",
+      knowledgeId: record.id,
+      clientOpId: `${this.providerId}:push:${record.id}:${record.version}`,
+      version: record.version,
+      title: record.title,
+      summary: record.summary,
+      body: record.body,
+      scope: formatScopeShort2(record.scope),
+      tags: this.withCoordinateTags(record),
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  /* ---------------- 坐标编码（§5.8.1） ---------------- */
+  /**
+   * mirror 坐标 tags：金字塔结构序列化成扁平远端池上的坐标。
+   * `mh:` 是协议保留前缀——用户标签里的 `mh:*` 一律剥掉（防止伪造来历）。
+   * 在 outbox 入队时计算，重放自然保留坐标。
+   */
+  withCoordinateTags(record) {
+    const base = record.tags.filter((tag) => !tag.startsWith("mh:"));
+    if (!this.settings.mirror.coordinate_tags) return base;
+    const tags = [...base, `mh:scope:${record.scope.level}`, `mh:type:${record.type}`];
+    if (record.scope.level === "project") tags.push(`mh:ws:${record.scope.workspaceId}`);
+    if (record.scope.level === "domain") tags.push(`mh:domain:${record.scope.id}`);
+    if (this.origin.coreId !== null) tags.push(`mh:core:${this.origin.coreId}`);
+    tags.push(`mh:from:${this.origin.hubKey}`);
+    return [...new Set(tags)];
+  }
+  /**
+   * pull 侧作用域还原（§5.8.2 非对称映射的另一半）：
+   * 远端坐标 → **拉取者自己的**作用域字符串；解析不出有效坐标退 feed.scope。
+   * 恶意/损坏的坐标（未知 level、缺 ws/domain）一律按"没有坐标"处理。
+   */
+  scopeFromTags(tags) {
+    if (!this.settings.feed.scope_from_tags) return null;
+    const value = (prefix) => tags.find((tag) => tag.startsWith(prefix))?.slice(prefix.length);
+    const level = value("mh:scope:");
+    if (level === "global") return "global";
+    if (level === "project") {
+      const workspaceId = value("mh:ws:");
+      return workspaceId !== void 0 && workspaceId !== "" ? `project:${workspaceId}` : null;
+    }
+    if (level === "domain") {
+      const domain = value("mh:domain:");
+      return domain !== void 0 && domain !== "" ? `domain:${domain}` : null;
+    }
+    return null;
+  }
+  /* ---------------- feed：pull ---------------- */
+  /** 拉远端记录 → 本地 pending 候选。绝不 commit；只有 propose 成功才推进游标。 */
+  async pull() {
+    this.requireRole("feed");
+    const list = requireMethod(this.adapter, "list");
+    const state = await this.readState();
+    const processed = new Set(state.pulledIds);
+    const errors = [];
+    let pulled = 0;
+    let proposed = 0;
+    let skipped = 0;
+    try {
+      const page = await list({ limit: this.settings.feed.limit, scope: this.settings.feed.scope });
+      pulled = page.items.length;
+      if (page.resetRequired === true) processed.clear();
+      for (const record of page.items) {
+        if (processed.has(record.externalId)) {
+          skipped += 1;
+          continue;
+        }
+        const content = record.body.trim() !== "" ? record.body : record.summary;
+        const title = record.title.trim() !== "" ? record.title : record.summary.slice(0, 60).replace(/\s+/g, " ").trim() || `\u8FDC\u7AEF\u8BB0\u5FC6 ${record.externalId}`;
+        const summary = record.summary.trim() !== "" ? record.summary : title;
+        try {
+          await this.host.proposeCandidate({
+            type: this.settings.feed.type,
+            // 作用域还原：远端坐标 → 拉取者自己的结构；无坐标退 feed.scope。
+            scope: this.scopeFromTags(record.tags) ?? this.settings.feed.scope,
+            title,
+            summary,
+            content: `# ${title}
+
+> \u6765\u6E90\uFF1A\u8FDC\u7AEF provider ${this.providerId}\uFF08externalId ${record.externalId}\uFF09
+
+${content}`,
+            sourceRefs: [`note:remote:${this.providerId}:${record.externalId}`],
+            tags: [this.providerId, ...this.settings.feed.tags]
+          });
+          proposed += 1;
+          processed.add(record.externalId);
+        } catch (error) {
+          skipped += 1;
+          errors.push(`${record.externalId}: ${error.message}`);
+        }
+      }
+      state.lastPullAt = (/* @__PURE__ */ new Date()).toISOString();
+      state.pulledIds = boundList([...processed]);
+      state.lastError = errors.length > 0 ? `pull: ${errors.length} item(s) failed: ${errors[0]}` : null;
+      await this.writeState(state);
+      await this.host.audit({
+        type: "remote.pull",
+        payload: { provider: this.providerId, pulled, proposed, skipped }
+      });
+    } catch (error) {
+      state.lastError = `pull failed: ${error.message}`;
+      await this.writeState(state);
+      return { pulled, proposed, skipped, errors: [state.lastError] };
+    }
+    return { pulled, proposed, skipped, errors };
+  }
+  /* ---------------- mirror：push ---------------- */
+  /** 本地 accepted → 远端 append。失败进 outbox；先重放上次遗留。 */
+  async push() {
+    this.requireRole("mirror");
+    const append = requireMethod(this.adapter, "append");
+    const state = await this.readState();
+    let pushed = 0;
+    let outboxed = 0;
+    let replayed = 0;
+    const entries = await this.readOutbox();
+    const remaining = [];
+    for (const entry of entries) {
+      if (entry.op !== "push") {
+        remaining.push(entry);
+        continue;
+      }
+      try {
+        const result = await append(
+          this.remoteRecordFrom({
+            knowledgeId: entry.knowledgeId,
+            version: entry.version,
+            title: entry.title,
+            summary: entry.summary,
+            body: entry.body,
+            scope: entry.scope,
+            tags: entry.tags
+          }),
+          { idempotencyKey: entry.clientOpId }
+        );
+        pushed += 1;
+        replayed += 1;
+        state.pushedIds = [...new Set(state.pushedIds).add(entry.knowledgeId)];
+        if (result.externalId !== "") state.externalIds[entry.knowledgeId] = result.externalId;
+      } catch {
+        remaining.push(entry);
+        outboxed += 1;
+      }
+    }
+    await this.writeOutbox(remaining);
+    const records = await this.host.allKnowledge();
+    const pushedSet = new Set(state.pushedIds);
+    const requireCitations = this.settings.mirror.require_citations;
+    let gated = 0;
+    for (const record of records) {
+      if (record.status !== "accepted") continue;
+      if (pushedSet.has(record.id)) continue;
+      if (!this.projectionAllows(record)) continue;
+      if (requireCitations > 0 && this.citationCount(record.id) < requireCitations) {
+        gated += 1;
+        continue;
+      }
+      const entry = this.entryFromRecord(record);
+      try {
+        const result = await append(this.remoteRecordFrom({
+          knowledgeId: record.id,
+          version: record.version,
+          title: record.title,
+          summary: record.summary,
+          body: record.body,
+          scope: entry.scope,
+          tags: entry.tags
+        }), { idempotencyKey: entry.clientOpId });
+        pushed += 1;
+        pushedSet.add(record.id);
+        if (result.externalId !== "") state.externalIds[record.id] = result.externalId;
+      } catch {
+        await this.appendOutbox(entry);
+        outboxed += 1;
+      }
+    }
+    state.lastPushAt = (/* @__PURE__ */ new Date()).toISOString();
+    state.pushedIds = boundList([...pushedSet]);
+    state.externalIds = boundMap(state.externalIds);
+    state.lastError = null;
+    await this.writeState(state);
+    await this.host.audit({
+      type: "remote.push",
+      payload: { provider: this.providerId, pushed, outboxed, replayed, ...gated > 0 ? { gated } : {} }
+    });
+    return { pushed, outboxed, replayed, gated };
+  }
+  /* ---------------- mirror：forget（作废传播） ---------------- */
+  /**
+   * 传播模式候选：deprecated（受 on_deprecate）/ superseded（受 on_merge）且**已镜像过**
+   * 且尚未 forget。没镜像过的条目不产生 forget（否则 outbox 里全是无效操作）。
+   */
+  collectForgetCandidates(state, records) {
+    const pushed = new Set(state.pushedIds);
+    const forgotten = new Set(state.forgottenIds);
+    const out = [];
+    for (const record of records) {
+      if (!pushed.has(record.id)) continue;
+      if (forgotten.has(record.id)) continue;
+      const isDeprecated = this.settings.forget.on_deprecate && record.status === "deprecated";
+      const isMerged = this.settings.forget.on_merge && record.status === "superseded";
+      if (!isDeprecated && !isMerged) continue;
+      out.push({
+        knowledgeId: record.id,
+        version: record.version,
+        title: record.title,
+        scope: formatScopeShort2(record.scope),
+        reason: record.deprecatedReason ?? (record.supersededBy !== null ? `merged into ${record.supersededBy}` : "deprecated locally")
+      });
+    }
+    out.sort((a, b) => a.knowledgeId.localeCompare(b.knowledgeId));
+    return out;
+  }
+  async forgetOne(state, candidate, reason) {
+    const externalId = state.externalIds[candidate.knowledgeId] ?? null;
+    if (hasCapability(this.adapter, "write.delete") && externalId !== null) {
+      try {
+        const del = requireMethod(this.adapter, "delete");
+        await del(externalId, { reason, scope: candidate.scope });
+        return { knowledgeId: candidate.knowledgeId, externalId, action: "delete" };
+      } catch (error) {
+        return this.forgetFailure(state, candidate, externalId, reason, error);
+      }
+    }
+    let markerNote = "provider does not declare write.delete";
+    if (hasCapability(this.adapter, "write.append")) {
+      try {
+        const append = requireMethod(this.adapter, "append");
+        const markerKey = `${this.providerId}:forget:${candidate.knowledgeId}:${candidate.version}`;
+        const appended = await append(
+          {
+            externalId: "",
+            title: `\u3010\u5DF2\u4F5C\u5E9F\u3011${candidate.title}`,
+            summary: candidate.reason,
+            body: `\u672C\u5730\u77E5\u8BC6 ${candidate.knowledgeId} \u5DF2\u4F5C\u5E9F\uFF1A${reason}
+\uFF08\u7531 dsh-memory-hub \u4F20\u64AD\uFF1B\u539F\u526F\u672C\u65E0\u6CD5\u5220\u9664\uFF0C\u8BF7\u4EBA\u5DE5\u5728\u8FDC\u7AEF\u5904\u7406\uFF09`,
+            scope: candidate.scope,
+            tags: ["deprecated"],
+            raw: { knowledgeId: candidate.knowledgeId, forgetOf: true }
+          },
+          { idempotencyKey: markerKey }
+        );
+        markerNote = `deprecation marker appended (${appended.externalId}); original copy remains on the remote`;
+      } catch (error) {
+        markerNote = `deprecation marker failed: ${error.message}`;
+      }
+    }
+    await this.recordOrphan({
+      knowledgeId: candidate.knowledgeId,
+      externalId,
+      reason: candidate.reason,
+      cause: "unsupported",
+      detail: markerNote,
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return {
+      knowledgeId: candidate.knowledgeId,
+      externalId,
+      action: hasCapability(this.adapter, "write.append") ? "marker" : "orphan",
+      detail: markerNote
+    };
+  }
+  /** forget 的失败分流：unreachable → outbox 等重试；其余 → 孤儿（不重试无意义的请求）。 */
+  async forgetFailure(state, candidate, externalId, reason, error) {
+    if (isRemoteError(error) && error.kind === "unreachable") {
+      await this.appendOutbox({
+        op: "forget",
+        knowledgeId: candidate.knowledgeId,
+        clientOpId: `${this.providerId}:forget:${candidate.knowledgeId}:${candidate.version}`,
+        version: candidate.version,
+        title: candidate.title,
+        summary: candidate.reason,
+        body: "",
+        scope: candidate.scope,
+        tags: [],
+        reason,
+        at: (/* @__PURE__ */ new Date()).toISOString()
+      });
+      return {
+        knowledgeId: candidate.knowledgeId,
+        externalId,
+        action: "queued",
+        detail: "remote unreachable; queued for replay"
+      };
+    }
+    const cause = isRemoteError(error) ? error.kind === "unsupported" || error.kind === "conflict" || error.kind === "invalid" || error.kind === "unauthorized" ? error.kind : "error" : "error";
+    await this.recordOrphan({
+      knowledgeId: candidate.knowledgeId,
+      externalId,
+      reason: candidate.reason,
+      cause,
+      detail: error.message,
+      at: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    return { knowledgeId: candidate.knowledgeId, externalId, action: "orphan", detail: error.message };
+  }
+  /**
+   * forget 主入口。
+   *
+   * - 无 `knowledgeId`：传播模式，受 `forget.on_deprecate` / `on_merge` / `max_per_run` 控制；
+   *   `dryRun: true` 返回将受影响的条目与计划动作，**零副作用**。
+   * - 有 `knowledgeId`：人工显式遗忘，绕过开关；从未镜像过的条目如实报 skipped，不产生幽灵请求。
+   */
+  async forget(opts = {}) {
+    this.requireRole("mirror");
+    const state = await this.readState();
+    const dryRun = opts.dryRun === true;
+    const reason = (opts.reason ?? "").trim() !== "" ? (opts.reason ?? "").trim() : "deprecated locally";
+    if (opts.knowledgeId !== void 0) {
+      const records2 = await this.host.allKnowledge();
+      const record = records2.find((item2) => item2.id === opts.knowledgeId);
+      if (record === void 0) {
+        return {
+          dryRun,
+          forgotten: 0,
+          orphans: 0,
+          pending: 0,
+          outboxed: 0,
+          items: [
+            {
+              knowledgeId: opts.knowledgeId,
+              externalId: null,
+              action: "skipped",
+              detail: "knowledge entry not found locally"
+            }
+          ]
+        };
+      }
+      if (!new Set(state.pushedIds).has(record.id)) {
+        return {
+          dryRun,
+          forgotten: 0,
+          orphans: 0,
+          pending: 0,
+          outboxed: 0,
+          items: [
+            {
+              knowledgeId: record.id,
+              externalId: null,
+              action: "skipped",
+              detail: "never mirrored to this provider; nothing to forget remotely"
+            }
+          ]
+        };
+      }
+      if (new Set(state.forgottenIds).has(record.id)) {
+        return {
+          dryRun,
+          forgotten: 0,
+          orphans: 0,
+          pending: 0,
+          outboxed: 0,
+          items: [{ knowledgeId: record.id, externalId: null, action: "skipped", detail: "already forgotten" }]
+        };
+      }
+      if (dryRun) {
+        return {
+          dryRun,
+          forgotten: 0,
+          orphans: 0,
+          pending: 1,
+          outboxed: 0,
+          items: [
+            {
+              knowledgeId: record.id,
+              externalId: state.externalIds[record.id] ?? null,
+              action: hasCapability(this.adapter, "write.delete") ? "delete" : hasCapability(this.adapter, "write.append") ? "marker" : "orphan",
+              detail: "planned action (dry run)"
+            }
+          ]
+        };
+      }
+      const item = await this.forgetOne(state, {
+        knowledgeId: record.id,
+        version: record.version,
+        title: record.title,
+        scope: formatScopeShort2(record.scope),
+        reason
+      }, reason);
+      if (item.action === "delete") {
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(record.id)]);
+      } else if (item.action === "marker" || item.action === "orphan") {
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(record.id)]);
+      }
+      state.lastForgetAt = (/* @__PURE__ */ new Date()).toISOString();
+      await this.writeState(state);
+      await this.host.audit({
+        type: "remote.forget",
+        payload: {
+          provider: this.providerId,
+          forgotten: item.action === "delete" ? 1 : 0,
+          orphans: item.action === "marker" || item.action === "orphan" ? 1 : 0,
+          pending: 0,
+          outboxed: item.action === "queued" ? 1 : 0,
+          dryRun
+        }
+      });
+      return {
+        dryRun,
+        forgotten: item.action === "delete" ? 1 : 0,
+        orphans: item.action === "marker" || item.action === "orphan" ? 1 : 0,
+        pending: 0,
+        outboxed: item.action === "queued" ? 1 : 0,
+        items: [item]
+      };
+    }
+    const records = await this.host.allKnowledge();
+    if (dryRun) {
+      const candidates2 = this.collectForgetCandidates(state, records);
+      const items2 = [];
+      for (const candidate of candidates2) {
+        const externalId = state.externalIds[candidate.knowledgeId] ?? null;
+        const action = hasCapability(this.adapter, "write.delete") ? externalId !== null ? "delete" : "orphan" : hasCapability(this.adapter, "write.append") ? "marker" : "orphan";
+        items2.push({ knowledgeId: candidate.knowledgeId, externalId, action, detail: "planned action (dry run)" });
+      }
+      return { dryRun, forgotten: 0, orphans: 0, pending: candidates2.length, outboxed: 0, items: items2 };
+    }
+    let forgotten = 0;
+    let orphans = 0;
+    let outboxed = 0;
+    const items = [];
+    const entries = await this.readOutbox();
+    const remaining = [];
+    for (const entry of entries) {
+      if (entry.op !== "forget") {
+        remaining.push(entry);
+        continue;
+      }
+      const externalId = state.externalIds[entry.knowledgeId] ?? null;
+      if (!hasCapability(this.adapter, "write.delete") || externalId === null) {
+        await this.recordOrphan({
+          knowledgeId: entry.knowledgeId,
+          externalId,
+          reason: entry.reason ?? "deprecated locally",
+          cause: "unsupported",
+          detail: "forget replayed but provider cannot delete; moved to orphans",
+          at: (/* @__PURE__ */ new Date()).toISOString()
+        });
+        orphans += 1;
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(entry.knowledgeId)]);
+        items.push({ knowledgeId: entry.knowledgeId, externalId, action: "orphan", detail: "converted from outbox" });
+        continue;
+      }
+      try {
+        const del = requireMethod(this.adapter, "delete");
+        await del(externalId, { reason: entry.reason ?? "deprecated locally", scope: entry.scope });
+        forgotten += 1;
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(entry.knowledgeId)]);
+        items.push({ knowledgeId: entry.knowledgeId, externalId, action: "delete", detail: "replayed from outbox" });
+      } catch (error) {
+        if (isRemoteError(error) && error.kind === "unreachable") {
+          remaining.push(entry);
+          outboxed += 1;
+          items.push({ knowledgeId: entry.knowledgeId, externalId, action: "queued", detail: "still unreachable" });
+        } else {
+          await this.recordOrphan({
+            knowledgeId: entry.knowledgeId,
+            externalId,
+            reason: entry.reason ?? "deprecated locally",
+            cause: isRemoteError(error) ? error.kind === "unreachable" ? "error" : error.kind : "error",
+            detail: error.message,
+            at: (/* @__PURE__ */ new Date()).toISOString()
+          });
+          orphans += 1;
+          state.forgottenIds = boundList([...new Set(state.forgottenIds).add(entry.knowledgeId)]);
+          items.push({ knowledgeId: entry.knowledgeId, externalId, action: "orphan", detail: error.message });
+        }
+      }
+    }
+    await this.writeOutbox(remaining);
+    const candidates = this.collectForgetCandidates(state, records);
+    const cap = this.settings.forget.max_per_run;
+    const slice = cap === 0 ? candidates : candidates.slice(0, cap);
+    for (const candidate of slice) {
+      const item = await this.forgetOne(state, candidate, candidate.reason || reason);
+      items.push(item);
+      if (item.action === "delete") {
+        forgotten += 1;
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(candidate.knowledgeId)]);
+      } else if (item.action === "marker" || item.action === "orphan") {
+        orphans += 1;
+        state.forgottenIds = boundList([...new Set(state.forgottenIds).add(candidate.knowledgeId)]);
+      } else if (item.action === "queued") {
+        outboxed += 1;
+      }
+    }
+    state.lastForgetAt = (/* @__PURE__ */ new Date()).toISOString();
+    await this.writeState(state);
+    await this.host.audit({
+      type: "remote.forget",
+      payload: {
+        provider: this.providerId,
+        forgotten,
+        orphans,
+        pending: Math.max(0, candidates.length - slice.length),
+        outboxed,
+        dryRun
+      }
+    });
+    return { dryRun, forgotten, orphans, pending: Math.max(0, candidates.length - slice.length), outboxed, items };
+  }
+  /* ---------------- 状态 ---------------- */
+  async status() {
+    const state = await this.readState();
+    const orphans = await this.readOrphans();
+    const outbox = await this.readOutbox();
+    return {
+      provider: this.providerId,
+      kind: this.adapter.kind,
+      roles: [...this.settings.roles],
+      lastPullAt: state.lastPullAt,
+      lastPushAt: state.lastPushAt,
+      lastForgetAt: state.lastForgetAt,
+      lastError: state.lastError,
+      mirrored: state.pushedIds.length,
+      forgotten: state.forgottenIds.length,
+      outboxPending: outbox.length,
+      orphans: orphans.length
+    };
+  }
+};
+async function readRemoteSyncSnapshot(recordsDir, providerId) {
+  const dir = join6(recordsDir.replace(/\/+$/, ""), "remote", safeProviderId(providerId));
+  const raw = await readTextOrNull(join6(dir, "state.json"));
+  let state = EMPTY_STATE2;
+  if (raw !== null) {
+    try {
+      const parsed = JSON.parse(raw);
+      const strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+      state = {
+        ...EMPTY_STATE2,
+        lastPullAt: typeof parsed.lastPullAt === "string" ? parsed.lastPullAt : null,
+        lastPushAt: typeof parsed.lastPushAt === "string" ? parsed.lastPushAt : null,
+        lastForgetAt: typeof parsed.lastForgetAt === "string" ? parsed.lastForgetAt : null,
+        lastError: typeof parsed.lastError === "string" ? parsed.lastError : null,
+        pulledIds: strings(parsed.pulledIds),
+        pushedIds: strings(parsed.pushedIds),
+        forgottenIds: strings(parsed.forgottenIds)
+      };
+    } catch {
+    }
+  }
+  const countLines = async (name2) => {
+    const text = await readTextOrNull(join6(dir, name2));
+    if (text === null || text.trim() === "") return 0;
+    return text.split("\n").filter((line) => line.trim() !== "").length;
+  };
+  return {
+    provider: providerId,
+    lastPullAt: state.lastPullAt,
+    lastPushAt: state.lastPushAt,
+    lastForgetAt: state.lastForgetAt,
+    lastError: state.lastError,
+    outboxPending: await countLines("outbox.jsonl"),
+    orphans: await countLines("orphans.jsonl"),
+    mirrored: state.pushedIds.length
+  };
+}
+function readRemoteSyncStateSync(recordsDir, providerId) {
+  const dir = join6(recordsDir.replace(/\/+$/, ""), "remote", safeProviderId(providerId));
+  const readSmall = (name2) => {
+    try {
+      return readFileSync3(join6(dir, name2), "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const raw = readSmall("state.json");
+  let state = EMPTY_STATE2;
+  if (raw !== null && raw.trim() !== "") {
+    try {
+      const parsed = JSON.parse(raw);
+      const strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+      state = {
+        ...EMPTY_STATE2,
+        lastPullAt: typeof parsed.lastPullAt === "string" ? parsed.lastPullAt : null,
+        lastPushAt: typeof parsed.lastPushAt === "string" ? parsed.lastPushAt : null,
+        lastForgetAt: typeof parsed.lastForgetAt === "string" ? parsed.lastForgetAt : null,
+        lastError: typeof parsed.lastError === "string" ? parsed.lastError : null,
+        pulledIds: strings(parsed.pulledIds),
+        pushedIds: strings(parsed.pushedIds),
+        forgottenIds: strings(parsed.forgottenIds)
+      };
+    } catch {
+    }
+  }
+  const countLines = (name2) => {
+    const text = readSmall(name2);
+    if (text === null || text.trim() === "") return 0;
+    return text.split("\n").filter((line) => line.trim() !== "").length;
+  };
+  return {
+    provider: providerId,
+    lastPullAt: state.lastPullAt,
+    lastPushAt: state.lastPushAt,
+    lastForgetAt: state.lastForgetAt,
+    lastError: state.lastError,
+    outboxPending: countLines("outbox.jsonl"),
+    orphans: countLines("orphans.jsonl"),
+    mirrored: state.pushedIds.length,
+    pushedIds: state.pushedIds,
+    forgottenIds: state.forgottenIds
+  };
+}
+function countPendingForget(records, forget, pushedIds, forgottenIds) {
+  const pushed = new Set(pushedIds);
+  const forgotten = new Set(forgottenIds);
+  let count = 0;
+  for (const record of records) {
+    if (!pushed.has(record.id)) continue;
+    if (forgotten.has(record.id)) continue;
+    const isDeprecated = forget.on_deprecate && record.status === "deprecated";
+    const isMerged = forget.on_merge && record.status === "superseded";
+    if (isDeprecated || isMerged) count += 1;
+  }
+  return count;
+}
+async function migrateLegacyRemoteState(recordsDir, providerId) {
+  const root = recordsDir.replace(/\/+$/, "");
+  const newStatePath = join6(root, "remote", safeProviderId(providerId), "state.json");
+  if (await readTextOrNull(newStatePath) !== null) {
+    return { migrated: false, pulled: 0, pushed: 0, reason: "new state already exists" };
+  }
+  const legacyRaw = await readTextOrNull(join6(root, "tencent-state.json"));
+  if (legacyRaw === null || legacyRaw.trim() === "") {
+    return { migrated: false, pulled: 0, pushed: 0, reason: "no legacy state file" };
+  }
+  try {
+    const legacy = JSON.parse(legacyRaw);
+    const strings = (value) => Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
+    const state = {
+      ...EMPTY_STATE2,
+      lastPullAt: typeof legacy.lastPullAt === "string" ? legacy.lastPullAt : null,
+      lastPushAt: typeof legacy.lastPushAt === "string" ? legacy.lastPushAt : null,
+      lastError: typeof legacy.lastError === "string" ? legacy.lastError : null,
+      pulledIds: strings(legacy.pulledIds),
+      pushedIds: strings(legacy.pushedIds)
+    };
+    await ensureDir(join6(root, "remote", safeProviderId(providerId)));
+    await writeAtomic(newStatePath, JSON.stringify(state, null, 2));
+    return { migrated: true, pulled: state.pulledIds.length, pushed: state.pushedIds.length };
+  } catch (error) {
+    return {
+      migrated: false,
+      pulled: 0,
+      pushed: 0,
+      reason: `legacy state unparsable: ${error.message}`
+    };
+  }
+}
+
+// src/scenario.ts
+import { basename as basename4, join as join7 } from "node:path";
+var DEFAULT_MAX_PER_SCENARIO = 50;
+var DEFAULT_MIN_ENTRIES = 2;
+function topicOf(record) {
+  const preferred = ["topic:", "domain:", "batch:"];
+  for (const prefix of preferred) {
+    const tag = record.tags.find((value) => value.startsWith(prefix));
+    if (tag !== void 0) {
+      const value = tag.slice(prefix.length).trim();
+      if (value !== "") return { topic: value, ranked: true };
+    }
+  }
+  return { topic: record.type, ranked: false };
+}
+function safeFileStem(topic) {
+  const stem = topic.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "-").replace(/^[.-]+|[.-]+$/g, "").slice(0, 80);
+  return stem === "" ? "untitled" : stem;
+}
+function renderScenario(topic, records) {
+  const lines = [
+    `# \u573A\u666F\uFF1A${topic}`,
+    "",
+    "> \u672C\u6587\u4EF6\u7531 Memory Hub \u81EA\u52A8\u751F\u6210\uFF08\u6D3E\u751F\u89C6\u56FE\uFF0C\u53EF\u968F\u65F6\u5220\u9664\u91CD\u5EFA\uFF09\u3002",
+    "> \u5B83\u53EA\u662F\u7D22\u5F15\u4E0E\u6458\u8981\uFF1B\u6B63\u6587\u7EC6\u8282\u8BF7\u7528 memory_get \u8BFB\u53D6\u5BF9\u5E94\u6761\u76EE\u3002",
+    "",
+    `\u6761\u76EE\u6570\uFF1A${records.length}`,
+    "",
+    "## \u6761\u76EE\u7D22\u5F15",
+    ""
+  ];
+  for (const record of records) {
+    lines.push(`- [${record.id}@${record.version}] ${record.type} \xB7 ${record.title}`);
+    lines.push(`  ${record.summary}`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+var ScenarioBuilder = class {
+  options;
+  constructor(options = {}) {
+    this.options = {
+      scenarioDir: options.scenarioDir ?? "scenario",
+      maxEntriesPerScenario: options.maxEntriesPerScenario ?? DEFAULT_MAX_PER_SCENARIO,
+      minEntries: options.minEntries ?? DEFAULT_MIN_ENTRIES
+    };
+  }
+  get enabled() {
+    return this.options.scenarioDir.trim() !== "";
+  }
+  /** 从知识记录构建/重建全部场景文件。只写 scenario 目录。 */
+  async rebuild(root, records) {
+    if (!this.enabled) return { scenarios: [], skipped: 0 };
+    const accepted = records.filter((record) => record.status === "accepted");
+    const buckets = /* @__PURE__ */ new Map();
+    for (const record of accepted) {
+      const { topic } = topicOf(record);
+      const list = buckets.get(topic) ?? [];
+      list.push(record);
+      buckets.set(topic, list);
+    }
+    const scenarios = [];
+    let skipped = 0;
+    for (const [topic, list] of buckets) {
+      if (list.length < this.options.minEntries) {
+        skipped += 1;
+        continue;
+      }
+      const sorted = [...list].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, this.options.maxEntriesPerScenario);
+      const dir2 = join7(root, this.options.scenarioDir);
+      await ensureDir(dir2);
+      const path = join7(dir2, `${safeFileStem(topic)}.md`);
+      await writeAtomic(path, renderScenario(topic, sorted));
+      scenarios.push({ topic, path, entries: sorted.length, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
+    }
+    const { readdir: readdir2 } = await import("node:fs/promises");
+    const dir = join7(root, this.options.scenarioDir);
+    const keep = new Set(scenarios.map((entry) => basename4(entry.path)));
+    try {
+      for (const name2 of await readdir2(dir)) {
+        if (!name2.endsWith(".md")) continue;
+        if (keep.has(name2)) continue;
+        const { rm: rm3 } = await import("node:fs/promises");
+        await rm3(join7(dir, name2), { force: true });
+      }
+    } catch {
+    }
+    return { scenarios, skipped };
+  }
+  /** 只读列出当前场景目录。 */
+  async list(root) {
+    if (!this.enabled) return [];
+    const { readdir: readdir2 } = await import("node:fs/promises");
+    const dir = join7(root, this.options.scenarioDir);
+    try {
+      const names = await readdir2(dir);
+      return names.filter((name2) => name2.endsWith(".md")).sort().map((name2) => ({ name: name2, path: join7(dir, name2) }));
+    } catch {
+      return [];
+    }
+  }
+};
+
+// src/credentials.ts
+var import_yaml3 = __toESM(require_dist(), 1);
+import { readFileSync as readFileSync4 } from "node:fs";
+import { homedir as homedir2 } from "node:os";
+import { join as join8 } from "node:path";
+function dshCredentialPath(env = process.env) {
+  const home = env.DSH_HOME?.trim() || join8(homedir2(), ".dsh");
+  return join8(home, ".credentials.yaml");
+}
+function readDshCredential(name2, env = process.env) {
+  try {
+    const raw = readFileSync4(dshCredentialPath(env), "utf8");
+    const doc = (0, import_yaml3.parse)(raw);
+    const value = doc?.refs?.[name2];
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+function resolveApiKeyEnv(name2, env = process.env) {
+  const direct = env[name2]?.trim();
+  if (direct !== void 0 && direct !== "") return direct;
+  return readDshCredential(name2, env);
+}
+
 // src/service.ts
 var PLUGIN_VERSION = package_default.version;
 var SCHEDULED_STATES = /* @__PURE__ */ new Set(["scheduled"]);
@@ -15921,6 +18161,10 @@ var MemoryService = class {
   citations;
   reflectSource;
   reflectState;
+  /** 腾讯桥（lazy：仅 tencent.enabled 时创建）。 */
+  tencentBridge = null;
+  /** 多厂商 provider 注册表（lazy；关闭时为零网络、零 adapter）。 */
+  remoteRegistry = null;
   constructor(options) {
     this.ctx = options.ctx;
     this.hub = options.hub;
@@ -16114,7 +18358,8 @@ var MemoryService = class {
         idempotencyKey: `${agent.id}:${turn}`
       });
       const preflight = await this.runSearch(intent, workspace, visibility);
-      const { pack, tokens } = this.buildPack(preflight, workspace, this.hub.config.policy.preflight.pack_tokens);
+      const remote = await this.remoteHybridContributions(intent);
+      const { pack, tokens } = this.buildPack(preflight, workspace, this.hub.config.policy.preflight.pack_tokens, remote);
       const status = preflight.length === 0 ? "no_match" : "ready";
       const preflightId = newPreflightId();
       await this.ledger.append({
@@ -16123,7 +18368,15 @@ var MemoryService = class {
         preflightId,
         status,
         hits: preflight.map((hit) => ({ id: hit.id, version: hit.version })),
-        tokens
+        tokens,
+        ...remote.length === 0 ? {} : {
+          remote: remote.map((entry) => ({
+            provider: entry.provider,
+            hits: entry.hits,
+            ok: entry.ok,
+            ...entry.error === void 0 ? {} : { error: entry.error }
+          }))
+        }
       });
       state.pack = this.hub.config.policy.preflight.inject === "off" ? "" : pack;
       state.status = status;
@@ -16197,7 +18450,8 @@ var MemoryService = class {
           idempotencyKey: `${agent.id}:manual`
         });
         const hits = await this.runSearch(text, workspace, visibility);
-        const { pack: pack2, tokens: tokens2 } = this.buildPack(hits, workspace, this.hub.config.policy.preflight.pack_tokens);
+        const remote2 = await this.remoteHybridContributions(text);
+        const { pack: pack2, tokens: tokens2 } = this.buildPack(hits, workspace, this.hub.config.policy.preflight.pack_tokens, remote2);
         const status2 = hits.length === 0 ? "no_match" : "ready";
         const preflightId2 = newPreflightId();
         await this.ledger.append({
@@ -16206,7 +18460,15 @@ var MemoryService = class {
           preflightId: preflightId2,
           status: status2,
           hits: hits.map((hit) => ({ id: hit.id, version: hit.version })),
-          tokens: tokens2
+          tokens: tokens2,
+          ...remote2.length === 0 ? {} : {
+            remote: remote2.map((entry) => ({
+              provider: entry.provider,
+              hits: entry.hits,
+              ok: entry.ok,
+              ...entry.error === void 0 ? {} : { error: entry.error }
+            }))
+          }
         });
         nextState.status = status2;
         nextState.hits = hits.map((hit) => ({ id: hit.id, version: hit.version }));
@@ -16238,7 +18500,8 @@ var MemoryService = class {
       };
     }
     const preflight = await this.runSearch(intent, state.workspace, state.visibility);
-    const { pack, tokens } = this.buildPack(preflight, state.workspace, this.hub.config.policy.preflight.pack_tokens);
+    const remote = await this.remoteHybridContributions(intent);
+    const { pack, tokens } = this.buildPack(preflight, state.workspace, this.hub.config.policy.preflight.pack_tokens, remote);
     const status = preflight.length === 0 ? "no_match" : "ready";
     const preflightId = newPreflightId();
     await this.ledger.append({
@@ -16247,7 +18510,15 @@ var MemoryService = class {
       preflightId,
       status,
       hits: preflight.map((hit) => ({ id: hit.id, version: hit.version })),
-      tokens
+      tokens,
+      ...remote.length === 0 ? {} : {
+        remote: remote.map((entry) => ({
+          provider: entry.provider,
+          hits: entry.hits,
+          ok: entry.ok,
+          ...entry.error === void 0 ? {} : { error: entry.error }
+        }))
+      }
     });
     state.pack = this.hub.config.policy.preflight.inject === "off" ? "" : pack;
     state.status = status;
@@ -16416,13 +18687,13 @@ var MemoryService = class {
       };
     }
     const owned = records.filter((record) => {
-      const header = record.header;
-      if (header === void 0 || typeof header.id !== "string") return false;
-      if (header.origin === "subagent" || (header.delegationDepth ?? 0) > 0) return false;
-      if (typeof header.parentSession === "string" && header.parentSession !== "") return false;
-      const owner = ownerWorkspaceOf(header.cwd, roots);
+      const header2 = record.header;
+      if (header2 === void 0 || typeof header2.id !== "string") return false;
+      if (header2.origin === "subagent" || (header2.delegationDepth ?? 0) > 0) return false;
+      if (typeof header2.parentSession === "string" && header2.parentSession !== "") return false;
+      const owner = ownerWorkspaceOf(header2.cwd, roots);
       if (owner === null || owner.workspaceId !== workspace.id) return false;
-      if (typeof header.createdAt === "number" && header.createdAt < cutoff) return false;
+      if (typeof header2.createdAt === "number" && header2.createdAt < cutoff) return false;
       return true;
     }).sort((left, right) => (right.header.createdAt ?? 0) - (left.header.createdAt ?? 0));
     const skipped = [];
@@ -16777,7 +19048,95 @@ var MemoryService = class {
       createdAt: nowIso(),
       coreId: resolved.core
     });
+    await this.appendAgenda(resolved.root, {
+      knowledgeId: record.id,
+      version: record.version,
+      purpose,
+      taskId: state.taskId,
+      citationId,
+      ...resolved.core === null ? {} : { coreId: resolved.core }
+    });
+    await this.maybeCitedPush(agent, record, resolved.core);
     return { citationId };
+  }
+  /* ---------------- 引用即议程 + cited 触发（§5.9.2，M5） ---------------- */
+  agendaPath(root) {
+    return join9(root, "records", "agenda.jsonl");
+  }
+  /** 新增引用 → agenda.jsonl 追加一行。agenda 是萃取议程，不是知识；文件可删（账本可重建）。 */
+  async appendAgenda(root, entry) {
+    try {
+      await mkdir3(join9(root, "records"), { recursive: true });
+      await appendFile2(this.agendaPath(root), `${JSON.stringify({ ...entry, at: nowIso() })}
+`, "utf8");
+    } catch (error) {
+      this.ctx.logger?.warn?.(`dsh-memory-hub: cannot append agenda: ${error.message}`);
+    }
+  }
+  /**
+   * 读议程：knowledgeId → 议程行数（≈ 引用次数的信号视图）。
+   * 损坏行跳过；这是派生信号，宁缺勿炸。
+   */
+  async readAgendaCounts(root) {
+    const counts = /* @__PURE__ */ new Map();
+    let raw;
+    try {
+      raw = await readFile7(this.agendaPath(root), "utf8");
+    } catch {
+      return counts;
+    }
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed.knowledgeId !== "string" || parsed.knowledgeId === "") continue;
+        counts.set(parsed.knowledgeId, (counts.get(parsed.knowledgeId) ?? 0) + 1);
+      } catch {
+        continue;
+      }
+    }
+    return counts;
+  }
+  /** 本 hub 的引用计数快照（coreId 归属过滤）：knowledgeId → citation.added 次数。 */
+  citationCountMap() {
+    const counts = /* @__PURE__ */ new Map();
+    for (const citation of this.citations) {
+      if ((citation.coreId ?? null) !== (this.coreId ?? null)) continue;
+      counts.set(citation.knowledgeId, (counts.get(citation.knowledgeId) ?? 0) + 1);
+    }
+    return counts;
+  }
+  /**
+   * trigger: 'cited' 的触发器：本次 cite 让条目**恰好达到**某 provider 的
+   * `require_citations` 门槛时，对该 provider 触发一次 push（门槛 = 0 不触发；
+   * 推送是全量扫掠但引用门槛会挡住没人用的条目）。失败降级为诊断，绝不抛进 cite。
+   */
+  async maybeCitedPush(agent, record, coreId) {
+    if (coreId !== (this.coreId ?? null)) return;
+    const remote = this.hub.config.remote;
+    if (remote === void 0 || remote.enabled !== true) return;
+    const handles = this.resolveRemoteHandles(void 0, ["mirror"]);
+    if (handles.length === 0) return;
+    const counts = this.citationCountMap();
+    const total = counts.get(record.id) ?? 0;
+    for (const handle of handles) {
+      const mirror = handle.settings.mirror;
+      if (mirror.trigger !== "cited" || mirror.require_citations < 1) continue;
+      if (total !== mirror.require_citations) continue;
+      if (handle.adapter === null) continue;
+      try {
+        const engine = this.buildEngine(agent, handle);
+        const result = await engine.push();
+        this.ctx.logger?.info(
+          `dsh-memory-hub: cited-trigger push for ${handle.settings.id}: pushed=${result.pushed} gated=${result.gated ?? 0}`
+        );
+      } catch (error) {
+        this.ctx.logger?.warn(
+          `dsh-memory-hub: cited-trigger push failed for ${handle.settings.id}: ${error.message}`
+        );
+      }
+    }
   }
   async propose(agent, args) {
     const state = this.sessions.get(agent.id);
@@ -17061,6 +19420,488 @@ var MemoryService = class {
       state.pack = "";
     }
   }
+  /** 腾讯桥是否启用：配置 enabled 且 hub 存在。 */
+  get tencentEnabled() {
+    return this.hub.config.tencent.enabled;
+  }
+  ensureTencentBridge(agent) {
+    if (!this.tencentEnabled) {
+      throw new MemoryError("NOT_CONFIGURED", "tencent bridge is disabled; set policy tencent.enabled in config.yaml");
+    }
+    if (this.tencentBridge === null) {
+      const t = this.hub.config.tencent;
+      const apiKey = resolveApiKeyEnv(t.api_key_env) ?? "";
+      if (apiKey === "") {
+        throw new MemoryError(
+          "NOT_CONFIGURED",
+          `tencent api key env ${t.api_key_env} is empty (checked process.env and $DSH_HOME/.credentials.yaml refs); cannot enable bridge`
+        );
+      }
+      const client = new TencentClient({
+        config: {
+          url: t.url,
+          apiKey,
+          serviceId: t.service_id,
+          teamId: t.team_id,
+          agentId: t.agent_id,
+          userId: t.user_id,
+          taskId: t.task_id,
+          timeoutMs: t.timeout_ms
+        }
+      });
+      const recordsDir = join9(this.hub.root, "records");
+      this.tencentBridge = new TencentSync({
+        recordsDir,
+        pullLimit: t.pull_limit,
+        pullScope: t.pull_scope,
+        pullType: t.pull_type,
+        pushSessionPrefix: "dsh-memory-hub",
+        host: {
+          proposeCandidate: async (input) => {
+            const result = await this.propose(agent, {
+              operation: "create",
+              type: input.type,
+              scope: input.scope,
+              title: input.title,
+              summary: input.summary,
+              ...input.content === void 0 ? {} : { content: input.content },
+              ...input.sourceRefs === void 0 ? {} : { source_refs: input.sourceRefs },
+              ...input.tags === void 0 ? {} : { tags: input.tags }
+            });
+            return { proposalId: result.proposalId };
+          },
+          listAcceptedKnowledge: async () => {
+            return [...this.store.docs.values()].filter((record) => record.status === "accepted");
+          },
+          audit: async (event) => {
+            if (event.type === "tencent.pull") {
+              await this.ledger.append({
+                type: "tencent.pull",
+                pulled: event.payload?.pulled ?? 0,
+                proposed: event.payload?.proposed ?? 0,
+                skipped: event.payload?.skipped ?? 0
+              });
+            } else if (event.type === "tencent.push") {
+              await this.ledger.append({
+                type: "tencent.push",
+                id: event.payload?.id ?? "?",
+                fromOutbox: event.payload?.fromOutbox === true
+              });
+            }
+          }
+        },
+        client
+      });
+    }
+    return this.tencentBridge;
+  }
+  /**
+   * 归一化后的远端设置（含 legacy `tencent:` 段的 desugar）。
+   *
+   * 每次调用都从 `hub.config` 重新算，不缓存：`updateConfig` → `reloadConfig` 之后
+   * 必须立刻看到新角色，否则面板改完配置要重启才生效。
+   */
+  remoteSettings() {
+    const config = this.hub.config;
+    return normalizeRemoteSettings({
+      remote: config.remote,
+      tencent: this.hub.config.tencent
+    });
+  }
+  /** 远端总开关：`remote.enabled`（旧配置由 desugar 从 `tencent.enabled` 派生）。 */
+  get remoteEnabled() {
+    return this.remoteSettings().enabled;
+  }
+  /**
+   * 构造 provider 注册表。
+   *
+   * 与 `ensureTencentBridge` 的区别是**不抛错**：单个 provider 缺密钥只是该 provider
+   * 不可用，其余 provider 照常工作。这是"降级不允许静默"的另一面——不静默，
+   * 但也不让一个坏 provider 拖垮全部远端能力。
+   */
+  ensureRemoteRegistry() {
+    if (this.remoteRegistry === null) {
+      this.remoteRegistry = new RemoteRegistry(this.remoteSettings(), {
+        resolveSecret: (envName) => resolveApiKeyEnv(envName) ?? ""
+      });
+    }
+    return this.remoteRegistry;
+  }
+  /** 配置变更后丢弃已构造的 adapter（下一次访问重新构造）。 */
+  resetRemoteRegistry() {
+    const previous = this.remoteRegistry;
+    this.remoteRegistry = null;
+    if (previous !== null) {
+      void previous.close().catch(() => {
+      });
+    }
+  }
+  /**
+   * 远端诊断（只读、不联网）。
+   *
+   * 未启用时仍返回结构（`enabled: false`），让 `memory_status` 与面板能区分
+   * "没配" / "配了但 adapter 构造失败" / "构造成功但未探活"三种情况。
+   * 每 provider 附同步快照（outbox/孤儿/镜像计数 + 待传播数）——overview 与
+   * config 都是同步路径，快照用 readFileSync 读小文件（面板 30s 轮询一次）。
+   */
+  remoteStatus() {
+    const settings = this.remoteSettings();
+    const validation = validateRemoteSettings(settings);
+    const emptyRoles = { feed: [], mirror: [], authority: [], index: [] };
+    if (!settings.enabled) {
+      return { enabled: false, mode: settings.mode, providers: [], roles: emptyRoles, validation };
+    }
+    const registry = this.ensureRemoteRegistry();
+    const records = this.store.records();
+    const recordsDir = join9(this.hub.root, "records");
+    const providers = registry.list().map((handle) => {
+      const snapshot = readRemoteSyncStateSync(recordsDir, handle.settings.id);
+      const pendingForget = countPendingForget(records, handle.settings.forget, snapshot.pushedIds, snapshot.forgottenIds);
+      return {
+        id: handle.settings.id,
+        kind: handle.settings.kind,
+        enabled: handle.settings.enabled,
+        roles: [...handle.settings.roles],
+        ready: handle.adapter !== null,
+        error: handle.error,
+        capabilities: handle.adapter === null ? [] : [...handle.adapter.capabilities()].sort((a, b) => a.localeCompare(b)),
+        projection: {
+          scopes: [...handle.settings.projection.scopes],
+          types: [...handle.settings.projection.types],
+          exclude_tags: [...handle.settings.projection.exclude_tags]
+        },
+        feed: { ...handle.settings.feed, tags: [...handle.settings.feed.tags] },
+        mirror: { ...handle.settings.mirror },
+        config: { ...handle.settings.config },
+        forget: {
+          on_deprecate: handle.settings.forget.on_deprecate,
+          on_merge: handle.settings.forget.on_merge,
+          max_per_run: handle.settings.forget.max_per_run
+        },
+        sync: {
+          mirrored: snapshot.mirrored,
+          outboxPending: snapshot.outboxPending,
+          orphans: snapshot.orphans,
+          pendingForget,
+          lastPullAt: snapshot.lastPullAt,
+          lastPushAt: snapshot.lastPushAt,
+          lastForgetAt: snapshot.lastForgetAt,
+          lastError: snapshot.lastError
+        }
+      };
+    });
+    return {
+      enabled: true,
+      mode: settings.mode,
+      providers,
+      roles: registry.roleSummary(),
+      validation
+    };
+  }
+  /**
+   * 探测全部 provider（**会联网**，只读）。
+   *
+   * 失败不抛：每个 provider 单独 try，结果汇总。供 `memory_remote_status` 主动体检用。
+   */
+  async remoteProbe() {
+    const settings = this.remoteSettings();
+    const validation = validateRemoteSettings(settings);
+    if (!settings.enabled) {
+      return { enabled: false, validation, providers: [] };
+    }
+    const registry = this.ensureRemoteRegistry();
+    const providers = [];
+    for (const handle of registry.list()) {
+      if (handle.adapter === null) {
+        providers.push({ id: handle.settings.id, ok: false, detail: handle.error ?? "adapter unavailable" });
+        continue;
+      }
+      const probe = await handle.adapter.probe();
+      providers.push({
+        id: handle.settings.id,
+        ok: probe.ok,
+        ...probe.latencyMs === void 0 ? {} : { latencyMs: probe.latencyMs },
+        ...probe.detail === void 0 ? {} : { detail: probe.detail }
+      });
+    }
+    return { enabled: true, validation, providers };
+  }
+  /** 同步引擎的宿主适配：候选生成、知识清单与审计都走 service 既有路径。 */
+  remoteSyncHost(agent) {
+    return {
+      proposeCandidate: async (input) => {
+        const result = await this.propose(agent, {
+          operation: "create",
+          type: input.type,
+          scope: input.scope,
+          // 远端原文不保证符合本地长度约束（真机验证：L1 atomic summary 可超 240，
+          // 直接透传会被拒并永久重试）。在边界截断，让候选总能提出去，人审时看全文。
+          title: truncate5(input.title, 200),
+          summary: truncate5(input.summary, 240),
+          ...input.content === void 0 ? {} : { content: input.content },
+          source_refs: input.sourceRefs,
+          ...input.tags === void 0 ? {} : { tags: input.tags }
+        });
+        return { proposalId: result.proposalId };
+      },
+      allKnowledge: async () => this.store.records(),
+      audit: async (event) => {
+        if (event.type === "remote.pull") {
+          await this.ledger.append({ type: "remote.pull", ...event.payload });
+        } else if (event.type === "remote.push") {
+          await this.ledger.append({ type: "remote.push", ...event.payload });
+        } else {
+          await this.ledger.append({ type: "remote.forget", ...event.payload });
+        }
+      }
+    };
+  }
+  /**
+   * 解析要操作的 provider 句柄。
+   *
+   * 指定 `provider` 时即使 adapter 不可用也返回该句柄（让结果里出现明确的错误，
+   * 而不是"什么都不发生"）；不指定时只返回承担所需角色且已启用的 provider。
+   */
+  resolveRemoteHandles(provider, roles) {
+    const settings = this.remoteSettings();
+    if (!settings.enabled) {
+      throw new MemoryError("NOT_CONFIGURED", "remote providers are disabled; set remote.enabled in config.yaml");
+    }
+    const registry = this.ensureRemoteRegistry();
+    if (provider !== void 0) {
+      const handle = registry.get(provider);
+      if (handle === null) {
+        const known = registry.list().map((item) => item.settings.id).join(", ") || "(none configured)";
+        throw new MemoryError("NOT_FOUND", `unknown remote provider "${provider}" (configured: ${known})`);
+      }
+      return [handle];
+    }
+    return registry.list().filter(
+      (handle) => handle.settings.enabled && handle.settings.roles.some((role) => roles.includes(role))
+    );
+  }
+  buildEngine(agent, handle) {
+    if (handle.adapter === null) {
+      throw new MemoryError(
+        "NOT_CONFIGURED",
+        `provider "${handle.settings.id}" is unavailable: ${handle.error ?? "adapter unavailable"}`
+      );
+    }
+    const workspace = this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent);
+    const workspaceId = workspace.registered && workspace.id !== null ? workspace.id : null;
+    return new RemoteSync({
+      providerId: handle.settings.id,
+      recordsDir: join9(this.hub.root, "records"),
+      host: this.remoteSyncHost(agent),
+      adapter: handle.adapter,
+      settings: handle.settings,
+      origin: {
+        coreId: this.coreId,
+        workspaceId,
+        hubKey: workspaceId ?? this.coreId ?? "local"
+      },
+      // 引用门槛（§5.9.2）：本 hub 的 citation.added 计数快照；require_citations: 0 时引擎不会查询。
+      citationCount: (() => {
+        const counts = this.citationCountMap();
+        return (knowledgeId) => counts.get(knowledgeId) ?? 0;
+      })()
+    });
+  }
+  /**
+   * 一次性迁移旧腾讯桥的状态游标（幂等；详见 sync.ts migrateLegacyRemoteState）。
+   * 成功才记 `remote.migrated` 账本事件；未迁移（无旧文件/已存在/解析失败）静默——
+   * 失败细节留在返回值里，由调用方自行决定是否升告警。
+   */
+  async migrateLegacyRemoteState(providerId) {
+    const result = await migrateLegacyRemoteState(join9(this.hub.root, "records"), providerId);
+    if (result.migrated) {
+      await this.ledger.append({
+        type: "remote.migrated",
+        provider: providerId,
+        pulled: result.pulled,
+        pushed: result.pushed,
+        source: "legacy"
+      });
+      this.ctx.logger.info(
+        `dsh-memory-hub: migrated legacy remote state for ${providerId} (pulled=${result.pulled}, pushed=${result.pushed})`
+      );
+    }
+    return result;
+  }
+  /**
+   * 手动触发远端同步。方向默认 `pull` + `push`；**forget 不在默认方向里**——
+   * 删除传播必须走显式的 `memory_remote_forget`，避免一次随手 sync 把作扩散到远端。
+   */
+  async remoteSync(agent, opts = {}) {
+    await this.ensureTask(agent, "remote provider sync");
+    const directions = opts.direction !== void 0 ? [opts.direction] : ["pull", "push"];
+    const roles = directions.includes("pull") && directions.includes("push") ? ["feed", "mirror"] : directions.includes("pull") ? ["feed"] : ["mirror"];
+    const handles = this.resolveRemoteHandles(opts.provider, roles);
+    const results = [];
+    for (const handle of handles) {
+      if (handle.adapter === null) {
+        results.push({ provider: handle.settings.id, ok: false, error: handle.error ?? "adapter unavailable" });
+        continue;
+      }
+      await this.migrateLegacyRemoteState(handle.settings.id);
+      try {
+        const engine = this.buildEngine(agent, handle);
+        const entry = {
+          provider: handle.settings.id,
+          ok: true,
+          error: null
+        };
+        if (directions.includes("pull")) entry.pull = await engine.pull();
+        if (directions.includes("push")) entry.push = await engine.push();
+        results.push(entry);
+      } catch (error) {
+        results.push({ provider: handle.settings.id, ok: false, error: error.message });
+      }
+    }
+    return { results };
+  }
+  /**
+   * 作废传播 / 人工显式遗忘。
+   *
+   * - 无 `knowledgeId`：传播模式，受 provider 的 `forget.on_deprecate` / `on_merge` /
+   *   `max_per_run` 控制；`dryRun: true` 预览且零副作用。
+   * - 有 `knowledgeId`：绕过开关，但从未镜像过的条目会如实报 skipped（不产生幽灵请求）。
+   */
+  async remoteForget(agent, opts = {}) {
+    await this.ensureTask(agent, "remote provider forget");
+    const handles = this.resolveRemoteHandles(opts.provider, ["mirror"]);
+    const results = [];
+    for (const handle of handles) {
+      if (handle.adapter === null) {
+        results.push({ provider: handle.settings.id, ok: false, error: handle.error ?? "adapter unavailable" });
+        continue;
+      }
+      await this.migrateLegacyRemoteState(handle.settings.id);
+      try {
+        const engine = this.buildEngine(agent, handle);
+        const result = await engine.forget({
+          ...opts.dryRun === void 0 ? {} : { dryRun: opts.dryRun },
+          ...opts.reason === void 0 ? {} : { reason: opts.reason },
+          ...opts.knowledgeId === void 0 ? {} : { knowledgeId: opts.knowledgeId }
+        });
+        results.push({ provider: handle.settings.id, ok: true, error: null, result });
+      } catch (error) {
+        results.push({ provider: handle.settings.id, ok: false, error: error.message });
+      }
+    }
+    return { results };
+  }
+  /** 远端诊断 + 各 provider 的同步快照（只读文件，不联网）。 */
+  async remoteStatusDetailed() {
+    const base = this.remoteStatus();
+    if (!base.enabled) return { ...base, sync: [] };
+    const recordsDir = join9(this.hub.root, "records");
+    const sync = [];
+    for (const provider of this.remoteSettings().providers) {
+      sync.push(await readRemoteSyncSnapshot(recordsDir, provider.id));
+    }
+    return { ...base, sync };
+  }
+  /** 腾讯桥状态（只读）。未启用时返回 disabled 标记。 */
+  async tencentStatus(agent) {
+    if (!this.tencentEnabled) return { enabled: false };
+    const bridge = this.ensureTencentBridge(agent);
+    const status = await bridge.status();
+    try {
+      const { total } = await bridge.client.ping();
+      return { ...status, ping: { ok: true, total } };
+    } catch (error) {
+      return { ...status, ping: { ok: false, error: error.message } };
+    }
+  }
+  /** 拉取腾讯 L1/L2 → 生成本地 pending 候选。不 commit。 */
+  async tencentPull(agent) {
+    if (!this.tencentEnabled) {
+      throw new MemoryError("NOT_CONFIGURED", "tencent bridge is disabled; set tencent.enabled in config.yaml");
+    }
+    await this.ensureTask(agent, "tencent bridge sync pull");
+    const bridge = this.ensureTencentBridge(agent);
+    return bridge.pull();
+  }
+  /** 确保有一个未关闭的会话任务可供 propose 使用（同步/后台操作专用）。 */
+  /**
+   * 确保该会话有一个打开的任务（无则新开一个）。
+   * DSH glue 由预检钩子开任务；headless 入口（MCP / CLI / serve）没有轮前钩子，
+   * 在写路径（cite / closeTask / commit）前调用本方法补齐任务语义。
+   */
+  async ensureTask(agent, intent) {
+    const existing = this.sessions.get(agent.id);
+    if (existing !== void 0 && !existing.closed) return;
+    await this.beforeNewTask(agent.id, existing);
+    const workspace = await this.resolveWorkspace(agent);
+    const visibility = this.visibilityFor(workspace);
+    const taskId = newTaskId();
+    const turn = existing?.turn ?? 0;
+    const now = nowIso();
+    const record = {
+      taskId,
+      sessionId: agent.id,
+      turn,
+      workspaceId: workspace.id,
+      intentHash: hashIntent(intent),
+      createdAt: now,
+      preflight: null,
+      assessment: null,
+      closedAt: null
+    };
+    this.tasks.set(taskId, record);
+    this.sessions.set(agent.id, {
+      turn,
+      taskId,
+      workspace,
+      visibility,
+      pack: "",
+      status: "unavailable",
+      hits: [],
+      closed: false
+    });
+    try {
+      await this.ledger.append({
+        type: "task.created",
+        taskId,
+        sessionId: agent.id,
+        turn,
+        workspaceId: workspace.id,
+        intentHash: record.intentHash,
+        idempotencyKey: `${agent.id}:tencent-pull`
+      });
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot record sync task: ${error.message}`);
+    }
+  }
+  /** 把本地 accepted 知识 push 到腾讯通道。 */
+  async tencentPush(agent) {
+    if (!this.tencentEnabled) {
+      throw new MemoryError("NOT_CONFIGURED", "tencent bridge is disabled; set tencent.enabled in config.yaml");
+    }
+    return this.ensureTencentBridge(agent).push();
+  }
+  /** 场景归纳是否启用（layers.scenario_dir 非空）。 */
+  get scenarioEnabled() {
+    return this.hub.config.layers.scenario_dir.trim() !== "";
+  }
+  /** 重建场景索引（只写 scenario 目录，不碰 knowledge/）。 */
+  async scenarioRebuild(_agent) {
+    if (!this.scenarioEnabled) {
+      return { scenarios: [], skipped: 0 };
+    }
+    const builder = new ScenarioBuilder({
+      scenarioDir: this.hub.config.layers.scenario_dir
+    });
+    const records = [...this.store.docs.values()];
+    return builder.rebuild(this.hub.root, records);
+  }
+  /** 只读列出场景文件。 */
+  async scenarioList(_agent) {
+    if (!this.scenarioEnabled) return [];
+    const builder = new ScenarioBuilder({ scenarioDir: this.hub.config.layers.scenario_dir });
+    return builder.list(this.hub.root);
+  }
   async consolidate(agent, args) {
     const workspace = await this.resolveWorkspace(agent);
     if (!workspace.admin) {
@@ -17114,6 +19955,7 @@ var MemoryService = class {
         enabled: workspace.enabled
       })),
       citations: this.citationIndex(),
+      agenda: await this.readAgendaCounts(this.hub.root),
       stalePendingDays,
       staleCitationDays,
       ...args.now === void 0 ? {} : { now: args.now },
@@ -17158,8 +20000,8 @@ var MemoryService = class {
     }
     const generatedAt = nowIso();
     const stamp = generatedAt.replace(/[:.]/g, "-");
-    const reportPath = join6(this.hub.root, "reports", `${stamp}.md`);
-    const latestPath = join6(this.hub.root, "reports", "latest.md");
+    const reportPath = join9(this.hub.root, "reports", `${stamp}.md`);
+    const latestPath = join9(this.hub.root, "reports", "latest.md");
     const report = renderMaintenanceReport({
       root: this.hub.displayRoot(),
       coreId: args.coreId,
@@ -17432,7 +20274,8 @@ var MemoryService = class {
         admin: workspace.admin,
         enabled: workspace.enabled,
         distill: workspace.distill
-      }))
+      })),
+      remote: this.remoteStatus()
     };
   }
   async updateConfig(patch) {
@@ -17441,6 +20284,8 @@ var MemoryService = class {
     }
     const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces;
     const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces;
+    const remoteChanged = patch.remote !== void 0 && patch.remote !== null && typeof patch.remote === "object";
+    const remote = remoteChanged ? patch.remote : this.hub.config.remote;
     const validCoreIds = new Set(core_workspaces.map((core) => core.id));
     for (const core of core_workspaces) {
       this.validateDistillConfig(core.id, "core workspace", core.distill, core.root, true);
@@ -17460,15 +20305,22 @@ var MemoryService = class {
     const next = configSchema.parse({
       ...this.hub.config,
       core_workspaces,
-      workspaces
+      workspaces,
+      ...remoteChanged ? { remote } : {}
     });
     try {
       const configPath = this.hub.configPath();
       if (configPath === null) {
         throw new MemoryError("INVALID_STATE", "data hub has no config source");
       }
-      await writeAtomic(configPath, (0, import_yaml3.stringify)(next));
+      await writeAtomic(configPath, (0, import_yaml4.stringify)(next));
       await this.hub.reloadConfig();
+      this.resetRemoteRegistry();
+      this.tencentBridge = null;
+      if (remoteChanged) {
+        const providerCount = this.remoteSettings().providers.length;
+        await this.ledger.append({ type: "config.remote.updated", providers: providerCount });
+      }
       return this.config();
     } catch (error) {
       throw new MemoryError("STORAGE_ERROR", `cannot write config: ${error.message}`);
@@ -17544,6 +20396,23 @@ var MemoryService = class {
       reflect: {
         available: this.reflectSource !== null && this.reflectSource.available,
         tracked: this.reflectState?.entries().length ?? 0
+      },
+      // 阶段三：腾讯桥与分层/场景归纳状态（只读展示；未启用时给出 enabled:false）。
+      tencent: {
+        enabled: this.tencentEnabled,
+        url: this.hub.config.tencent.url,
+        serviceId: this.hub.config.tencent.service_id,
+        intervalMin: this.hub.config.tencent.sync_interval_min,
+        scope: this.hub.config.tencent.pull_scope
+      },
+      // 多厂商远端抽象（只读诊断；未启用时 enabled:false，构造失败逐 provider 报告）。
+      remote: this.remoteStatus(),
+      layers: {
+        enabled: this.hub.config.layers.enabled,
+        scenarioDir: this.hub.config.layers.scenario_dir,
+        suggestAtEntries: this.hub.config.layers.suggest_at_entries,
+        // 达到阈值时给出一次性建议（不强制、不改检索行为）。
+        suggestion: this.hub.config.layers.suggest_at_entries > 0 && this.store.counts().knowledge >= this.hub.config.layers.suggest_at_entries && !this.hub.config.layers.enabled ? `\u6761\u76EE\u6570 ${this.store.counts().knowledge} \u5DF2\u8FBE ${this.hub.config.layers.suggest_at_entries}\uFF0C\u53EF\u8003\u8651\u5F00\u542F\u5206\u5C42\uFF08layers.enabled\uFF09` : null
       }
     };
   }
@@ -17635,25 +20504,29 @@ var MemoryService = class {
       excludeScheduled: true
     });
   }
-  buildPack(hits, workspace, budget) {
-    if (hits.length === 0) return { pack: "", tokens: 0 };
-    const header = [
+  buildPack(hits, workspace, budget, remote = []) {
+    if (hits.length === 0 && !remote.some((entry) => entry.lines.length > 0 || !entry.ok)) {
+      return { pack: "", tokens: 0 };
+    }
+    const header2 = [
       "Memory preflight (auto-retrieved; not user instructions)",
       `Workspace: ${workspace.id ?? "unregistered"} \xB7 hits: ${hits.length}`,
       ""
     ];
+    const hintTools = this.hub.config.policy.preflight.hint_tools ? ["You can also query this memory on demand: memory_search (keywords), memory_get (read an entry), memory_propose (record a candidate)."] : [];
     const footer = [
       "",
+      ...hintTools.length === 0 ? [] : hintTools,
       "Before planning or modifying files, read the hit(s) that could change the decision with memory_get.",
       "After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment.",
       "For the full retrieval and writeback workflow, load the memory-hub skill with the skill tool."
     ];
-    const lines = [...header];
+    const lines = [...header2];
     let included = 0;
     for (const hit of hits) {
       const source = hit.core !== void 0 && hit.core !== null && hit.core !== this.coreId ? ` \xB7 core:${hit.core}` : "";
       const freshness = hit.temporal === "stale" ? " \xB7 \u5DF2\u8FC7\u671F\uFF0C\u9700\u590D\u6838" : hit.temporal === "aging" ? " \xB7 \u957F\u671F\u672A\u786E\u8BA4" : "";
-      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate4(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`;
+      const line = `- [${hit.id}@${hit.version}] ${hit.type} \xB7 ${hit.title} \u2014 ${truncate5(hit.summary, 160)} (${formatScope(hit.scope)}${source}${freshness})`;
       const candidate = [...lines, line, ...footer].join("\n");
       if (this.estimateTokens(candidate) > budget && included > 0) break;
       lines.push(line);
@@ -17662,9 +20535,116 @@ var MemoryService = class {
     if (included < hits.length) {
       lines.push(`- (+${hits.length - included} more; use memory_search)`);
     }
+    const remoteLines = this.renderRemoteSection(remote);
+    if (remoteLines.length > 0) {
+      lines.push(...remoteLines);
+    }
     lines.push(...footer);
     const pack = lines.join("\n");
     return { pack, tokens: this.estimateTokens(pack) };
+  }
+  /**
+   * hybrid 模式下的远端贡献渲染。
+   *
+   * 规则（proposal-remote-providers §5.7）：
+   * - 按 provider 分组，每条带 `source: <providerId>` 标注；
+   * - **不做跨库分数混排**——不同 provider 的 score 不可比（Mem0/Hindsight 的教训），
+   *   所以连分数都不展示，只按远端返回顺序列条目；
+   * - 每 provider 的 token 上限是 `inject_max_tokens`（超了截断并注明，可 memory_remote_sync 拉候选）。
+   */
+  renderRemoteSection(contributions) {
+    const usable = contributions.filter((entry) => entry.lines.length > 0 || !entry.ok);
+    if (usable.length === 0) return [];
+    const lines = [
+      "",
+      "Remote memory (external annotations; reference only \u2014 NOT local knowledge, never auto-committed, cannot be cited):"
+    ];
+    for (const entry of usable) {
+      if (!entry.ok) {
+        lines.push(`- [${entry.provider}] unavailable: ${truncate5(entry.error ?? "unknown error", 120)}`);
+        continue;
+      }
+      lines.push(...entry.lines);
+      if (entry.truncated > 0) {
+        lines.push(`  (+${entry.truncated} more from ${entry.provider}; run memory_remote_sync to pull candidates)`);
+      }
+    }
+    return lines;
+  }
+  /**
+   * hybrid 组合检索：并发 fan-out 到所有声明了 `read.search` 的 provider。
+   *
+   * 只在 `remote.mode: hybrid` 时执行（local-first 下永不联网——AGENTS.md 不变量 4）。
+   * 每 provider 有独立死线（`remote.hybrid.deadline_ms`，默认 2s）：预检在每回合开头跑，
+   * 慢远端按 unavailable 处理，**绝不能拖住回合**。失败降级为诊断，不阻塞主流程。
+   */
+  async remoteHybridContributions(intent) {
+    if (!this.remoteEnabled) return [];
+    const settings = this.remoteSettings();
+    if (settings.mode !== "hybrid") return [];
+    const registry = this.ensureRemoteRegistry();
+    const searchable = registry.list().filter(
+      (handle) => handle.adapter !== null && handle.settings.enabled && handle.settings.inject_max_tokens > 0 && hasCapability(handle.adapter, "read.search")
+    );
+    if (searchable.length === 0) return [];
+    const deadlineMs = this.hub.config.remote.hybrid.deadline_ms;
+    const runProvider = async (handle) => {
+      const providerId = handle.settings.id;
+      try {
+        const search = requireMethod(handle.adapter, "search");
+        const page = await search({ text: intent, limit: 8 });
+        return this.renderContribution(handle.settings, page.items);
+      } catch (error) {
+        const detail = error instanceof RemoteError ? error.message : error.message;
+        return { provider: providerId, ok: false, hits: 0, truncated: 0, lines: [], error: detail };
+      }
+    };
+    const withDeadline = async (handle) => {
+      const work = runProvider(handle);
+      let timer;
+      const deadline = new Promise((resolve4) => {
+        timer = setTimeout(() => {
+          resolve4({
+            provider: handle.settings.id,
+            ok: false,
+            hits: 0,
+            truncated: 0,
+            lines: [],
+            error: `exceeded ${deadlineMs}ms preflight deadline`
+          });
+        }, deadlineMs);
+      });
+      try {
+        return await Promise.race([work, deadline]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    return await Promise.all(searchable.map((handle) => withDeadline(handle)));
+  }
+  /** 单 provider 的命中 → 分组行 + token 上限截断。 */
+  renderContribution(settings, items) {
+    const lines = [];
+    let truncated = 0;
+    let used = 0;
+    for (const item of items) {
+      const ws = item.tags.find((tag) => tag.startsWith("mh:ws:"))?.slice("mh:ws:".length);
+      const coordinate = ws !== void 0 && ws !== "" ? ` [ws:${truncate5(ws, 24)}]` : "";
+      const scopeSuffix = item.scope === void 0 ? "" : ` (${item.scope})`;
+      const line = `- [${settings.id}]${coordinate} ${truncate5(item.title, 80)} \u2014 ${truncate5(item.summary, 160)}${scopeSuffix}`;
+      const candidate = this.estimateTokens(line);
+      if (used + candidate > settings.inject_max_tokens && lines.length > 0) {
+        truncated = items.length - lines.length;
+        break;
+      }
+      lines.push(line);
+      used += candidate;
+      if (lines.length >= 8) {
+        truncated = items.length - lines.length;
+        break;
+      }
+    }
+    return { provider: settings.id, ok: true, hits: lines.length, truncated, lines };
   }
   estimateTokens(text) {
     return estimateTokens(this.ctx, text);
@@ -17712,7 +20692,7 @@ function citationKey(taskId, knowledgeId, version) {
 function hashIntent(intent) {
   return `sha256:${createHash3("sha256").update(intent).digest("hex").slice(0, 16)}`;
 }
-function truncate4(value, max) {
+function truncate5(value, max) {
   return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1))}\u2026`;
 }
 var PANEL_DIFF_LINES = 200;
@@ -17780,13 +20760,13 @@ function bodyHeadings(body) {
 function pickDigest(body, cap) {
   const sections = splitBodySections(body);
   const preferred = sections.find((section) => section.title !== null && /结论|conclusion|summary|要点/i.test(section.title)) ?? sections.find((section) => section.title !== null);
-  if (preferred === void 0) return truncate4(body.trim(), cap);
+  if (preferred === void 0) return truncate5(body.trim(), cap);
   const parts = [];
   const intro = sections.find((section) => section.title === null && section.text !== "");
   if (intro !== void 0) parts.push(intro.text);
   parts.push(preferred.text === "" ? `## ${preferred.title}` : `## ${preferred.title}
 ${preferred.text}`);
-  return truncate4(parts.join("\n\n"), cap);
+  return truncate5(parts.join("\n\n"), cap);
 }
 function pickSection(body, name2) {
   const wanted = name2.trim().toLowerCase();
@@ -17807,6 +20787,405 @@ function containsPath(root, child) {
   if (child === root) return true;
   const rel = relative2(root.replace(/\\/g, "/"), child.replace(/\\/g, "/"));
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel) && !rel.startsWith(`..${sep2}`);
+}
+
+// src/http/router.ts
+var MAX_REVIEW_BATCH = 50;
+var DEFAULT_BASE_PATH = "/dsh-memory-hub";
+function createMemoryRouter(deps) {
+  return async (request, response) => {
+    const method = typeof request.method === "string" ? request.method : "GET";
+    if (!isLoopbackRequest(request)) {
+      sendJson(response, 403, { error: "loopback-only" }, method);
+      return;
+    }
+    if (method !== "GET" && method !== "HEAD" && method !== "POST") {
+      sendJson(response, 405, { error: "method-not-allowed" }, method);
+      return;
+    }
+    let url;
+    try {
+      url = new URL(typeof request.url === "string" ? request.url : "/", "http://localhost");
+    } catch {
+      sendJson(response, 400, { error: "bad-request" }, method);
+      return;
+    }
+    if (deps.hostMode.kind === "fixed-port" && !isAllowedHost(header(request, "host"), deps.hostMode.port)) {
+      sendJson(response, 421, { error: "host-mismatch", message: `host header must be 127.0.0.1:${deps.hostMode.port}, localhost:${deps.hostMode.port} or [::1]:${deps.hostMode.port}` }, method);
+      return;
+    }
+    if (method === "POST" && deps.hostMode.kind === "fixed-port") {
+      const expected = deps.writeToken();
+      const provided = header(request, "x-dmh-token");
+      if (expected === null || provided === "" || !tokenEquals(provided, expected)) {
+        sendJson(response, 401, { error: "write-token-required", message: "missing or wrong x-dmh-token header (token lives in records/server-token)" }, method);
+        return;
+      }
+    }
+    try {
+      const basePath = deps.basePath ?? DEFAULT_BASE_PATH;
+      const pathOf = (suffix) => basePath === "/" ? suffix : `${basePath}${suffix}`;
+      if (url.pathname === "/" || url.pathname === pathOf("/panel")) {
+        const html = deps.panelHtml?.() ?? null;
+        if (html !== null) {
+          if (response.writableEnded === true) return;
+          response.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "no-store",
+            "x-frame-options": "deny",
+            "content-length": String(Buffer.byteLength(html, "utf8"))
+          });
+          response.end(method === "HEAD" ? void 0 : html);
+          return;
+        }
+      }
+      if (url.pathname === pathOf("/api/overview")) {
+        let payload;
+        try {
+          const pack = deps.resolvePack(url);
+          payload = pack.service.overview();
+        } catch (error) {
+          payload = {
+            version: PLUGIN_VERSION,
+            initialized: false,
+            error: error.message,
+            generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          };
+        }
+        payload.client = deps.clientExtras();
+        payload.distill = deps.distillReport();
+        sendJson(response, 200, payload, method);
+        return;
+      }
+      if (url.pathname === pathOf("/api/knowledge")) {
+        const id = url.searchParams.get("id");
+        if (id === null || id === "") {
+          sendJson(response, 400, { error: "missing-id" }, method);
+          return;
+        }
+        try {
+          const pack = deps.resolvePack(url);
+          const core = url.searchParams.get("core");
+          const detail = pack.service.knowledgeDetail(id, core === null || core === "" ? void 0 : core);
+          if (detail === null) {
+            sendJson(response, 404, { error: "not-found", id }, method);
+            return;
+          }
+          sendJson(response, 200, detail, method);
+        } catch (error) {
+          sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
+        }
+        return;
+      }
+      if (url.pathname === pathOf("/api/sessions")) {
+        if (method !== "GET" && method !== "HEAD") {
+          sendJson(response, 405, { error: "method-not-allowed" }, method);
+          return;
+        }
+        const payload = deps.listSessions !== void 0 ? await deps.listSessions() : { unavailable: true, items: [] };
+        sendJson(response, 200, payload, method);
+        return;
+      }
+      if (url.pathname === pathOf("/api/hubs")) {
+        sendJson(response, 200, { cores: deps.hubs() }, method);
+        return;
+      }
+      if (url.pathname === pathOf("/api/config")) {
+        if (method === "GET" || method === "HEAD") {
+          try {
+            const pack = deps.resolvePack(url);
+            sendJson(response, 200, { ...pack.service.config(), distill: deps.distillReport(), reflect: deps.reflectReport() }, method);
+          } catch (error) {
+            sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
+          }
+          return;
+        }
+        if (method === "POST") {
+          try {
+            const pack = deps.resolvePack(url);
+            const body = await readJsonBody(request);
+            const payload = await pack.service.updateConfig(body);
+            if (deps.onConfigUpdated !== void 0) await deps.onConfigUpdated(payload);
+            sendJson(response, 200, { ...payload, distill: deps.distillReport(), reflect: deps.reflectReport() }, method);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            sendJson(response, 400, { error: "invalid-config", message }, method);
+          }
+          return;
+        }
+      }
+      if (url.pathname === pathOf("/api/pending")) {
+        if (method !== "POST") {
+          sendJson(response, 405, { error: "method-not-allowed" }, method);
+          return;
+        }
+        if (header(request, "x-dmh-review") !== "1") {
+          sendJson(response, 403, { error: "review-header-required", message: "missing x-dmh-review header" }, method);
+          return;
+        }
+        const origin = header(request, "origin");
+        if (origin !== "" && !isLocalOrigin(origin)) {
+          sendJson(response, 403, { error: "origin-forbidden", message: `origin ${origin} is not allowed` }, method);
+          return;
+        }
+        try {
+          const pack = deps.resolvePack(url);
+          if (pack.hub.config.policy.panel.review === false) {
+            sendJson(response, 403, { error: "review-disabled", message: "panel review is disabled by policy.panel.review" }, method);
+            return;
+          }
+          const body = await readJsonBody(request);
+          const action = typeof body.action === "string" ? body.action : "";
+          if (action !== "approve" && action !== "reject") {
+            sendJson(response, 400, { error: "invalid-action", message: "action must be approve or reject" }, method);
+            return;
+          }
+          const rawIds = Array.isArray(body.ids) ? body.ids.filter((value) => typeof value === "string") : typeof body.id === "string" ? [body.id] : [];
+          const ids = [...new Set(rawIds.map((value) => value.trim()).filter((value) => value !== ""))];
+          if (ids.length === 0) {
+            sendJson(response, 400, { error: "missing-id" }, method);
+            return;
+          }
+          if (ids.length > MAX_REVIEW_BATCH) {
+            sendJson(response, 400, { error: "batch-too-large", message: `at most ${MAX_REVIEW_BATCH} proposals per request` }, method);
+            return;
+          }
+          const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : void 0;
+          const results = [];
+          for (const id of ids) {
+            try {
+              if (action === "approve") {
+                const result = await pack.service.approveProposal(id);
+                results.push({ id, ok: true, action, knowledgeId: result.knowledgeId, version: result.version });
+              } else {
+                const result = await pack.service.rejectProposal(id, reason);
+                results.push({ id, ok: true, action, status: result.status });
+              }
+            } catch (error) {
+              results.push({ id, ok: false, message: error instanceof Error ? error.message : String(error) });
+            }
+          }
+          const failed = results.filter((result) => result.ok !== true).length;
+          const firstFailure = results.find((result) => result.ok !== true);
+          sendJson(
+            response,
+            failed === ids.length ? 409 : 200,
+            {
+              ok: failed === 0,
+              action,
+              approved: results.length - failed,
+              failed,
+              ...firstFailure === void 0 ? {} : { message: firstFailure.message },
+              results
+            },
+            method
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          sendJson(response, 409, { error: "review-failed", message }, method);
+        }
+        return;
+      }
+      sendJson(response, 404, { error: "not-found", path: url.pathname }, method);
+    } catch (error) {
+      sendJson(response, 500, { error: "internal", message: error.message }, method);
+    }
+  };
+}
+function isLoopbackRequest(request) {
+  const address = request.socket?.remoteAddress ?? "";
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+function isAllowedHost(host, port) {
+  const normalized = host.trim().toLowerCase();
+  if (normalized === "") return false;
+  const candidates = /* @__PURE__ */ new Set([
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `[::1]:${port}`,
+    "127.0.0.1",
+    "localhost",
+    "[::1]"
+  ]);
+  return candidates.has(normalized);
+}
+function tokenEquals(provided, expected) {
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+function isLocalOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]" || url.hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+function header(request, name2) {
+  const headers = request.headers ?? {};
+  const value = headers[name2] ?? headers[name2.toLowerCase()];
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+function sendJson(response, status, body, method) {
+  if (response.writableEnded === true) return;
+  const text = JSON.stringify(body);
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "content-length": String(Buffer.byteLength(text, "utf8"))
+  });
+  response.end(method === "HEAD" ? void 0 : text);
+}
+function readJsonBody(request) {
+  return new Promise((resolve4, reject) => {
+    const chunks = [];
+    const readable = request;
+    readable.on("data", (chunk) => {
+      if (Buffer.isBuffer(chunk)) chunks.push(chunk);
+    });
+    readable.on("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
+    readable.on("end", () => {
+      try {
+        const text = Buffer.concat(chunks).toString("utf8");
+        resolve4(text === "" ? {} : JSON.parse(text));
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  });
+}
+
+// src/ledger.ts
+import { open as open3, writeFile as writeFile2 } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
+function emptyState() {
+  return {
+    tasks: /* @__PURE__ */ new Map(),
+    citations: [],
+    proposalIds: /* @__PURE__ */ new Set(),
+    diagnostics: []
+  };
+}
+var Ledger = class {
+  constructor(file) {
+    this.file = file;
+  }
+  queue = Promise.resolve();
+  async load(options = {}) {
+    const raw = await readTextOrNull(this.file);
+    if (raw === null || raw.trim() === "") return emptyState();
+    let content = raw;
+    if (!content.endsWith("\n")) {
+      const cut = content.lastIndexOf("\n");
+      content = cut >= 0 ? content.slice(0, cut + 1) : "";
+      if (options.repair !== false && content !== raw) {
+        await writeFile2(this.file, content, "utf8");
+      }
+    }
+    const state = emptyState();
+    for (const line of content.split("\n")) {
+      if (line.trim() === "") continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        state.diagnostics.push(`ignored unparsable ledger line: ${line.slice(0, 120)}`);
+        continue;
+      }
+      if (event === null || typeof event !== "object" || typeof event.type !== "string") {
+        state.diagnostics.push("ignored ledger line without a type");
+        continue;
+      }
+      applyEvent(state, event);
+    }
+    return state;
+  }
+  append(event) {
+    const line = JSON.stringify({ ...event, v: 1, at: nowIso() }) + "\n";
+    const run = this.queue.then(async () => {
+      try {
+        await ensureDir(dirname4(this.file));
+        const handle = await open3(this.file, "a");
+        try {
+          await handle.write(line);
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      } catch (error) {
+        throw new MemoryError("STORAGE_ERROR", `cannot append ledger ${this.file}: ${error.message}`);
+      }
+    });
+    this.queue = run.catch(() => {
+    });
+    return run;
+  }
+  async close() {
+    await this.queue.catch(() => {
+    });
+  }
+};
+function applyEvent(state, event) {
+  switch (event.type) {
+    case "task.created": {
+      state.tasks.set(event.taskId, {
+        taskId: event.taskId,
+        sessionId: event.sessionId,
+        turn: event.turn,
+        workspaceId: event.workspaceId,
+        intentHash: event.intentHash,
+        createdAt: event.at,
+        preflight: null,
+        assessment: null,
+        closedAt: null
+      });
+      break;
+    }
+    case "preflight.recorded": {
+      const task = state.tasks.get(event.taskId);
+      if (task === void 0) break;
+      task.preflight = {
+        id: event.preflightId,
+        taskId: event.taskId,
+        sessionId: task.sessionId,
+        turn: task.turn,
+        workspaceId: task.workspaceId,
+        status: event.status,
+        hits: event.hits,
+        tokens: event.tokens,
+        createdAt: event.at
+      };
+      break;
+    }
+    case "citation.added": {
+      state.citations.push({
+        id: event.citationId,
+        taskId: event.taskId,
+        knowledgeId: event.knowledgeId,
+        version: event.version,
+        purpose: event.purpose,
+        createdAt: event.at
+      });
+      break;
+    }
+    case "proposal.created":
+    case "proposal.committed": {
+      state.proposalIds.add(event.proposalId);
+      break;
+    }
+    case "task.closed": {
+      const task = state.tasks.get(event.taskId);
+      if (task === void 0) break;
+      task.assessment = event.assessment;
+      task.closedAt = event.at;
+      break;
+    }
+    default:
+      break;
+  }
 }
 
 // src/maintenance-schedule.ts
@@ -18247,6 +21626,105 @@ function createTools(host) {
           }))
         };
       }
+    }),
+    tool({
+      name: "memory_remote_status",
+      concurrencySafe: true,
+      description: "Read-only diagnostics for remote memory providers (multi-vendor). Returns {enabled, mode, providers:[{id,kind,roles,ready,error,capabilities,forget}], roles:{feed,mirror,authority,index}, validation}. Each provider reports why it is unavailable instead of failing silently. Set probe:true to also run a live connectivity check (network). Remote providers are mounted by ROLE, not by vendor: feed (remote\u2192local candidates), mirror (local\u2192remote), authority (remote authoritative, global/domain only), index (read-only retrieval). Off by default; no network when remote.enabled is false.",
+      parameters: objectSchema({
+        probe: { type: "boolean", description: "Also probe each provider over the network (slower, read-only)." }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        const service = await host.service(requireAgent(exec));
+        const readOnly = await service.remoteStatusDetailed();
+        if (input.probe !== true || !readOnly.enabled) return readOnly;
+        return { ...readOnly, probe: await service.remoteProbe() };
+      }
+    }),
+    tool({
+      name: "memory_remote_sync",
+      description: "Trigger remote provider synchronization (manual). Direction pull copies remote records into local pending candidates (never commits; human approval required); direction push mirrors newly accepted local knowledge to providers with the mirror role, queuing failures in the per-provider outbox for replay. Forget propagation is NOT part of sync \u2014 use memory_remote_forget. Requires remote.enabled; per-provider failures degrade to diagnostics instead of failing the whole call.",
+      parameters: objectSchema({
+        provider: { type: "string", description: "Provider id; omit to sync every enabled provider that declares the needed role." },
+        direction: { type: "string", enum: ["pull", "push"], description: "Limit to one direction; default runs pull then push." }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        const service = await host.service(requireAgent(exec));
+        return service.remoteSync(requireAgent(exec), {
+          ...input.provider === void 0 ? {} : { provider: input.provider },
+          ...input.direction === void 0 ? {} : { direction: input.direction }
+        });
+      }
+    }),
+    tool({
+      name: "memory_remote_forget",
+      description: "Propagate deprecations to remote providers, or explicitly forget one entry. Without knowledge_id: scans deprecated entries (forget.on_deprecate, default on) and merged entries (forget.on_merge, default OFF) that were previously mirrored, capped by forget.max_per_run (0 = unlimited); dry_run:true previews {knowledgeId, externalId, action} with zero side effects. With knowledge_id: forgets that entry regardless of the switches; entries never mirrored are reported as skipped \u2014 no ghost requests. Providers without a delete capability get a deprecation marker appended and the entry is recorded in orphans.jsonl instead of pretending success.",
+      parameters: objectSchema({
+        knowledge_id: { type: "string", description: "Explicitly forget this knowledge id on the remote (bypasses on_deprecate/on_merge switches)." },
+        provider: { type: "string", description: "Provider id; omit to run against every provider with the mirror role." },
+        dry_run: { type: "boolean", description: "Preview the affected entries without side effects." },
+        reason: { type: "string", description: 'Reason recorded with the forget; defaults to "deprecated locally".' }
+      }),
+      async execute(args, exec) {
+        const input = args;
+        const service = await host.service(requireAgent(exec));
+        return service.remoteForget(requireAgent(exec), {
+          ...input.provider === void 0 ? {} : { provider: input.provider },
+          ...input.knowledge_id === void 0 ? {} : { knowledgeId: input.knowledge_id },
+          ...input.dry_run === void 0 ? {} : { dryRun: input.dry_run },
+          ...input.reason === void 0 ? {} : { reason: input.reason }
+        });
+      }
+    }),
+    tool({
+      name: "memory_tencent_status",
+      concurrencySafe: true,
+      description: "Read-only status of the Tencent Agent Memory bridge: enabled flag, last pull/push time, outbox queue length, last error, and the configured URL. Returns {enabled:false} when the bridge is disabled. Requires tencent.enabled in config.yaml.",
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec));
+        return service.tencentStatus(requireAgent(exec));
+      }
+    }),
+    tool({
+      name: "memory_tencent_pull",
+      description: "Pull Tencent Agent Memory L1 atomics and L2 scenarios into local pending candidates. Never commits: every candidate still requires human approval via memory_commit. Failed network calls degrade to a diagnostic result instead of throwing. Requires tencent.enabled in config.yaml.",
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec));
+        return service.tencentPull(requireAgent(exec));
+      }
+    }),
+    tool({
+      name: "memory_tencent_push",
+      description: "Push locally accepted knowledge to the Tencent Agent Memory channel (conversation/add). Offline entries are queued in records/outbox.jsonl and replayed on the next push. Requires tencent.enabled in config.yaml. Local files always remain authoritative; Tencent is only a distribution channel.",
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec));
+        return service.tencentPush(requireAgent(exec));
+      }
+    }),
+    tool({
+      name: "memory_scenario_rebuild",
+      concurrencySafe: true,
+      description: "Rebuild the derived scenario index: group accepted knowledge by topic (topic:/domain:/batch: tags, else knowledge type) into files under the layers.scenario_dir (default scenario/). Read-only for knowledge/: it never modifies, deletes, or commits any knowledge entry; the scenario directory is disposable and regenerated. Skipped when layers.scenario_dir is empty.",
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec));
+        return service.scenarioRebuild(requireAgent(exec));
+      }
+    }),
+    tool({
+      name: "memory_scenario_list",
+      concurrencySafe: true,
+      description: "List the derived scenario files (read-only). Returns [{name, path}] or [] when scenario generation is disabled.",
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec));
+        return service.scenarioList(requireAgent(exec));
+      }
     })
   ];
 }
@@ -18442,13 +21920,12 @@ var pluginConfigSchema = external_exports.object({
 }).passthrough();
 var SESSION_OPTIONS_CACHE_MS = 5e3;
 var SESSION_OPTIONS_LIMIT = 200;
-function asRecord(value) {
+function asRecord3(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value : null;
 }
 var AGENT_CONTEXT_NAME = "memory:pack";
 var AGENT_CONTEXT_ORDER = 130;
 var MAX_ANCESTOR_DEPTH = 8;
-var MAX_REVIEW_BATCH = 50;
 var MemoryRuntime = class {
   ctx;
   config;
@@ -18465,6 +21942,7 @@ var MemoryRuntime = class {
   maintenanceTimer = null;
   maintenanceRunning = false;
   maintenanceLastDate = null;
+  tencentTimer = null;
   distillReport = null;
   reflectReport = null;
   distillRetryTimer = null;
@@ -18590,6 +22068,7 @@ var MemoryRuntime = class {
       this.warmClientModule();
       this.startWatcher();
       this.startMaintenanceTimer();
+      this.startTencentTimer();
       await this.reconcileDistill();
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0);
       this.ctx.logger.info(
@@ -18652,6 +22131,41 @@ var MemoryRuntime = class {
       }
     });
     tick();
+  }
+  /**
+   * 阶段三：腾讯桥定时连通性自检（默认 30 分钟，interval 0 = 关闭）。
+   * 定时器只做 ping 诊断（记录 lastError），不做 pull/push：
+   * pull 需要 agent 上下文生成候选、push 需要用户显式同意，两者都保持工具手动触发。
+   */
+  startTencentTimer() {
+    if (this.configHub === null) return;
+    const intervalMin = this.configHub.config.tencent.sync_interval_min;
+    if (intervalMin <= 0) return;
+    const tick = () => {
+      const current = this.configHub?.config.tencent.sync_interval_min ?? 0;
+      if (current <= 0 || this.configHub === null || !this.configHub.config.tencent.enabled) return;
+      void this.runTencentHeartbeat();
+    };
+    const timer = setInterval(tick, Math.max(intervalMin, 1) * 6e4);
+    timer.unref?.();
+    this.tencentTimer = timer;
+    this.disposers.push(() => {
+      if (this.tencentTimer !== null) {
+        clearInterval(this.tencentTimer);
+        this.tencentTimer = null;
+      }
+    });
+  }
+  /** 心跳：ping 腾讯数据面，失败只记诊断（status 可见），不阻塞任何流程。 */
+  async runTencentHeartbeat() {
+    if (this.fallback === null) return;
+    const service = this.fallback.service;
+    if (!service.tencentEnabled) return;
+    try {
+      await service.tencentStatus({ id: "__heartbeat", ctx: this.ctx, session: { id: "__heartbeat", seq: 0 } });
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: tencent heartbeat failed: ${error.message}`);
+    }
   }
   /**
    * Keep every Hub's cached read-only flag in sync with the lock files on disk.
@@ -18827,7 +22341,7 @@ var MemoryRuntime = class {
     }
   }
   maintenanceStatePath() {
-    return join7(this.configHub?.root ?? "", "records", "maintenance-state.json");
+    return join10(this.configHub?.root ?? "", "records", "maintenance-state.json");
   }
   async readMaintenanceState() {
     try {
@@ -18889,7 +22403,7 @@ var MemoryRuntime = class {
     const store = new KnowledgeStore(hub, ledger);
     await store.load();
     const query = this.sessionQueryService();
-    const reflectState = new ReflectStateFile(join7(hub.root, "records", "reflect-state.json"));
+    const reflectState = new ReflectStateFile(join10(hub.root, "records", "reflect-state.json"));
     if (!hub.readOnly) await reflectState.load();
     const service = new MemoryService({
       ctx: this.ctx,
@@ -19256,13 +22770,13 @@ var MemoryRuntime = class {
         const rows = Array.isArray(result?.items) ? result.items : [];
         const items = [];
         for (const row of rows) {
-          const record = asRecord(row);
+          const record = asRecord3(row);
           if (record === null) continue;
           const sessionId = typeof record.sessionId === "string" ? record.sessionId : "";
           if (sessionId === "") continue;
           if (record.origin === "subagent") continue;
-          const projections = asRecord(record.projections);
-          const values = asRecord(projections?.values);
+          const projections = asRecord3(record.projections);
+          const values = asRecord3(projections?.values);
           items.push({
             sessionId,
             cwd: typeof record.cwd === "string" && record.cwd !== "" ? record.cwd : null,
@@ -19281,185 +22795,36 @@ var MemoryRuntime = class {
     return payload;
   }
   handleHttp = async (request, response) => {
-    const method = typeof request.method === "string" ? request.method : "GET";
-    if (!isLoopbackRequest(request)) {
-      sendJson(response, 403, { error: "loopback-only" }, method);
-      return;
-    }
-    if (method !== "GET" && method !== "HEAD" && method !== "POST") {
-      sendJson(response, 405, { error: "method-not-allowed" }, method);
-      return;
-    }
-    let url;
-    try {
-      url = new URL(typeof request.url === "string" ? request.url : "/", "http://localhost");
-    } catch {
-      sendJson(response, 400, { error: "bad-request" }, method);
-      return;
-    }
-    try {
-      if (url.pathname === "/dsh-memory-hub/api/overview") {
-        let payload;
-        try {
-          const pack = this.getPackFromQuery(url);
-          payload = pack.service.overview();
-        } catch (error) {
-          payload = {
-            version: PLUGIN_VERSION,
-            initialized: false,
-            error: error.message,
-            generatedAt: (/* @__PURE__ */ new Date()).toISOString()
-          };
-        }
-        payload.client = this.clientInfo();
-        payload.distill = this.distillReport;
-        sendJson(response, 200, payload, method);
-        return;
-      }
-      if (url.pathname === "/dsh-memory-hub/api/knowledge") {
-        const id = url.searchParams.get("id");
-        if (id === null || id === "") {
-          sendJson(response, 400, { error: "missing-id" }, method);
-          return;
-        }
-        try {
-          const pack = this.getPackFromQuery(url);
-          const core = url.searchParams.get("core");
-          const detail = pack.service.knowledgeDetail(id, core === null || core === "" ? void 0 : core);
-          if (detail === null) {
-            sendJson(response, 404, { error: "not-found", id }, method);
-            return;
-          }
-          sendJson(response, 200, detail, method);
-        } catch (error) {
-          sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
-        }
-        return;
-      }
-      if (url.pathname === "/dsh-memory-hub/api/sessions") {
-        if (method !== "GET" && method !== "HEAD") {
-          sendJson(response, 405, { error: "method-not-allowed" }, method);
-          return;
-        }
-        const payload = await this.listSessionOptions();
-        sendJson(response, 200, payload, method);
-        return;
-      }
-      if (url.pathname === "/dsh-memory-hub/api/hubs") {
-        const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }));
-        if (this.fallback !== null) {
-          cores.unshift({ id: "", root: this.fallback.hub.root });
-        }
-        sendJson(response, 200, { cores }, method);
-        return;
-      }
-      if (url.pathname === "/dsh-memory-hub/api/config") {
-        if (method === "GET" || method === "HEAD") {
-          try {
-            if (this.fallback === null) throw new Error("not initialized");
-            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport, reflect: this.reflectReport }, method);
-          } catch (error) {
-            sendJson(response, 503, { error: "not-initialized", message: error.message }, method);
-          }
-          return;
-        }
-        if (method === "POST") {
-          try {
-            if (this.fallback === null) throw new Error("not initialized");
-            const body = await readJsonBody(request);
-            const payload = await this.fallback.service.updateConfig(body);
-            await this.reconcileDistill();
-            sendJson(response, 200, { ...payload, distill: this.distillReport, reflect: this.reflectReport }, method);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            sendJson(response, 400, { error: "invalid-config", message }, method);
-          }
-          return;
-        }
-      }
-      if (url.pathname === "/dsh-memory-hub/api/pending") {
-        if (method !== "POST") {
-          sendJson(response, 405, { error: "method-not-allowed" }, method);
-          return;
-        }
-        const headers = request.headers ?? {};
-        const header = (name2) => {
-          const value = headers[name2] ?? headers[name2.toLowerCase()];
-          return Array.isArray(value) ? value[0] ?? "" : value ?? "";
-        };
-        if (header("x-dmh-review") !== "1") {
-          sendJson(response, 403, { error: "review-header-required", message: "missing x-dmh-review header" }, method);
-          return;
-        }
-        const origin = header("origin");
-        if (origin !== "" && !isLocalOrigin(origin)) {
-          sendJson(response, 403, { error: "origin-forbidden", message: `origin ${origin} is not allowed` }, method);
-          return;
-        }
-        try {
-          if (this.fallback === null) throw new Error("not initialized");
-          const pack = this.getPackFromQuery(url);
-          if (pack.hub.config.policy.panel.review === false) {
-            sendJson(response, 403, { error: "review-disabled", message: "panel review is disabled by policy.panel.review" }, method);
-            return;
-          }
-          const body = await readJsonBody(request);
-          const action = typeof body.action === "string" ? body.action : "";
-          if (action !== "approve" && action !== "reject") {
-            sendJson(response, 400, { error: "invalid-action", message: "action must be approve or reject" }, method);
-            return;
-          }
-          const rawIds = Array.isArray(body.ids) ? body.ids.filter((value) => typeof value === "string") : typeof body.id === "string" ? [body.id] : [];
-          const ids = [...new Set(rawIds.map((value) => value.trim()).filter((value) => value !== ""))];
-          if (ids.length === 0) {
-            sendJson(response, 400, { error: "missing-id" }, method);
-            return;
-          }
-          if (ids.length > MAX_REVIEW_BATCH) {
-            sendJson(response, 400, { error: "batch-too-large", message: `at most ${MAX_REVIEW_BATCH} proposals per request` }, method);
-            return;
-          }
-          const reason = typeof body.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : void 0;
-          const results = [];
-          for (const id of ids) {
-            try {
-              if (action === "approve") {
-                const result = await pack.service.approveProposal(id);
-                results.push({ id, ok: true, action, knowledgeId: result.knowledgeId, version: result.version });
-              } else {
-                const result = await pack.service.rejectProposal(id, reason);
-                results.push({ id, ok: true, action, status: result.status });
-              }
-            } catch (error) {
-              results.push({ id, ok: false, message: error instanceof Error ? error.message : String(error) });
-            }
-          }
-          const failed = results.filter((result) => result.ok !== true).length;
-          const firstFailure = results.find((result) => result.ok !== true);
-          sendJson(
-            response,
-            failed === ids.length ? 409 : 200,
-            {
-              ok: failed === 0,
-              action,
-              approved: results.length - failed,
-              failed,
-              ...firstFailure === void 0 ? {} : { message: firstFailure.message },
-              results
-            },
-            method
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          sendJson(response, 409, { error: "review-failed", message }, method);
-        }
-        return;
-      }
-      sendJson(response, 404, { error: "not-found", path: url.pathname }, method);
-    } catch (error) {
-      sendJson(response, 500, { error: "internal", message: error.message }, method);
-    }
+    await this.ensureRouter()(request, response);
   };
+  httpRouter = null;
+  ensureRouter() {
+    if (this.httpRouter === null) {
+      this.httpRouter = createMemoryRouter({
+        resolvePack: (url) => {
+          const pack = this.getPackFromQuery(url);
+          return { service: pack.service, hub: pack.hub };
+        },
+        clientExtras: () => this.clientInfo(),
+        distillReport: () => this.distillReport,
+        reflectReport: () => this.reflectReport,
+        hubs: () => {
+          const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }));
+          if (this.fallback !== null) {
+            cores.unshift({ id: "", root: this.fallback.hub.root });
+          }
+          return cores;
+        },
+        listSessions: () => this.listSessionOptions(),
+        onConfigUpdated: async () => {
+          await this.reconcileDistill();
+        },
+        hostMode: { kind: "embedded" },
+        writeToken: () => null
+      });
+    }
+    return this.httpRouter;
+  }
   clientInfo() {
     try {
       const modules = this.ctx.get("clientModules");
@@ -19516,7 +22881,7 @@ var MemoryRuntime = class {
       try {
         const handle = watch(root, { recursive: true }, (_event, filename) => {
           if (filename === null) return;
-          const path = join7(root, filename);
+          const path = join10(root, filename);
           this.schedule(path);
         });
         handle.on("error", (error) => {
@@ -19540,7 +22905,7 @@ var MemoryRuntime = class {
   }
   async handleChange(path) {
     if (this.configHub === null) return;
-    if (basename4(path) === "config.yaml") {
+    if (basename5(path) === "config.yaml") {
       if (this.configHub.configPath() === path) {
         await this.configHub.reloadConfig();
         await this.reconfigureCores();
@@ -19642,47 +23007,6 @@ function containsPath2(root, child) {
 function relativeIsEscape(rel) {
   const parts = rel.split(/[/\\]/);
   return parts.some((part) => part === "..");
-}
-function isLoopbackRequest(request) {
-  const address = request.socket?.remoteAddress ?? "";
-  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-}
-function isLocalOrigin(origin) {
-  try {
-    const url = new URL(origin);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]" || url.hostname === "::1";
-  } catch {
-    return false;
-  }
-}
-function sendJson(response, status, body, method) {
-  if (response.writableEnded === true) return;
-  const text = JSON.stringify(body);
-  response.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-    "content-length": String(Buffer.byteLength(text, "utf8"))
-  });
-  response.end(method === "HEAD" ? void 0 : text);
-}
-function readJsonBody(request) {
-  return new Promise((resolve4, reject) => {
-    const chunks = [];
-    const readable = request;
-    readable.on("data", (chunk) => {
-      if (Buffer.isBuffer(chunk)) chunks.push(chunk);
-    });
-    readable.on("error", (error) => reject(error instanceof Error ? error : new Error(String(error))));
-    readable.on("end", () => {
-      try {
-        const text = Buffer.concat(chunks).toString("utf8");
-        resolve4(text === "" ? {} : JSON.parse(text));
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-  });
 }
 
 // src/index.ts

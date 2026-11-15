@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { readTextOrNull, writeAtomic } from './atomic.js'
+import { createMemoryRouter } from './http/router.js'
 import { expandHome, Hub, resolveHubRoot } from './hub.js'
 import { KnowledgeStore } from './store.js'
 import { Ledger } from './ledger.js'
@@ -105,6 +106,7 @@ export class MemoryRuntime implements ToolHost {
   private maintenanceTimer: NodeJS.Timeout | null = null
   private maintenanceRunning = false
   private maintenanceLastDate: string | null = null
+  private tencentTimer: NodeJS.Timeout | null = null
   private distillReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
   private reflectReport: { at: string; entries: DistillReconcileReport['entries']; removed: number; error: string | null } | null = null
   private distillRetryTimer: NodeJS.Timeout | null = null
@@ -250,6 +252,7 @@ export class MemoryRuntime implements ToolHost {
       this.warmClientModule()
       this.startWatcher()
       this.startMaintenanceTimer()
+      this.startTencentTimer()
       await this.reconcileDistill()
       const total = this.fallback.store.docs.size + [...this.cores.values()].reduce((sum, pack) => sum + pack.store.docs.size, 0)
       this.ctx.logger.info(
@@ -319,6 +322,45 @@ export class MemoryRuntime implements ToolHost {
       }
     })
     tick()
+  }
+
+  /**
+   * 阶段三：腾讯桥定时连通性自检（默认 30 分钟，interval 0 = 关闭）。
+   * 定时器只做 ping 诊断（记录 lastError），不做 pull/push：
+   * pull 需要 agent 上下文生成候选、push 需要用户显式同意，两者都保持工具手动触发。
+   */
+  private startTencentTimer(): void {
+    if (this.configHub === null) return
+    const intervalMin = this.configHub.config.tencent.sync_interval_min
+    if (intervalMin <= 0) return
+    const tick = (): void => {
+      // 每次 tick 都读最新配置：interval 改为 0 后定时器停止拉取。
+      const current = this.configHub?.config.tencent.sync_interval_min ?? 0
+      if (current <= 0 || this.configHub === null || !this.configHub.config.tencent.enabled) return
+      void this.runTencentHeartbeat()
+    }
+    const timer = setInterval(tick, Math.max(intervalMin, 1) * 60_000)
+    timer.unref?.()
+    this.tencentTimer = timer
+    this.disposers.push(() => {
+      if (this.tencentTimer !== null) {
+        clearInterval(this.tencentTimer)
+        this.tencentTimer = null
+      }
+    })
+  }
+
+  /** 心跳：ping 腾讯数据面，失败只记诊断（status 可见），不阻塞任何流程。 */
+  private async runTencentHeartbeat(): Promise<void> {
+    if (this.fallback === null) return
+    const service = this.fallback.service
+    if (!service.tencentEnabled) return
+    try {
+      // tencentStatus 只读；失败会带 lastError 展示。
+      await service.tencentStatus({ id: '__heartbeat', ctx: this.ctx, session: { id: '__heartbeat', seq: 0 } } as AgentLike)
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: tencent heartbeat failed: ${(error as Error).message}`)
+    }
   }
 
   /**
@@ -1036,192 +1078,40 @@ export class MemoryRuntime implements ToolHost {
   }
 
   private handleHttp = async (request: HttpRequestLike, response: HttpResponseLike): Promise<void> => {
-    const method = typeof request.method === 'string' ? request.method : 'GET'
-    if (!isLoopbackRequest(request)) {
-      sendJson(response, 403, { error: 'loopback-only' }, method)
-      return
-    }
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
-      sendJson(response, 405, { error: 'method-not-allowed' }, method)
-      return
-    }
-    let url: URL
-    try {
-      url = new URL(typeof request.url === 'string' ? request.url : '/', 'http://localhost')
-    } catch {
-      sendJson(response, 400, { error: 'bad-request' }, method)
-      return
-    }
-    try {
-      if (url.pathname === '/dsh-memory-hub/api/overview') {
-        let payload: Record<string, unknown>
-        try {
-          const pack = this.getPackFromQuery(url)
-          payload = pack.service.overview()
-        } catch (error) {
-          payload = {
-            version: PLUGIN_VERSION,
-            initialized: false,
-            error: (error as Error).message,
-            generatedAt: new Date().toISOString(),
-          }
-        }
-        payload.client = this.clientInfo()
-        payload.distill = this.distillReport
-        sendJson(response, 200, payload, method)
-        return
-      }
-      if (url.pathname === '/dsh-memory-hub/api/knowledge') {
-        const id = url.searchParams.get('id')
-        if (id === null || id === '') {
-          sendJson(response, 400, { error: 'missing-id' }, method)
-          return
-        }
-        try {
-          const pack = this.getPackFromQuery(url)
-          const core = url.searchParams.get('core')
-          const detail = pack.service.knowledgeDetail(id, core === null || core === '' ? undefined : core)
-          if (detail === null) {
-            sendJson(response, 404, { error: 'not-found', id }, method)
-            return
-          }
-          sendJson(response, 200, detail, method)
-        } catch (error) {
-          sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
-        }
-        return
-      }
-      if (url.pathname === '/dsh-memory-hub/api/sessions') {
-        if (method !== 'GET' && method !== 'HEAD') {
-          sendJson(response, 405, { error: 'method-not-allowed' }, method)
-          return
-        }
-        const payload = await this.listSessionOptions()
-        sendJson(response, 200, payload, method)
-        return
-      }
-      if (url.pathname === '/dsh-memory-hub/api/hubs') {
-        const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }))
-        if (this.fallback !== null) {
-          cores.unshift({ id: '', root: this.fallback.hub.root })
-        }
-        sendJson(response, 200, { cores }, method)
-        return
-      }
-      if (url.pathname === '/dsh-memory-hub/api/config') {
-        if (method === 'GET' || method === 'HEAD') {
-          try {
-            if (this.fallback === null) throw new Error('not initialized')
-            sendJson(response, 200, { ...this.fallback.service.config(), distill: this.distillReport, reflect: this.reflectReport }, method)
-          } catch (error) {
-            sendJson(response, 503, { error: 'not-initialized', message: (error as Error).message }, method)
-          }
-          return
-        }
-        if (method === 'POST') {
-          try {
-            if (this.fallback === null) throw new Error('not initialized')
-            const body = await readJsonBody(request)
-            const payload = await this.fallback.service.updateConfig(body as { core_workspaces?: unknown; workspaces?: unknown })
-            await this.reconcileDistill()
-            sendJson(response, 200, { ...payload, distill: this.distillReport, reflect: this.reflectReport }, method)
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error)
-            sendJson(response, 400, { error: 'invalid-config', message }, method)
-          }
-          return
-        }
-      }
-      if (url.pathname === '/dsh-memory-hub/api/pending') {
-        if (method !== 'POST') {
-          sendJson(response, 405, { error: 'method-not-allowed' }, method)
-          return
-        }
-        // 面板审核把“人工点击”当作批准依据：只接受面板自己发的同源请求
-        // （自定义头 + 同源 Origin），并受 policy.panel.review 开关约束。
-        const headers = request.headers ?? {}
-        const header = (name: string): string => {
-          const value = headers[name] ?? headers[name.toLowerCase()]
-          return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
-        }
-        if (header('x-dmh-review') !== '1') {
-          sendJson(response, 403, { error: 'review-header-required', message: 'missing x-dmh-review header' }, method)
-          return
-        }
-        const origin = header('origin')
-        if (origin !== '' && !isLocalOrigin(origin)) {
-          sendJson(response, 403, { error: 'origin-forbidden', message: `origin ${origin} is not allowed` }, method)
-          return
-        }
-        try {
-          if (this.fallback === null) throw new Error('not initialized')
-          const pack = this.getPackFromQuery(url)
-          if (pack.hub.config.policy.panel.review === false) {
-            sendJson(response, 403, { error: 'review-disabled', message: 'panel review is disabled by policy.panel.review' }, method)
-            return
-          }
-          const body = (await readJsonBody(request)) as Record<string, unknown>
-          const action = typeof body.action === 'string' ? body.action : ''
-          if (action !== 'approve' && action !== 'reject') {
-            sendJson(response, 400, { error: 'invalid-action', message: 'action must be approve or reject' }, method)
-            return
-          }
-          const rawIds = Array.isArray(body.ids)
-            ? body.ids.filter((value): value is string => typeof value === 'string')
-            : typeof body.id === 'string'
-              ? [body.id]
-              : []
-          const ids = [...new Set(rawIds.map((value) => value.trim()).filter((value) => value !== ''))]
-          if (ids.length === 0) {
-            sendJson(response, 400, { error: 'missing-id' }, method)
-            return
-          }
-          if (ids.length > MAX_REVIEW_BATCH) {
-            sendJson(response, 400, { error: 'batch-too-large', message: `at most ${MAX_REVIEW_BATCH} proposals per request` }, method)
-            return
-          }
-          const reason = typeof body.reason === 'string' && body.reason.trim() !== '' ? body.reason.trim() : undefined
-          const results: Array<Record<string, unknown>> = []
-          for (const id of ids) {
-            try {
-              if (action === 'approve') {
-                const result = await pack.service.approveProposal(id)
-                results.push({ id, ok: true, action, knowledgeId: result.knowledgeId, version: result.version })
-              } else {
-                const result = await pack.service.rejectProposal(id, reason)
-                results.push({ id, ok: true, action, status: result.status })
-              }
-            } catch (error) {
-              results.push({ id, ok: false, message: error instanceof Error ? error.message : String(error) })
-            }
-          }
-          const failed = results.filter((result) => result.ok !== true).length
-          const firstFailure = results.find((result) => result.ok !== true)
-          sendJson(
-            response,
-            failed === ids.length ? 409 : 200,
-            {
-              ok: failed === 0,
-              action,
-              approved: results.length - failed,
-              failed,
-              ...(firstFailure === undefined ? {} : { message: firstFailure.message }),
-              results,
-            },
-            method,
-          )
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          sendJson(response, 409, { error: 'review-failed', message }, method)
-        }
-        return
-      }
-      sendJson(response, 404, { error: 'not-found', path: url.pathname }, method)
-    } catch (error) {
-      sendJson(response, 500, { error: 'internal', message: (error as Error).message }, method)
-    }
+    // ADR-0010 §2：API 唯一实现在 src/http/router.ts；DSH 内嵌挂载（hostMode: embedded，
+    // 无令牌闸——宿主 webServer 自有守卫，审批端点另有 x-dmh-review + Origin 双守卫）。
+    await this.ensureRouter()(request, response)
   }
 
+  private httpRouter: ((request: HttpRequestLike, response: HttpResponseLike) => Promise<void>) | null = null
+
+  private ensureRouter(): (request: HttpRequestLike, response: HttpResponseLike) => Promise<void> {
+    if (this.httpRouter === null) {
+      this.httpRouter = createMemoryRouter({
+        resolvePack: (url) => {
+          const pack = this.getPackFromQuery(url)
+          return { service: pack.service, hub: pack.hub }
+        },
+        clientExtras: () => this.clientInfo(),
+        distillReport: () => this.distillReport,
+        reflectReport: () => this.reflectReport,
+        hubs: () => {
+          const cores = [...this.cores.entries()].map(([id, pack]) => ({ id, root: pack.hub.root }))
+          if (this.fallback !== null) {
+            cores.unshift({ id: '', root: this.fallback.hub.root })
+          }
+          return cores
+        },
+        listSessions: () => this.listSessionOptions(),
+        onConfigUpdated: async () => {
+          await this.reconcileDistill()
+        },
+        hostMode: { kind: 'embedded' },
+        writeToken: () => null,
+      })
+    }
+    return this.httpRouter
+  }
   private clientInfo(): Record<string, unknown> {
     try {
       const modules = this.ctx.get('clientModules') as

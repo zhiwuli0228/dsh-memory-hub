@@ -1,7 +1,7 @@
 {
   "name": "dsh-memory-hub",
-  "version": "0.7.1",
-  "description": "Local-first, file-native long-term memory hub for DeepSeek Harness (DSH): preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Every hub root gets a generated README that explains each folder.",
+  "version": "0.8.0",
+  "description": "Local-first, file-native long-term memory hub: preflight, compact context injection, citations, human-approved commits, temporal validity, dedupe/merge, retrospective reflection, write-risk flags, a derived SQLite index, per-workspace scheduled distillation, and a Web panel with human review. Ships as a DSH plugin and as a standalone MCP server / CLI (`memory-hub`) for cross-host use.",
   "license": "MIT",
   "author": "zhiwuli0228",
   "homepage": "https://github.com/zhiwuli0228/dsh-memory-hub#readme",
@@ -14,6 +14,9 @@
   },
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "memory-hub": "dist/cli.js"
+  },
   "exports": {
     ".": "./dist/index.js",
     "./client": "./client.js",
@@ -23,13 +26,15 @@
   },
   "files": [
     "dist/index.js",
+    "dist/cli.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
     "README.md",
     "LICENSE",
-    "docs/*.md"
+    "docs/*.md",
+    "docs/02-harness/*.md"
   ],
   "engines": {
     "node": ">=20",
@@ -51,7 +56,10 @@
     "dsh-plugin",
     "memory",
     "long-term-memory",
-    "knowledge-base"
+    "knowledge-base",
+    "mcp",
+    "mcp-server",
+    "claude-code"
   ],
   "dsh": {
     "manifestVersion": 1,

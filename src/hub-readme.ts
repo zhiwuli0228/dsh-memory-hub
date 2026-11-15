@@ -82,7 +82,7 @@ export function renderHubReadme(hub: Hub, fallbackName = false): string {
 
 > Hub id：\`${hubId}\` · 根目录：\`${root}\`
 >
-${nameNote}> 本文件由 dsh-memory-hub 在初始化/升级时生成，**可以编辑**（保留上面的标记即可，同版本不会被覆盖）。
+${nameNote}> 本文件由 Memory Hub 在初始化/升级时生成，**可以编辑**（保留上面的标记即可，同版本不会被覆盖）。
 > 想快速了解“每个文件夹干什么、什么能改”，先读完这一页。
 
 ## 一分钟理解

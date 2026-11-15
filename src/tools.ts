@@ -57,19 +57,19 @@ function objectSchema(properties: Record<string, unknown>, required: string[] = 
   }
 }
 
-const knowledgeTypesSchema = {
+export const knowledgeTypesSchema = {
   type: 'array',
   items: { type: 'string', enum: [...KNOWLEDGE_TYPES] },
   description: 'Optional knowledge type filter.',
 }
 
-const knowledgeStatusesSchema = {
+export const knowledgeStatusesSchema = {
   type: 'array',
   items: { type: 'string', enum: [...KNOWLEDGE_STATUSES] },
   description: 'Optional status filter; defaults to accepted.',
 }
 
-const assessmentSchema = objectSchema(
+export const assessmentSchema = objectSchema(
   {
     kind: {
       type: 'string',
@@ -91,7 +91,7 @@ const assessmentSchema = objectSchema(
   ['kind'],
 )
 
-function normalizeAssessment(raw: unknown): WritebackAssessment {
+export function normalizeAssessment(raw: unknown): WritebackAssessment {
   if (raw === null || typeof raw !== 'object') {
     throw new MemoryError('INVALID_INPUT', 'assessment must be an object')
   }
@@ -494,6 +494,121 @@ export function createTools(host: ToolHost): ToolDefinition[] {
             promotedFrom: proposal.promotedFrom,
           })),
         }
+      },
+    }),
+
+    tool({
+      name: 'memory_remote_status',
+      concurrencySafe: true,
+      description:
+        'Read-only diagnostics for remote memory providers (multi-vendor). Returns {enabled, mode, providers:[{id,kind,roles,ready,error,capabilities,forget}], roles:{feed,mirror,authority,index}, validation}. Each provider reports why it is unavailable instead of failing silently. Set probe:true to also run a live connectivity check (network). Remote providers are mounted by ROLE, not by vendor: feed (remote→local candidates), mirror (local→remote), authority (remote authoritative, global/domain only), index (read-only retrieval). Off by default; no network when remote.enabled is false.',
+      parameters: objectSchema({
+        probe: { type: 'boolean', description: 'Also probe each provider over the network (slower, read-only).' },
+      }),
+      async execute(args, exec) {
+        const input = args as { probe?: boolean }
+        const service = await host.service(requireAgent(exec))
+        const readOnly = await service.remoteStatusDetailed()
+        if (input.probe !== true || !readOnly.enabled) return readOnly
+        return { ...readOnly, probe: await service.remoteProbe() }
+      },
+    }),
+
+    tool({
+      name: 'memory_remote_sync',
+      description:
+        'Trigger remote provider synchronization (manual). Direction pull copies remote records into local pending candidates (never commits; human approval required); direction push mirrors newly accepted local knowledge to providers with the mirror role, queuing failures in the per-provider outbox for replay. Forget propagation is NOT part of sync — use memory_remote_forget. Requires remote.enabled; per-provider failures degrade to diagnostics instead of failing the whole call.',
+      parameters: objectSchema({
+        provider: { type: 'string', description: 'Provider id; omit to sync every enabled provider that declares the needed role.' },
+        direction: { type: 'string', enum: ['pull', 'push'], description: 'Limit to one direction; default runs pull then push.' },
+      }),
+      async execute(args, exec) {
+        const input = args as { provider?: string; direction?: 'pull' | 'push' }
+        const service = await host.service(requireAgent(exec))
+        return service.remoteSync(requireAgent(exec), {
+          ...(input.provider === undefined ? {} : { provider: input.provider }),
+          ...(input.direction === undefined ? {} : { direction: input.direction }),
+        })
+      },
+    }),
+
+    tool({
+      name: 'memory_remote_forget',
+      description:
+        'Propagate deprecations to remote providers, or explicitly forget one entry. Without knowledge_id: scans deprecated entries (forget.on_deprecate, default on) and merged entries (forget.on_merge, default OFF) that were previously mirrored, capped by forget.max_per_run (0 = unlimited); dry_run:true previews {knowledgeId, externalId, action} with zero side effects. With knowledge_id: forgets that entry regardless of the switches; entries never mirrored are reported as skipped — no ghost requests. Providers without a delete capability get a deprecation marker appended and the entry is recorded in orphans.jsonl instead of pretending success.',
+      parameters: objectSchema({
+        knowledge_id: { type: 'string', description: 'Explicitly forget this knowledge id on the remote (bypasses on_deprecate/on_merge switches).' },
+        provider: { type: 'string', description: 'Provider id; omit to run against every provider with the mirror role.' },
+        dry_run: { type: 'boolean', description: 'Preview the affected entries without side effects.' },
+        reason: { type: 'string', description: 'Reason recorded with the forget; defaults to "deprecated locally".' },
+      }),
+      async execute(args, exec) {
+        const input = args as { knowledge_id?: string; provider?: string; dry_run?: boolean; reason?: string }
+        const service = await host.service(requireAgent(exec))
+        return service.remoteForget(requireAgent(exec), {
+          ...(input.provider === undefined ? {} : { provider: input.provider }),
+          ...(input.knowledge_id === undefined ? {} : { knowledgeId: input.knowledge_id }),
+          ...(input.dry_run === undefined ? {} : { dryRun: input.dry_run }),
+          ...(input.reason === undefined ? {} : { reason: input.reason }),
+        })
+      },
+    }),
+
+    tool({
+      name: 'memory_tencent_status',
+      concurrencySafe: true,
+      description:
+        'Read-only status of the Tencent Agent Memory bridge: enabled flag, last pull/push time, outbox queue length, last error, and the configured URL. Returns {enabled:false} when the bridge is disabled. Requires tencent.enabled in config.yaml.',
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec))
+        return service.tencentStatus(requireAgent(exec))
+      },
+    }),
+
+    tool({
+      name: 'memory_tencent_pull',
+      description:
+        'Pull Tencent Agent Memory L1 atomics and L2 scenarios into local pending candidates. Never commits: every candidate still requires human approval via memory_commit. Failed network calls degrade to a diagnostic result instead of throwing. Requires tencent.enabled in config.yaml.',
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec))
+        return service.tencentPull(requireAgent(exec))
+      },
+    }),
+
+    tool({
+      name: 'memory_tencent_push',
+      description:
+        'Push locally accepted knowledge to the Tencent Agent Memory channel (conversation/add). Offline entries are queued in records/outbox.jsonl and replayed on the next push. Requires tencent.enabled in config.yaml. Local files always remain authoritative; Tencent is only a distribution channel.',
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec))
+        return service.tencentPush(requireAgent(exec))
+      },
+    }),
+
+    tool({
+      name: 'memory_scenario_rebuild',
+      concurrencySafe: true,
+      description:
+        'Rebuild the derived scenario index: group accepted knowledge by topic (topic:/domain:/batch: tags, else knowledge type) into files under the layers.scenario_dir (default scenario/). Read-only for knowledge/: it never modifies, deletes, or commits any knowledge entry; the scenario directory is disposable and regenerated. Skipped when layers.scenario_dir is empty.',
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec))
+        return service.scenarioRebuild(requireAgent(exec))
+      },
+    }),
+
+    tool({
+      name: 'memory_scenario_list',
+      concurrencySafe: true,
+      description:
+        'List the derived scenario files (read-only). Returns [{name, path}] or [] when scenario generation is disabled.',
+      parameters: objectSchema({}),
+      async execute(_args, exec) {
+        const service = await host.service(requireAgent(exec))
+        return service.scenarioList(requireAgent(exec))
       },
     }),
   ]

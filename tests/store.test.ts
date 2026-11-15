@@ -313,6 +313,8 @@ describe('knowledge store', () => {
   it('recovers writes automatically once the blocking writer is gone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-store-lock-'))
     const owner = await Hub.open({ root })
+    // 同进程多实例共享一把锁：摘除句柄，模拟"另一个 DSH 进程"持有锁文件。
+    ;(owner as unknown as { lock: { detach(): void } | null }).lock?.detach()
     const degraded = await Hub.open({ root })
     const harness = await createHarness(undefined, { root, hub: degraded })
     const input = {
@@ -330,6 +332,7 @@ describe('knowledge store', () => {
 
       // The other DSH process exits: the next write takes the lock over by
       // itself, without a plugin reload or a manual .writer.lock deletion.
+      await rm(owner.lockPath(), { force: true })
       await owner.close()
       const proposal = await harness.store.propose(input, { taskId: 'TSK-1' })
       expect(proposal.id).toMatch(/^PRO-\d{6}$/)

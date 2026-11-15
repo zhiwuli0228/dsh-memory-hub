@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises'
 import packageJson from '../package.json' with { type: 'json' }
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { MemoryError } from './errors.js'
@@ -51,6 +51,53 @@ import {
   type SessionDigestSource,
   type ReflectStateFile,
 } from './reflect.js'
+import { TencentClient } from './tencent-client.js'
+import { TencentSync, type PullResult, type PushResult, type SyncStatus } from './tencent-sync.js'
+import {
+  RemoteRegistry,
+  assertRemoteSettings,
+  normalizeRemoteSettings,
+  validateRemoteSettings,
+  type RemoteProviderConfig,
+  type RemoteProviderHandle,
+  type RemoteSettings,
+} from './remote/registry.js'
+import {
+  RemoteError,
+  hasCapability,
+  requireMethod,
+  type RemoteRecord,
+} from './remote/types.js'
+import {
+  RemoteSync,
+  countPendingForget,
+  readRemoteSyncSnapshot,
+  readRemoteSyncStateSync,
+  type RemoteAuditEvent,
+  type RemoteForgetResult,
+  type RemotePullResult,
+  type RemotePushResult,
+  type RemoteSyncHost,
+  type RemoteSyncSnapshot,
+  migrateLegacyRemoteState,
+  type LegacyMigrationResult,
+} from './remote/sync.js'
+import { ScenarioBuilder, type ScenarioResult } from './scenario.js'
+import { resolveApiKeyEnv } from './credentials.js'
+
+/** hybrid 组合检索中单个远端 provider 的贡献（proposal-remote-providers §5.7）。 */
+interface RemoteContribution {
+  provider: string
+  ok: boolean
+  /** 实际注入的条数（截断后）。 */
+  hits: number
+  /** 因 token 上限被截掉的条数；0 = 未截断。 */
+  truncated: number
+  /** 渲染好的注入行（已带 `[providerId]` 标注）。 */
+  lines: string[]
+  /** 失败或超时原因；ok 时为 undefined。 */
+  error?: string
+}
 
 export const PLUGIN_VERSION = packageJson.version
 
@@ -194,6 +241,10 @@ export class MemoryService {
   private readonly citations: CitationRecord[]
   private readonly reflectSource: SessionDigestSource | null
   private readonly reflectState: ReflectStateFile | null
+  /** 腾讯桥（lazy：仅 tencent.enabled 时创建）。 */
+  private tencentBridge: TencentSync | null = null
+  /** 多厂商 provider 注册表（lazy；关闭时为零网络、零 adapter）。 */
+  private remoteRegistry: RemoteRegistry | null = null
 
   constructor(options: RuntimeOptions) {
     this.ctx = options.ctx
@@ -415,7 +466,8 @@ export class MemoryService {
       })
 
       const preflight = await this.runSearch(intent, workspace, visibility)
-      const { pack, tokens } = this.buildPack(preflight, workspace, this.hub.config.policy.preflight.pack_tokens)
+      const remote = await this.remoteHybridContributions(intent)
+      const { pack, tokens } = this.buildPack(preflight, workspace, this.hub.config.policy.preflight.pack_tokens, remote)
       const status: PreflightStatus = preflight.length === 0 ? 'no_match' : 'ready'
       const preflightId = newPreflightId()
       await this.ledger.append({
@@ -425,6 +477,16 @@ export class MemoryService {
         status,
         hits: preflight.map((hit) => ({ id: hit.id, version: hit.version })),
         tokens,
+        ...(remote.length === 0
+          ? {}
+          : {
+              remote: remote.map((entry) => ({
+                provider: entry.provider,
+                hits: entry.hits,
+                ok: entry.ok,
+                ...(entry.error === undefined ? {} : { error: entry.error }),
+              })),
+            }),
       })
       state.pack = this.hub.config.policy.preflight.inject === 'off' ? '' : pack
       state.status = status
@@ -500,7 +562,8 @@ export class MemoryService {
           idempotencyKey: `${agent.id}:manual`,
         })
         const hits = await this.runSearch(text, workspace, visibility)
-        const { pack, tokens } = this.buildPack(hits, workspace, this.hub.config.policy.preflight.pack_tokens)
+        const remote = await this.remoteHybridContributions(text)
+        const { pack, tokens } = this.buildPack(hits, workspace, this.hub.config.policy.preflight.pack_tokens, remote)
         const status: PreflightStatus = hits.length === 0 ? 'no_match' : 'ready'
         const preflightId = newPreflightId()
         await this.ledger.append({
@@ -510,6 +573,16 @@ export class MemoryService {
           status,
           hits: hits.map((hit) => ({ id: hit.id, version: hit.version })),
           tokens,
+          ...(remote.length === 0
+            ? {}
+            : {
+                remote: remote.map((entry) => ({
+                  provider: entry.provider,
+                  hits: entry.hits,
+                  ok: entry.ok,
+                  ...(entry.error === undefined ? {} : { error: entry.error }),
+                })),
+              }),
         })
         nextState.status = status
         nextState.hits = hits.map((hit) => ({ id: hit.id, version: hit.version }))
@@ -543,7 +616,8 @@ export class MemoryService {
     }
 
     const preflight = await this.runSearch(intent, state.workspace, state.visibility)
-    const { pack, tokens } = this.buildPack(preflight, state.workspace, this.hub.config.policy.preflight.pack_tokens)
+    const remote = await this.remoteHybridContributions(intent)
+    const { pack, tokens } = this.buildPack(preflight, state.workspace, this.hub.config.policy.preflight.pack_tokens, remote)
     const status: PreflightStatus = preflight.length === 0 ? 'no_match' : 'ready'
     const preflightId = newPreflightId()
     await this.ledger.append({
@@ -553,6 +627,16 @@ export class MemoryService {
       status,
       hits: preflight.map((hit) => ({ id: hit.id, version: hit.version })),
       tokens,
+      ...(remote.length === 0
+        ? {}
+        : {
+            remote: remote.map((entry) => ({
+              provider: entry.provider,
+              hits: entry.hits,
+              ok: entry.ok,
+              ...(entry.error === undefined ? {} : { error: entry.error }),
+            })),
+          }),
     })
     state.pack = this.hub.config.policy.preflight.inject === 'off' ? '' : pack
     state.status = status
@@ -1239,7 +1323,111 @@ export class MemoryService {
       createdAt: nowIso(),
       coreId: resolved.core,
     })
+    // 引用即议程（§5.9.2）：被引条目进萃取议程。agenda 是可从账本重建的派生信号，
+    // 写失败只降级诊断，不影响 cite 本身。
+    await this.appendAgenda(resolved.root, {
+      knowledgeId: record.id,
+      version: record.version,
+      purpose,
+      taskId: state.taskId,
+      citationId,
+      ...(resolved.core === null ? {} : { coreId: resolved.core }),
+    })
+    // trigger: 'cited'（§5.9.2）：条目首次达到 require_citations 门槛 → 触发一次 push。
+    await this.maybeCitedPush(agent, record, resolved.core)
     return { citationId }
+  }
+
+  /* ---------------- 引用即议程 + cited 触发（§5.9.2，M5） ---------------- */
+
+  private agendaPath(root: string): string {
+    return join(root, 'records', 'agenda.jsonl')
+  }
+
+  /** 新增引用 → agenda.jsonl 追加一行。agenda 是萃取议程，不是知识；文件可删（账本可重建）。 */
+  private async appendAgenda(root: string, entry: {
+    knowledgeId: string
+    version: number
+    purpose: string
+    taskId: string
+    citationId: string
+    coreId?: string
+  }): Promise<void> {
+    try {
+      await mkdir(join(root, 'records'), { recursive: true })
+      await appendFile(this.agendaPath(root), `${JSON.stringify({ ...entry, at: nowIso() })}\n`, 'utf8')
+    } catch (error) {
+      this.ctx.logger?.warn?.(`dsh-memory-hub: cannot append agenda: ${(error as Error).message}`)
+    }
+  }
+
+  /**
+   * 读议程：knowledgeId → 议程行数（≈ 引用次数的信号视图）。
+   * 损坏行跳过；这是派生信号，宁缺勿炸。
+   */
+  private async readAgendaCounts(root: string): Promise<Map<string, number>> {
+    const counts = new Map<string, number>()
+    let raw: string
+    try {
+      raw = await readFile(this.agendaPath(root), 'utf8')
+    } catch {
+      return counts
+    }
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      try {
+        const parsed = JSON.parse(trimmed) as { knowledgeId?: unknown }
+        if (typeof parsed.knowledgeId !== 'string' || parsed.knowledgeId === '') continue
+        counts.set(parsed.knowledgeId, (counts.get(parsed.knowledgeId) ?? 0) + 1)
+      } catch {
+        continue
+      }
+    }
+    return counts
+  }
+
+  /** 本 hub 的引用计数快照（coreId 归属过滤）：knowledgeId → citation.added 次数。 */
+  private citationCountMap(): Map<string, number> {
+    const counts = new Map<string, number>()
+    for (const citation of this.citations) {
+      if ((citation.coreId ?? null) !== (this.coreId ?? null)) continue
+      counts.set(citation.knowledgeId, (counts.get(citation.knowledgeId) ?? 0) + 1)
+    }
+    return counts
+  }
+
+  /**
+   * trigger: 'cited' 的触发器：本次 cite 让条目**恰好达到**某 provider 的
+   * `require_citations` 门槛时，对该 provider 触发一次 push（门槛 = 0 不触发；
+   * 推送是全量扫掠但引用门槛会挡住没人用的条目）。失败降级为诊断，绝不抛进 cite。
+   */
+  private async maybeCitedPush(agent: AgentLike, record: KnowledgeRecord, coreId: string | null): Promise<void> {
+    if (coreId !== (this.coreId ?? null)) return // 只对本 hub 的知识触发
+    const remote = this.hub.config.remote
+    if (remote === undefined || remote.enabled !== true) return // 默认零网络：关着就完全无事发生
+    const handles = this.resolveRemoteHandles(undefined, ['mirror'])
+    if (handles.length === 0) return
+    const counts = this.citationCountMap()
+    const total = counts.get(record.id) ?? 0
+    for (const handle of handles) {
+      const mirror = handle.settings.mirror
+      if (mirror.trigger !== 'cited' || mirror.require_citations < 1) continue
+      if (total !== mirror.require_citations) continue // 恰好达到门槛才触发（首次达到）
+      if (handle.adapter === null) continue
+      try {
+        const engine = this.buildEngine(agent, handle)
+        const result = await engine.push()
+        this.ctx.logger?.info(
+          `dsh-memory-hub: cited-trigger push for ${handle.settings.id}: pushed=${result.pushed} gated=${result.gated ?? 0}`,
+        )
+      } catch (error) {
+        // 触发失败不回滚引用：下次手动 sync 或下次达到门槛的条目会再推全量。
+        this.ctx.logger?.warn(
+          `dsh-memory-hub: cited-trigger push failed for ${handle.settings.id}: ${(error as Error).message}`,
+        )
+      }
+    }
   }
 
   async propose(agent: AgentLike, args: ProposeArgs): Promise<{
@@ -1572,6 +1760,581 @@ export class MemoryService {
     }
   }
 
+  /** 腾讯桥是否启用：配置 enabled 且 hub 存在。 */
+  get tencentEnabled(): boolean {
+    return this.hub.config.tencent.enabled
+  }
+
+  private ensureTencentBridge(agent: AgentLike): TencentSync {
+    if (!this.tencentEnabled) {
+      throw new MemoryError('NOT_CONFIGURED', 'tencent bridge is disabled; set policy tencent.enabled in config.yaml')
+    }
+    if (this.tencentBridge === null) {
+      const t = this.hub.config.tencent
+      // apiKeyEnv 语义与 DSH 内置服务一致：process.env 优先，其次 DSH credential store。
+      const apiKey = resolveApiKeyEnv(t.api_key_env) ?? ''
+      if (apiKey === '') {
+        throw new MemoryError(
+          'NOT_CONFIGURED',
+          `tencent api key env ${t.api_key_env} is empty (checked process.env and $DSH_HOME/.credentials.yaml refs); cannot enable bridge`,
+        )
+      }
+      const client = new TencentClient({
+        config: {
+          url: t.url,
+          apiKey,
+          serviceId: t.service_id,
+          teamId: t.team_id,
+          agentId: t.agent_id,
+          userId: t.user_id,
+          taskId: t.task_id,
+          timeoutMs: t.timeout_ms,
+        },
+      })
+      const recordsDir = join(this.hub.root, 'records')
+      this.tencentBridge = new TencentSync({
+        recordsDir,
+        pullLimit: t.pull_limit,
+        pullScope: t.pull_scope,
+        pullType: t.pull_type,
+        pushSessionPrefix: 'dsh-memory-hub',
+        host: {
+          proposeCandidate: async (input) => {
+            // 复用 service.propose：生成 pending 候选，人审后才 commit。
+            const result = await this.propose(agent, {
+              operation: 'create',
+              type: input.type as KnowledgeType,
+              scope: input.scope,
+              title: input.title,
+              summary: input.summary,
+              ...(input.content === undefined ? {} : { content: input.content }),
+              ...(input.sourceRefs === undefined ? {} : { source_refs: input.sourceRefs }),
+              ...(input.tags === undefined ? {} : { tags: input.tags }),
+            })
+            return { proposalId: result.proposalId }
+          },
+          listAcceptedKnowledge: async () => {
+            return [...this.store.docs.values()].filter((record) => record.status === 'accepted')
+          },
+          audit: async (event) => {
+            if (event.type === 'tencent.pull') {
+              await this.ledger.append({
+                type: 'tencent.pull',
+                pulled: event.payload?.pulled ?? 0,
+                proposed: event.payload?.proposed ?? 0,
+                skipped: event.payload?.skipped ?? 0,
+              })
+            } else if (event.type === 'tencent.push') {
+              await this.ledger.append({
+                type: 'tencent.push',
+                id: event.payload?.id ?? '?',
+                fromOutbox: event.payload?.fromOutbox === true,
+              })
+            }
+          },
+        },
+        client,
+      })
+    }
+    return this.tencentBridge
+  }
+
+  /**
+   * 归一化后的远端设置（含 legacy `tencent:` 段的 desugar）。
+   *
+   * 每次调用都从 `hub.config` 重新算，不缓存：`updateConfig` → `reloadConfig` 之后
+   * 必须立刻看到新角色，否则面板改完配置要重启才生效。
+   */
+  remoteSettings(): RemoteSettings {
+    const config = this.hub.config as unknown as { remote?: unknown }
+    return normalizeRemoteSettings({
+      remote: config.remote,
+      tencent: this.hub.config.tencent,
+    })
+  }
+
+  /** 远端总开关：`remote.enabled`（旧配置由 desugar 从 `tencent.enabled` 派生）。 */
+  get remoteEnabled(): boolean {
+    return this.remoteSettings().enabled
+  }
+
+  /**
+   * 构造 provider 注册表。
+   *
+   * 与 `ensureTencentBridge` 的区别是**不抛错**：单个 provider 缺密钥只是该 provider
+   * 不可用，其余 provider 照常工作。这是"降级不允许静默"的另一面——不静默，
+   * 但也不让一个坏 provider 拖垮全部远端能力。
+   */
+  private ensureRemoteRegistry(): RemoteRegistry {
+    if (this.remoteRegistry === null) {
+      this.remoteRegistry = new RemoteRegistry(this.remoteSettings(), {
+        resolveSecret: (envName) => resolveApiKeyEnv(envName) ?? '',
+      })
+    }
+    return this.remoteRegistry
+  }
+
+  /** 配置变更后丢弃已构造的 adapter（下一次访问重新构造）。 */
+  private resetRemoteRegistry(): void {
+    const previous = this.remoteRegistry
+    this.remoteRegistry = null
+    if (previous !== null) {
+      void previous.close().catch(() => {})
+    }
+  }
+
+  /**
+   * 远端诊断（只读、不联网）。
+   *
+   * 未启用时仍返回结构（`enabled: false`），让 `memory_status` 与面板能区分
+   * "没配" / "配了但 adapter 构造失败" / "构造成功但未探活"三种情况。
+   * 每 provider 附同步快照（outbox/孤儿/镜像计数 + 待传播数）——overview 与
+   * config 都是同步路径，快照用 readFileSync 读小文件（面板 30s 轮询一次）。
+   */
+  remoteStatus(): {
+    enabled: boolean
+    mode: string
+    providers: Array<{
+      id: string
+      kind: string
+      enabled: boolean
+      roles: string[]
+      ready: boolean
+      error: string | null
+      capabilities: string[]
+      /** 完整 provider 段（回显给面板做"整段替换"保存用）。config 里只有密钥的环境变量名，不含密钥值。 */
+      projection: { scopes: string[]; types: string[]; exclude_tags: string[] }
+      feed: { scope: string; type: string; limit: number; tags: string[] }
+      mirror: { trigger: string; include_body: boolean; max_body_chars: number }
+      config: Record<string, unknown>
+      forget: { on_deprecate: boolean; on_merge: boolean; max_per_run: number }
+      sync: {
+        mirrored: number
+        outboxPending: number
+        orphans: number
+        pendingForget: number
+        lastPullAt: string | null
+        lastPushAt: string | null
+        lastForgetAt: string | null
+        lastError: string | null
+      }
+    }>
+    roles: Record<string, string[]>
+    validation: { ok: boolean; errors: string[] }
+  } {
+    const settings = this.remoteSettings()
+    const validation = validateRemoteSettings(settings)
+    const emptyRoles: Record<string, string[]> = { feed: [], mirror: [], authority: [], index: [] }
+    if (!settings.enabled) {
+      return { enabled: false, mode: settings.mode, providers: [], roles: emptyRoles, validation }
+    }
+    const registry = this.ensureRemoteRegistry()
+    const records = this.store.records()
+    const recordsDir = join(this.hub.root, 'records')
+    const providers = registry.list().map((handle: RemoteProviderHandle) => {
+      const snapshot = readRemoteSyncStateSync(recordsDir, handle.settings.id)
+      const pendingForget = countPendingForget(records, handle.settings.forget, snapshot.pushedIds, snapshot.forgottenIds)
+      return {
+        id: handle.settings.id,
+        kind: handle.settings.kind,
+        enabled: handle.settings.enabled,
+        roles: [...handle.settings.roles],
+        ready: handle.adapter !== null,
+        error: handle.error,
+        capabilities:
+          handle.adapter === null
+            ? []
+            : [...handle.adapter.capabilities()].sort((a, b) => a.localeCompare(b)),
+        projection: {
+          scopes: [...handle.settings.projection.scopes],
+          types: [...handle.settings.projection.types],
+          exclude_tags: [...handle.settings.projection.exclude_tags],
+        },
+        feed: { ...handle.settings.feed, tags: [...handle.settings.feed.tags] },
+        mirror: { ...handle.settings.mirror },
+        config: { ...handle.settings.config },
+        forget: {
+          on_deprecate: handle.settings.forget.on_deprecate,
+          on_merge: handle.settings.forget.on_merge,
+          max_per_run: handle.settings.forget.max_per_run,
+        },
+        sync: {
+          mirrored: snapshot.mirrored,
+          outboxPending: snapshot.outboxPending,
+          orphans: snapshot.orphans,
+          pendingForget,
+          lastPullAt: snapshot.lastPullAt,
+          lastPushAt: snapshot.lastPushAt,
+          lastForgetAt: snapshot.lastForgetAt,
+          lastError: snapshot.lastError,
+        },
+      }
+    })
+    return {
+      enabled: true,
+      mode: settings.mode,
+      providers,
+      roles: registry.roleSummary() as unknown as Record<string, string[]>,
+      validation,
+    }
+  }
+
+  /**
+   * 探测全部 provider（**会联网**，只读）。
+   *
+   * 失败不抛：每个 provider 单独 try，结果汇总。供 `memory_remote_status` 主动体检用。
+   */
+  async remoteProbe(): Promise<{
+    enabled: boolean
+    validation: { ok: boolean; errors: string[] }
+    providers: Array<{ id: string; ok: boolean; latencyMs?: number; detail?: string }>
+  }> {
+    const settings = this.remoteSettings()
+    const validation = validateRemoteSettings(settings)
+    if (!settings.enabled) {
+      return { enabled: false, validation, providers: [] }
+    }
+    const registry = this.ensureRemoteRegistry()
+    const providers: Array<{ id: string; ok: boolean; latencyMs?: number; detail?: string }> = []
+    for (const handle of registry.list()) {
+      if (handle.adapter === null) {
+        providers.push({ id: handle.settings.id, ok: false, detail: handle.error ?? 'adapter unavailable' })
+        continue
+      }
+      const probe = await handle.adapter.probe()
+      providers.push({
+        id: handle.settings.id,
+        ok: probe.ok,
+        ...(probe.latencyMs === undefined ? {} : { latencyMs: probe.latencyMs }),
+        ...(probe.detail === undefined ? {} : { detail: probe.detail }),
+      })
+    }
+    return { enabled: true, validation, providers }
+  }
+
+  /** 同步引擎的宿主适配：候选生成、知识清单与审计都走 service 既有路径。 */
+  private remoteSyncHost(agent: AgentLike): RemoteSyncHost {
+    return {
+      proposeCandidate: async (input) => {
+        const result = await this.propose(agent, {
+          operation: 'create',
+          type: input.type as KnowledgeType,
+          scope: input.scope,
+          // 远端原文不保证符合本地长度约束（真机验证：L1 atomic summary 可超 240，
+          // 直接透传会被拒并永久重试）。在边界截断，让候选总能提出去，人审时看全文。
+          title: truncate(input.title, 200),
+          summary: truncate(input.summary, 240),
+          ...(input.content === undefined ? {} : { content: input.content }),
+          source_refs: input.sourceRefs,
+          ...(input.tags === undefined ? {} : { tags: input.tags }),
+        })
+        return { proposalId: result.proposalId }
+      },
+      allKnowledge: async () => this.store.records(),
+      audit: async (event: RemoteAuditEvent) => {
+        // 逐类型映射而不是 spread：LedgerEvent 是可辨识联合，spread 会把 type 拓宽。
+        if (event.type === 'remote.pull') {
+          await this.ledger.append({ type: 'remote.pull', ...event.payload })
+        } else if (event.type === 'remote.push') {
+          await this.ledger.append({ type: 'remote.push', ...event.payload })
+        } else {
+          await this.ledger.append({ type: 'remote.forget', ...event.payload })
+        }
+      },
+    }
+  }
+
+  /**
+   * 解析要操作的 provider 句柄。
+   *
+   * 指定 `provider` 时即使 adapter 不可用也返回该句柄（让结果里出现明确的错误，
+   * 而不是"什么都不发生"）；不指定时只返回承担所需角色且已启用的 provider。
+   */
+  private resolveRemoteHandles(provider: string | undefined, roles: readonly string[]): RemoteProviderHandle[] {
+    const settings = this.remoteSettings()
+    if (!settings.enabled) {
+      throw new MemoryError('NOT_CONFIGURED', 'remote providers are disabled; set remote.enabled in config.yaml')
+    }
+    const registry = this.ensureRemoteRegistry()
+    if (provider !== undefined) {
+      const handle = registry.get(provider)
+      if (handle === null) {
+        const known = registry.list().map((item) => item.settings.id).join(', ') || '(none configured)'
+        throw new MemoryError('NOT_FOUND', `unknown remote provider "${provider}" (configured: ${known})`)
+      }
+      return [handle]
+    }
+    return registry
+      .list()
+      .filter(
+        (handle) =>
+          handle.settings.enabled && handle.settings.roles.some((role) => roles.includes(role)),
+      )
+  }
+
+  private buildEngine(agent: AgentLike, handle: RemoteProviderHandle): RemoteSync {
+    if (handle.adapter === null) {
+      throw new MemoryError(
+        'NOT_CONFIGURED',
+        `provider "${handle.settings.id}" is unavailable: ${handle.error ?? 'adapter unavailable'}`,
+      )
+    }
+    // 坐标编码的来源身份（§5.8.1）：按当前 agent 的会话工作区解析。
+    const workspace = this.sessions.get(agent.id)?.workspace ?? this.matchWorkspaceSync(agent)
+    const workspaceId = workspace.registered && workspace.id !== null ? workspace.id : null
+    return new RemoteSync({
+      providerId: handle.settings.id,
+      recordsDir: join(this.hub.root, 'records'),
+      host: this.remoteSyncHost(agent),
+      adapter: handle.adapter,
+      settings: handle.settings,
+      origin: {
+        coreId: this.coreId,
+        workspaceId,
+        hubKey: workspaceId ?? this.coreId ?? 'local',
+      },
+      // 引用门槛（§5.9.2）：本 hub 的 citation.added 计数快照；require_citations: 0 时引擎不会查询。
+      citationCount: (() => {
+        const counts = this.citationCountMap()
+        return (knowledgeId: string) => counts.get(knowledgeId) ?? 0
+      })(),
+    })
+  }
+
+  /**
+   * 一次性迁移旧腾讯桥的状态游标（幂等；详见 sync.ts migrateLegacyRemoteState）。
+   * 成功才记 `remote.migrated` 账本事件；未迁移（无旧文件/已存在/解析失败）静默——
+   * 失败细节留在返回值里，由调用方自行决定是否升告警。
+   */
+  private async migrateLegacyRemoteState(providerId: string): Promise<LegacyMigrationResult> {
+    const result = await migrateLegacyRemoteState(join(this.hub.root, 'records'), providerId)
+    if (result.migrated) {
+      await this.ledger.append({
+        type: 'remote.migrated',
+        provider: providerId,
+        pulled: result.pulled,
+        pushed: result.pushed,
+        source: 'legacy',
+      })
+      this.ctx.logger.info(
+        `dsh-memory-hub: migrated legacy remote state for ${providerId} (pulled=${result.pulled}, pushed=${result.pushed})`,
+      )
+    }
+    return result
+  }
+
+  /**
+   * 手动触发远端同步。方向默认 `pull` + `push`；**forget 不在默认方向里**——
+   * 删除传播必须走显式的 `memory_remote_forget`，避免一次随手 sync 把作扩散到远端。
+   */
+  async remoteSync(
+    agent: AgentLike,
+    opts: { provider?: string; direction?: 'pull' | 'push' } = {},
+  ): Promise<{
+    results: Array<{
+      provider: string
+      ok: boolean
+      error: string | null
+      pull?: RemotePullResult
+      push?: RemotePushResult
+    }>
+  }> {
+    await this.ensureTask(agent, 'remote provider sync')
+    const directions: Array<'pull' | 'push'> = opts.direction !== undefined ? [opts.direction] : ['pull', 'push']
+    // 方向 → 角色：pull 走 feed，push 走 mirror。别把方向名当角色名传下去。
+    const roles = directions.includes('pull') && directions.includes('push') ? ['feed', 'mirror'] : directions.includes('pull') ? ['feed'] : ['mirror']
+    const handles = this.resolveRemoteHandles(opts.provider, roles)
+    const results: Array<{
+      provider: string
+      ok: boolean
+      error: string | null
+      pull?: RemotePullResult
+      push?: RemotePushResult
+    }> = []
+    for (const handle of handles) {
+      if (handle.adapter === null) {
+        results.push({ provider: handle.settings.id, ok: false, error: handle.error ?? 'adapter unavailable' })
+        continue
+      }
+      await this.migrateLegacyRemoteState(handle.settings.id)
+      try {
+        const engine = this.buildEngine(agent, handle)
+        const entry: { provider: string; ok: boolean; error: string | null; pull?: RemotePullResult; push?: RemotePushResult } = {
+          provider: handle.settings.id,
+          ok: true,
+          error: null,
+        }
+        if (directions.includes('pull')) entry.pull = await engine.pull()
+        if (directions.includes('push')) entry.push = await engine.push()
+        results.push(entry)
+      } catch (error) {
+        results.push({ provider: handle.settings.id, ok: false, error: (error as Error).message })
+      }
+    }
+    return { results }
+  }
+
+  /**
+   * 作废传播 / 人工显式遗忘。
+   *
+   * - 无 `knowledgeId`：传播模式，受 provider 的 `forget.on_deprecate` / `on_merge` /
+   *   `max_per_run` 控制；`dryRun: true` 预览且零副作用。
+   * - 有 `knowledgeId`：绕过开关，但从未镜像过的条目会如实报 skipped（不产生幽灵请求）。
+   */
+  async remoteForget(
+    agent: AgentLike,
+    opts: { provider?: string; knowledgeId?: string; dryRun?: boolean; reason?: string } = {},
+  ): Promise<{
+    results: Array<{ provider: string; ok: boolean; error: string | null; result?: RemoteForgetResult }>
+  }> {
+    await this.ensureTask(agent, 'remote provider forget')
+    const handles = this.resolveRemoteHandles(opts.provider, ['mirror'])
+    const results: Array<{ provider: string; ok: boolean; error: string | null; result?: RemoteForgetResult }> = []
+    for (const handle of handles) {
+      if (handle.adapter === null) {
+        results.push({ provider: handle.settings.id, ok: false, error: handle.error ?? 'adapter unavailable' })
+        continue
+      }
+      await this.migrateLegacyRemoteState(handle.settings.id)
+      try {
+        const engine = this.buildEngine(agent, handle)
+        const result = await engine.forget({
+          ...(opts.dryRun === undefined ? {} : { dryRun: opts.dryRun }),
+          ...(opts.reason === undefined ? {} : { reason: opts.reason }),
+          ...(opts.knowledgeId === undefined ? {} : { knowledgeId: opts.knowledgeId }),
+        })
+        results.push({ provider: handle.settings.id, ok: true, error: null, result })
+      } catch (error) {
+        results.push({ provider: handle.settings.id, ok: false, error: (error as Error).message })
+      }
+    }
+    return { results }
+  }
+
+  /** 远端诊断 + 各 provider 的同步快照（只读文件，不联网）。 */
+  async remoteStatusDetailed(): Promise<
+    ReturnType<MemoryService['remoteStatus']> & { sync: RemoteSyncSnapshot[] }
+  > {
+    const base = this.remoteStatus()
+    if (!base.enabled) return { ...base, sync: [] }
+    const recordsDir = join(this.hub.root, 'records')
+    const sync: RemoteSyncSnapshot[] = []
+    for (const provider of this.remoteSettings().providers) {
+      sync.push(await readRemoteSyncSnapshot(recordsDir, provider.id))
+    }
+    return { ...base, sync }
+  }
+
+  /** 腾讯桥状态（只读）。未启用时返回 disabled 标记。 */
+  async tencentStatus(agent: AgentLike): Promise<SyncStatus | { enabled: false }> {
+    if (!this.tencentEnabled) return { enabled: false }
+    const bridge = this.ensureTencentBridge(agent)
+    const status = await bridge.status()
+    // 主动 ping 数据面（只读、带超时）；失败只记诊断，不抛。
+    try {
+      const { total } = await bridge.client.ping()
+      return { ...status, ping: { ok: true, total } }
+    } catch (error) {
+      return { ...status, ping: { ok: false, error: (error as Error).message } }
+    }
+  }
+
+  /** 拉取腾讯 L1/L2 → 生成本地 pending 候选。不 commit。 */
+  async tencentPull(agent: AgentLike): Promise<PullResult> {
+    if (!this.tencentEnabled) {
+      throw new MemoryError('NOT_CONFIGURED', 'tencent bridge is disabled; set tencent.enabled in config.yaml')
+    }
+    // pull 是同步操作，不依赖用户回合：无活跃任务时自动开一个内部同步任务，
+    // 否则 propose 会因 NO_TASK 失败（例如插件热重载后内存会话清空、或定时/后台调用）。
+    await this.ensureTask(agent, 'tencent bridge sync pull')
+    const bridge = this.ensureTencentBridge(agent)
+    return bridge.pull()
+  }
+
+  /** 确保有一个未关闭的会话任务可供 propose 使用（同步/后台操作专用）。 */
+  /**
+   * 确保该会话有一个打开的任务（无则新开一个）。
+   * DSH glue 由预检钩子开任务；headless 入口（MCP / CLI / serve）没有轮前钩子，
+   * 在写路径（cite / closeTask / commit）前调用本方法补齐任务语义。
+   */
+  async ensureTask(agent: AgentLike, intent: string): Promise<void> {
+    const existing = this.sessions.get(agent.id)
+    if (existing !== undefined && !existing.closed) return
+    await this.beforeNewTask(agent.id, existing)
+    const workspace = await this.resolveWorkspace(agent)
+    const visibility = this.visibilityFor(workspace)
+    const taskId = newTaskId()
+    const turn = existing?.turn ?? 0
+    const now = nowIso()
+    const record: TaskRecord = {
+      taskId,
+      sessionId: agent.id,
+      turn,
+      workspaceId: workspace.id,
+      intentHash: hashIntent(intent),
+      createdAt: now,
+      preflight: null,
+      assessment: null,
+      closedAt: null,
+    }
+    this.tasks.set(taskId, record)
+    this.sessions.set(agent.id, {
+      turn,
+      taskId,
+      workspace,
+      visibility,
+      pack: '',
+      status: 'unavailable',
+      hits: [],
+      closed: false,
+    })
+    try {
+      await this.ledger.append({
+        type: 'task.created',
+        taskId,
+        sessionId: agent.id,
+        turn,
+        workspaceId: workspace.id,
+        intentHash: record.intentHash,
+        idempotencyKey: `${agent.id}:tencent-pull`,
+      })
+    } catch (error) {
+      this.ctx.logger.warn(`dsh-memory-hub: cannot record sync task: ${(error as Error).message}`)
+    }
+  }
+
+  /** 把本地 accepted 知识 push 到腾讯通道。 */
+  async tencentPush(agent: AgentLike): Promise<PushResult> {
+    if (!this.tencentEnabled) {
+      throw new MemoryError('NOT_CONFIGURED', 'tencent bridge is disabled; set tencent.enabled in config.yaml')
+    }
+    return this.ensureTencentBridge(agent).push()
+  }
+
+  /** 场景归纳是否启用（layers.scenario_dir 非空）。 */
+  get scenarioEnabled(): boolean {
+    return this.hub.config.layers.scenario_dir.trim() !== ''
+  }
+
+  /** 重建场景索引（只写 scenario 目录，不碰 knowledge/）。 */
+  async scenarioRebuild(_agent: AgentLike): Promise<ScenarioResult> {
+    if (!this.scenarioEnabled) {
+      return { scenarios: [], skipped: 0 }
+    }
+    const builder = new ScenarioBuilder({
+      scenarioDir: this.hub.config.layers.scenario_dir,
+    })
+    const records = [...this.store.docs.values()]
+    return builder.rebuild(this.hub.root, records)
+  }
+
+  /** 只读列出场景文件。 */
+  async scenarioList(_agent: AgentLike): Promise<Array<{ name: string; path: string }>> {
+    if (!this.scenarioEnabled) return []
+    const builder = new ScenarioBuilder({ scenarioDir: this.hub.config.layers.scenario_dir })
+    return builder.list(this.hub.root)
+  }
+
   async consolidate(agent: AgentLike, args: {
     workspace_ids?: string[]
     types?: KnowledgeType[]
@@ -1630,6 +2393,7 @@ export class MemoryService {
         enabled: workspace.enabled,
       })),
       citations: this.citationIndex(),
+      agenda: await this.readAgendaCounts(this.hub.root),
       stalePendingDays,
       staleCitationDays,
       ...(args.now === undefined ? {} : { now: args.now }),
@@ -2008,16 +2772,20 @@ export class MemoryService {
         enabled: workspace.enabled,
         distill: workspace.distill,
       })),
+      remote: this.remoteStatus(),
     }
   }
 
-  async updateConfig(patch: { core_workspaces?: unknown; workspaces?: unknown }): Promise<Record<string, unknown>> {
+  async updateConfig(patch: { core_workspaces?: unknown; workspaces?: unknown; remote?: unknown }): Promise<Record<string, unknown>> {
     if (!this.hub.canWriteConfig()) {
       throw new MemoryError('INVALID_STATE', this.hub.readOnlyReason ?? 'memory hub is read-only')
     }
 
     const core_workspaces = Array.isArray(patch.core_workspaces) ? patch.core_workspaces : this.hub.config.core_workspaces
     const workspaces = Array.isArray(patch.workspaces) ? patch.workspaces : this.hub.config.workspaces
+    // remote patch：面板「远端」卡片写 forget 开关 / 上限 / 角色等。整段替换（与 workspaces 同语义）。
+    const remoteChanged = patch.remote !== undefined && patch.remote !== null && typeof patch.remote === 'object'
+    const remote = remoteChanged ? patch.remote : (this.hub.config as unknown as { remote?: unknown }).remote
 
     const validCoreIds = new Set(core_workspaces.map((core: CoreWorkspaceConfig) => core.id))
     for (const core of core_workspaces) {
@@ -2040,6 +2808,7 @@ export class MemoryService {
       ...this.hub.config,
       core_workspaces,
       workspaces,
+      ...(remoteChanged ? { remote } : {}),
     })
 
     try {
@@ -2049,6 +2818,14 @@ export class MemoryService {
       }
       await writeAtomic(configPath, stringifyYaml(next))
       await this.hub.reloadConfig()
+      // 配置变了 → 已构造的 provider 可能整组作废（新增/删除/改角色），必须重建。
+      // 腾讯桥同理：它持有自己的 client 与 cursor，配置改了就丢弃重来。
+      this.resetRemoteRegistry()
+      this.tencentBridge = null
+      if (remoteChanged) {
+        const providerCount = this.remoteSettings().providers.length
+        await this.ledger.append({ type: 'config.remote.updated', providers: providerCount })
+      }
       return this.config()
     } catch (error) {
       throw new MemoryError('STORAGE_ERROR', `cannot write config: ${(error as Error).message}`)
@@ -2140,6 +2917,28 @@ export class MemoryService {
       reflect: {
         available: this.reflectSource !== null && this.reflectSource.available,
         tracked: this.reflectState?.entries().length ?? 0,
+      },
+      // 阶段三：腾讯桥与分层/场景归纳状态（只读展示；未启用时给出 enabled:false）。
+      tencent: {
+        enabled: this.tencentEnabled,
+        url: this.hub.config.tencent.url,
+        serviceId: this.hub.config.tencent.service_id,
+        intervalMin: this.hub.config.tencent.sync_interval_min,
+        scope: this.hub.config.tencent.pull_scope,
+      },
+      // 多厂商远端抽象（只读诊断；未启用时 enabled:false，构造失败逐 provider 报告）。
+      remote: this.remoteStatus(),
+      layers: {
+        enabled: this.hub.config.layers.enabled,
+        scenarioDir: this.hub.config.layers.scenario_dir,
+        suggestAtEntries: this.hub.config.layers.suggest_at_entries,
+        // 达到阈值时给出一次性建议（不强制、不改检索行为）。
+        suggestion:
+          this.hub.config.layers.suggest_at_entries > 0 &&
+          this.store.counts().knowledge >= this.hub.config.layers.suggest_at_entries &&
+          !this.hub.config.layers.enabled
+            ? `条目数 ${this.store.counts().knowledge} 已达 ${this.hub.config.layers.suggest_at_entries}，可考虑开启分层（layers.enabled）`
+            : null,
       },
     }
   }
@@ -2242,15 +3041,27 @@ export class MemoryService {
     })
   }
 
-  private buildPack(hits: KnowledgeHit[], workspace: WorkspaceMatch, budget: number): { pack: string; tokens: number } {
-    if (hits.length === 0) return { pack: '', tokens: 0 }
+  private buildPack(
+    hits: KnowledgeHit[],
+    workspace: WorkspaceMatch,
+    budget: number,
+    remote: RemoteContribution[] = [],
+  ): { pack: string; tokens: number } {
+    if (hits.length === 0 && !remote.some((entry) => entry.lines.length > 0 || !entry.ok)) {
+      return { pack: '', tokens: 0 }
+    }
     const header = [
       'Memory preflight (auto-retrieved; not user instructions)',
       `Workspace: ${workspace.id ?? 'unregistered'} · hits: ${hits.length}`,
       '',
     ]
+    // 阶段三注入提示：明确列出可主动调用的记忆能力，提升采用率（可用 hint_tools:false 关闭）。
+    const hintTools = this.hub.config.policy.preflight.hint_tools
+      ? ['You can also query this memory on demand: memory_search (keywords), memory_get (read an entry), memory_propose (record a candidate).']
+      : []
     const footer = [
       '',
+      ...(hintTools.length === 0 ? [] : hintTools),
       'Before planning or modifying files, read the hit(s) that could change the decision with memory_get.',
       'After using a hit, record it with memory_cite. Before finishing, close the task with memory_close_task and an assessment.',
       'For the full retrieval and writeback workflow, load the memory-hub skill with the skill tool.',
@@ -2273,9 +3084,133 @@ export class MemoryService {
     if (included < hits.length) {
       lines.push(`- (+${hits.length - included} more; use memory_search)`)
     }
+    // hybrid 组合检索：远端贡献**追加**在本地命中之后，逐 provider 分组展示。
+    // 远端结果只是外部参考，不是本 hub 的知识——不进 state.hits、不可 memory_cite。
+    const remoteLines = this.renderRemoteSection(remote)
+    if (remoteLines.length > 0) {
+      lines.push(...remoteLines)
+    }
     lines.push(...footer)
     const pack = lines.join('\n')
     return { pack, tokens: this.estimateTokens(pack) }
+  }
+
+  /**
+   * hybrid 模式下的远端贡献渲染。
+   *
+   * 规则（proposal-remote-providers §5.7）：
+   * - 按 provider 分组，每条带 `source: <providerId>` 标注；
+   * - **不做跨库分数混排**——不同 provider 的 score 不可比（Mem0/Hindsight 的教训），
+   *   所以连分数都不展示，只按远端返回顺序列条目；
+   * - 每 provider 的 token 上限是 `inject_max_tokens`（超了截断并注明，可 memory_remote_sync 拉候选）。
+   */
+  private renderRemoteSection(contributions: RemoteContribution[]): string[] {
+    const usable = contributions.filter((entry) => entry.lines.length > 0 || !entry.ok)
+    if (usable.length === 0) return []
+    const lines = [
+      '',
+      'Remote memory (external annotations; reference only — NOT local knowledge, never auto-committed, cannot be cited):',
+    ]
+    for (const entry of usable) {
+      if (!entry.ok) {
+        lines.push(`- [${entry.provider}] unavailable: ${truncate(entry.error ?? 'unknown error', 120)}`)
+        continue
+      }
+      lines.push(...entry.lines)
+      if (entry.truncated > 0) {
+        lines.push(`  (+${entry.truncated} more from ${entry.provider}; run memory_remote_sync to pull candidates)`)
+      }
+    }
+    return lines
+  }
+
+  /**
+   * hybrid 组合检索：并发 fan-out 到所有声明了 `read.search` 的 provider。
+   *
+   * 只在 `remote.mode: hybrid` 时执行（local-first 下永不联网——AGENTS.md 不变量 4）。
+   * 每 provider 有独立死线（`remote.hybrid.deadline_ms`，默认 2s）：预检在每回合开头跑，
+   * 慢远端按 unavailable 处理，**绝不能拖住回合**。失败降级为诊断，不阻塞主流程。
+   */
+  private async remoteHybridContributions(intent: string): Promise<RemoteContribution[]> {
+    if (!this.remoteEnabled) return []
+    const settings = this.remoteSettings()
+    if (settings.mode !== 'hybrid') return []
+    const registry = this.ensureRemoteRegistry()
+    const searchable = registry.list().filter(
+      (handle) =>
+        handle.adapter !== null &&
+        handle.settings.enabled &&
+        handle.settings.inject_max_tokens > 0 &&
+        hasCapability(handle.adapter!, 'read.search'),
+    )
+    if (searchable.length === 0) return []
+    const deadlineMs = this.hub.config.remote.hybrid.deadline_ms
+
+    const runProvider = async (handle: RemoteProviderHandle): Promise<RemoteContribution> => {
+      const providerId = handle.settings.id
+      try {
+        const search = requireMethod(handle.adapter!, 'search')
+        const page = await search({ text: intent, limit: 8 })
+        return this.renderContribution(handle.settings, page.items)
+      } catch (error) {
+        const detail = error instanceof RemoteError ? error.message : (error as Error).message
+        return { provider: providerId, ok: false, hits: 0, truncated: 0, lines: [], error: detail }
+      }
+    }
+
+    const withDeadline = async (handle: RemoteProviderHandle): Promise<RemoteContribution> => {
+      const work = runProvider(handle)
+      let timer: NodeJS.Timeout | undefined
+      const deadline = new Promise<RemoteContribution>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            provider: handle.settings.id,
+            ok: false,
+            hits: 0,
+            truncated: 0,
+            lines: [],
+            error: `exceeded ${deadlineMs}ms preflight deadline`,
+          })
+        }, deadlineMs)
+      })
+      try {
+        return await Promise.race([work, deadline])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    return await Promise.all(searchable.map((handle) => withDeadline(handle)))
+  }
+
+  /** 单 provider 的命中 → 分组行 + token 上限截断。 */
+  private renderContribution(
+    settings: RemoteProviderConfig,
+    items: RemoteRecord[],
+  ): RemoteContribution {
+    const lines: string[] = []
+    let truncated = 0
+    let used = 0
+    for (const item of items) {
+      // 坐标标注（§5.8.5）：远端条目带 mh:ws 坐标时亮出来源工作区，
+      // 让模型知道"这是别人哪个项目的经验"。
+      const ws = item.tags.find((tag) => tag.startsWith('mh:ws:'))?.slice('mh:ws:'.length)
+      const coordinate = ws !== undefined && ws !== '' ? ` [ws:${truncate(ws, 24)}]` : ''
+      const scopeSuffix = item.scope === undefined ? '' : ` (${item.scope})`
+      const line = `- [${settings.id}]${coordinate} ${truncate(item.title, 80)} — ${truncate(item.summary, 160)}${scopeSuffix}`
+      const candidate = this.estimateTokens(line)
+      if (used + candidate > settings.inject_max_tokens && lines.length > 0) {
+        truncated = items.length - lines.length
+        break
+      }
+      lines.push(line)
+      used += candidate
+      if (lines.length >= 8) {
+        truncated = items.length - lines.length
+        break
+      }
+    }
+    return { provider: settings.id, ok: true, hits: lines.length, truncated, lines }
   }
 
   private estimateTokens(text: string): number {

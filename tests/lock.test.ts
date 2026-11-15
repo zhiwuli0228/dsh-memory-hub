@@ -94,6 +94,26 @@ describe('writer lock lease', () => {
     await expect(readFile(path, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('shares the lock within the same process instead of blocking itself', async () => {
+    const path = await makeRoot()
+    const first = await WriterLock.acquire(path, STALE_MS)
+    try {
+      expect(first.lock).not.toBeNull()
+      const second = await WriterLock.acquire(path, STALE_MS)
+      try {
+        expect(second.lock).not.toBeNull()
+        expect(second.lock).toBe(first.lock) // 同一进程共享同一把锁
+        expect(await second.lock!.verifyOwnership()).toBe(true)
+      } finally {
+        await second.lock?.release()
+        // release 幂等：共享对象重复 release 不抛错
+        await second.lock?.release()
+      }
+    } finally {
+      await first.lock?.release()
+    }
+  })
+
   it('keeps a fresh live lock and reports the blocking owner and lease', async () => {
     const path = await makeRoot()
     const token = 'deadbeefdeadbeef'
@@ -209,7 +229,8 @@ describe('writer lock lease', () => {
     const lock = attempt.lock!
     try {
       const first = await readLockFile(path)
-      await sleep(90)
+      // 300ms：并发全量跑时给 heartbeat 定时器留足时间（unref 定时器可能被挤）。
+      await sleep(300)
       const second = await readLockFile(path)
       expect(second.heartbeatAt).not.toBe(first.heartbeatAt)
       expect(second.token).toBe(first.token)
@@ -247,7 +268,9 @@ describe('writer lock lease', () => {
       await sleep(1_800)
       expect(lock.isLost).toBe(false)
       expect(await lock.verifyOwnership()).toBe(true)
-      // A rival still cannot take a lease that the owner keeps refreshing.
+      // A rival process still cannot take a lease that the owner keeps refreshing:
+      // detach this process's handle first, so the acquisition sees only the file.
+      lock.detach()
       const rival = await WriterLock.acquire(path, 1_000)
       expect(rival.lock).toBeNull()
       expect(rival.owner?.token).toBe(lock.owner.token)

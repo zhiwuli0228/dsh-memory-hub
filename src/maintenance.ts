@@ -24,6 +24,8 @@ export interface MaintenanceAnalysisOptions {
   workspaces: MaintenanceWorkspace[]
   /** knowledgeId → 最近一次 memory_cite 的 createdAt（ISO）。没有记录即从未被引用。 */
   citations: ReadonlyMap<string, string>
+  /** 引用即议程（§5.9.2）：knowledgeId → records/agenda.jsonl 行数（M5 起累计的使用信号）。缺省 = 无议程。 */
+  agenda?: ReadonlyMap<string, number>
   stalePendingDays: number
   staleCitationDays: number
   now?: Date
@@ -39,6 +41,7 @@ export interface MaintenanceIssue {
     | 'promotion-candidate'
     | 'stale-pending'
     | 'uncited'
+    | 'distill-hint'
     | 'load-diagnostic'
     | 'oversized-body'
     | 'scope-mismatch'
@@ -221,6 +224,51 @@ export function analyzeMaintenance(store: KnowledgeStore, options: MaintenanceAn
         : `${record.id} 已 ${age} 天未被引用（最近引用 ${formatDay(lastCitedAt)}）：${record.title}`,
       ids: [record.id],
     })
+  }
+
+  // 引用即议程（§5.9.2）：使用信号驱动的萃取提示——日历驱动（定时维护）之外的第二条通路。
+  // agenda 是 memory_cite 写下的"这条真的有用"签名（M5 起累计；账本可重建）。
+  // 单条目：议程行数 ≥ 3 → "这条被反复使用，值得蒸馏"；同主题：≥ 3 条议程条目共享 tag → 一簇提示。
+  // 提示只进报告与 issues（人看完自己决定跑不跑蒸馏），不生成 pending——
+  // "建议蒸馏"本身不是知识，入库会污染 knowledge/。
+  const agenda = options.agenda
+  if (agenda !== undefined && agenda.size > 0) {
+    const threshold = 3
+    const agendaRecords: KnowledgeRecord[] = []
+    for (const [knowledgeId, count] of agenda) {
+      const record = store.docs.get(knowledgeId)
+      if (record === undefined || record.status !== 'accepted') continue // 未批/已作废：跳过
+      agendaRecords.push(record)
+      if (count >= threshold) {
+        issues.push({
+          code: 'distill-hint',
+          severity: 'info',
+          message: `${record.id} 在议程中出现 ${count} 次，使用信号已足够，建议蒸馏提炼：${record.title}`,
+          ids: [record.id],
+        })
+      }
+    }
+    const topicGroups = new Map<string, string[]>()
+    for (const record of agendaRecords) {
+      for (const tag of record.tags) {
+        if (tag === '' || tag.startsWith('maint-') || tag.startsWith('mh:')) continue
+        const ids = topicGroups.get(tag) ?? []
+        if (!ids.includes(record.id)) ids.push(record.id)
+        topicGroups.set(tag, ids)
+      }
+    }
+    let topicHints = 0
+    for (const [tag, ids] of [...topicGroups.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (ids.length < threshold) continue
+      if (topicHints >= 10) break
+      topicHints += 1
+      issues.push({
+        code: 'distill-hint',
+        severity: 'info',
+        message: `主题「${tag}」下有 ${ids.length} 条条目正在被使用（${ids.join('、')}），建议蒸馏成一条提炼条目`,
+        ids,
+      })
+    }
   }
 
   for (const diagnostic of store.diagnostics) {

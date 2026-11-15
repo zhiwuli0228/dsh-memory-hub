@@ -602,6 +602,8 @@ describe('memory service', () => {
   it('stops reporting read-only once the competing lock is gone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-stale-status-'))
     const owner = await Hub.open({ root })
+    // 同进程多实例共享一把锁：摘除句柄，模拟"另一个 DSH 进程"持有锁文件。
+    ;(owner as unknown as { lock: { detach(): void } | null }).lock?.detach()
     const degraded = await Hub.open({ root })
     const harness = await createHarness(undefined, { root, hub: degraded })
     try {
@@ -645,6 +647,7 @@ describe('memory service', () => {
   it('reports writable again after the lock lease expires', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lease-status-'))
     const owner = await Hub.open({ root })
+    ;(owner as unknown as { lock: { detach(): void } | null }).lock?.detach()
     const degraded = await Hub.open({ root })
     const harness = await createHarness(undefined, { root, hub: degraded })
     try {
@@ -674,6 +677,7 @@ describe('memory service', () => {
   it('keeps config editing available when another writer holds the lock', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lock-cfg-'))
     const owner = await Hub.open({ root })
+    ;(owner as unknown as { lock: { detach(): void } | null }).lock?.detach()
     const degraded = await Hub.open({ root })
     const harness = await createHarness(undefined, { root, hub: degraded })
     try {
@@ -1093,6 +1097,117 @@ describe('pending panel payload', () => {
         { batch: 'alpha', count: 102 },
       ])
     } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('includes the on-demand memory hint in the preflight pack (phase 3)', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.seed({ title: '缓存广播使用版本号', summary: '广播消息携带单调版本号。' })
+      await harness.service.preflightForTurn(harness.agent, 1, '缓存广播版本号')
+      const pack = harness.service.packFor(harness.agent.id)
+      expect(pack).toContain('You can also query this memory on demand')
+      expect(pack).toContain('memory_search')
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('reports tencent bridge disabled and layers defaults in status', async () => {
+    const harness = await createHarness()
+    try {
+      const status = harness.service.status() as {
+        tencent: { enabled: boolean; url: string }
+        layers: { enabled: boolean; scenarioDir: string; suggestion: string | null }
+      }
+      expect(status.tencent.enabled).toBe(false)
+      expect(status.layers.enabled).toBe(false)
+      expect(status.layers.scenarioDir).toBe('scenario')
+      expect(status.layers.suggestion).toBeNull()
+      // 禁用时不初始化 client，任何调用都不应抛网络错误
+      const t = await harness.service.tencentStatus(harness.agent)
+      expect(t).toEqual({ enabled: false })
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('tencent pull and push fail cleanly when disabled', async () => {
+    const harness = await createHarness()
+    try {
+      await expect(harness.service.tencentPull(harness.agent)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' })
+      await expect(harness.service.tencentPush(harness.agent)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' })
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('scenario rebuild writes only the scenario dir and list returns files', async () => {
+    const harness = await createHarness()
+    try {
+      await harness.seed({ title: '决策甲', summary: '甲方案', tags: ['topic:plan'] })
+      await harness.seed({ title: '决策乙', summary: '乙方案', tags: ['topic:plan'] })
+      const result = await harness.service.scenarioRebuild(harness.agent)
+      expect(result.scenarios.length).toBeGreaterThanOrEqual(1)
+      const files = await harness.service.scenarioList(harness.agent)
+      expect(files.length).toBeGreaterThanOrEqual(1)
+      // knowledge/ 未被触碰：重建前后 accepted 数不变
+      expect(harness.store.counts().knowledge).toBe(2)
+    } finally {
+      await harness.cleanup()
+    }
+  })
+
+  it('tencent bridge resolves the api key from the DSH credential store when process.env is empty', async () => {
+    const harness = await createHarness()
+    const credRoot = await mkdtemp(join(tmpdir(), 'dsh-cred-svc-'))
+    const prevHome = process.env.DSH_HOME
+    process.env.DSH_HOME = credRoot
+    try {
+      await writeFile(join(credRoot, '.credentials.yaml'), 'version: 1\nrefs:\n  TEST_TENCENT_KEY: sk-cred-test\n', 'utf8')
+      harness.hub.config.tencent.enabled = true
+      harness.hub.config.tencent.api_key_env = 'TEST_TENCENT_KEY'
+      harness.hub.config.tencent.url = 'http://127.0.0.1:1' // 拒连端口：ping 快速失败，不抛
+      harness.hub.config.tencent.timeout_ms = 200
+      const status = await harness.service.tencentStatus(harness.agent)
+      // 能从 credential store 解析 key 就不会报 NOT_CONFIGURED，而是返回 enabled + ping 失败诊断
+      expect((status as { enabled: boolean }).enabled).toBe(true)
+      expect((status as { ping?: { ok: boolean } }).ping?.ok).toBe(false)
+    } finally {
+      if (prevHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = prevHome
+      await rm(credRoot, { recursive: true, force: true })
+      await harness.cleanup()
+    }
+  })
+
+  it('tencent pull opens a sync task automatically when the session has none (no NO_TASK)', async () => {
+    const harness = await createHarness()
+    const credRoot = await mkdtemp(join(tmpdir(), 'dsh-cred-svc-'))
+    const prevHome = process.env.DSH_HOME
+    process.env.DSH_HOME = credRoot
+    try {
+      await writeFile(join(credRoot, '.credentials.yaml'), 'version: 1\nrefs:\n  TEST_TENCENT_KEY: sk-cred-test\n', 'utf8')
+      harness.hub.config.tencent.enabled = true
+      harness.hub.config.tencent.api_key_env = 'TEST_TENCENT_KEY'
+      harness.hub.config.tencent.url = 'http://127.0.0.1:1' // 拒连：pull 降级返回，验证不抛 NO_TASK
+      harness.hub.config.tencent.timeout_ms = 200
+      // 会话没有任务（无 preflight）
+      expect(harness.service.stateFor(harness.agent.id)).toBeUndefined()
+      const result = await harness.service.tencentPull(harness.agent)
+      // 不抛 NO_TASK；降级为诊断（pulled 0）
+      expect(result.pulled).toBe(0)
+      // 自动开了同步任务
+      const state = harness.service.stateFor(harness.agent.id)
+      expect(state?.taskId).toBeTruthy()
+      expect(state?.closed).toBe(false)
+      const types = await ledgerTypes(harness.hub.ledgerPath())
+      expect(types).toContain('task.created')
+    } finally {
+      if (prevHome === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = prevHome
+      await rm(credRoot, { recursive: true, force: true })
       await harness.cleanup()
     }
   })

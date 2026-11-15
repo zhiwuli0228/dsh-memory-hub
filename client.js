@@ -215,6 +215,35 @@
     'config.subShort': '子工作区',
     'config.emptyId': '标识不能为空',
     'config.emptyRoot': '子工作区需要根目录',
+    'config.remoteTitle': '远端记忆',
+    'config.remoteHint': '远端按角色接入：feed 拉远端候选（绝不自动入库）、mirror 分发本地知识。这里只配置，不执行——同步走 memory_remote_sync，作废传播走 memory_remote_forget。',
+    'config.remoteDisabled': '远端 provider 未启用。在 hub 根的 config.yaml 里设置 remote.enabled（或开启 tencent.enabled 走兼容入口）后刷新。',
+    'config.remoteInvalid': '远端配置无效',
+    'config.remoteReady': '正常',
+    'config.remoteBroken': '不可用',
+    'config.remoteOff': '已停用',
+    'config.remoteRoles': '角色',
+    'config.remoteForgetOnDeprecate': '本地作废时同步远端',
+    'config.remoteForgetOnMerge': '合并时同步远端',
+    'config.remoteForgetOnMergeHint': '默认关：merge 是"折叠成一条"不是"删除"，被合并项内容已在 target 正文里。打开前建议先用 memory_remote_forget --dry-run 预演。',
+    'config.remoteMaxPerRun': '单次传播上限',
+    'config.remoteMaxUnlimitedWarn': '不限批次：一次大规模合并会把全部作废一次性推到远端',
+    'config.remoteCoordTags': '镜像坐标标签',
+    'config.remoteCoordTagsHint': '推送时自动附加 mh: 坐标 tags（来源工作区/层级/类型），金字塔结构在远端可重建来历',
+    'config.remoteScopeTags': '按坐标还原作用域',
+    'config.remoteScopeTagsHint': '拉取时按远端 mh: 坐标把候选落到你本地对应的工作区；解析不出则退回默认作用域',
+    'config.remoteRequireCitations': '引用门槛',
+    'config.remoteRequireCitationsHint': '条目被 memory_cite 引用 ≥ N 次才推送（0 = 收了就推）；cite 是"这条真的有用"的签名',
+    'config.remoteCounts': '待传播 {pending} 条 · 孤儿 {orphans} 条 · 待重放 {outbox} 条 · 已镜像 {mirrored} 条',
+    'config.remoteLastSync': '上次 pull {pull} · 上次 push {push}',
+    'config.remoteNever': '从未',
+    'config.remoteSave': '保存远端设置',
+    'config.remoteSaved': '远端设置已保存',
+    'config.remoteCapFeed': 'feed',
+    'config.remoteCapMirror': 'mirror',
+    'config.remoteCapAuthority': 'authority',
+    'config.remoteCapIndex': 'index',
+    'config.remoteRoleHint': 'authority 仅限 global/domain 作用域，且需要 mode 设为 hybrid 或 remote-authority',
   };
 
   const EN = {
@@ -408,6 +437,35 @@
     'config.subShort': 'sub-workspace',
     'config.emptyId': 'Id is required',
     'config.emptyRoot': 'Sub-workspace requires a root path',
+    'config.remoteTitle': 'Remote memory',
+    'config.remoteHint': 'Remotes mount by role: feed pulls remote candidates (never auto-commits), mirror distributes local knowledge. This card configures only — sync runs via memory_remote_sync, deprecation propagation via memory_remote_forget.',
+    'config.remoteDisabled': 'Remote providers are disabled. Set remote.enabled in the hub config.yaml (or enable tencent.enabled as the legacy entry) and refresh.',
+    'config.remoteInvalid': 'Remote configuration is invalid',
+    'config.remoteReady': 'ready',
+    'config.remoteBroken': 'unavailable',
+    'config.remoteOff': 'disabled',
+    'config.remoteRoles': 'Roles',
+    'config.remoteForgetOnDeprecate': 'Propagate deprecations to the remote',
+    'config.remoteForgetOnMerge': 'Propagate merges to the remote',
+    'config.remoteForgetOnMergeHint': 'Off by default: a merge folds entries into one target — the folded content already lives in the target body. Preview with memory_remote_forget --dry-run first.',
+    'config.remoteMaxPerRun': 'Max per run',
+    'config.remoteMaxUnlimitedWarn': 'Unlimited: one large merge sweep pushes every deprecation to the remote at once',
+    'config.remoteCoordTags': 'Coordinate tags on mirror',
+    'config.remoteCoordTagsHint': 'Auto-attach mh: coordinate tags on push (source workspace/level/type) so the pyramid provenance survives the flat remote pool',
+    'config.remoteScopeTags': 'Restore scope from tags',
+    'config.remoteScopeTagsHint': 'On pull, land candidates in YOUR matching workspace by mh: coordinates; fall back to the default scope when absent',
+    'config.remoteRequireCitations': 'Citation gate',
+    'config.remoteRequireCitationsHint': 'Only push entries cited at least N times via memory_cite (0 = push on accept); a citation is the signature of "this was actually useful"',
+    'config.remoteCounts': '{pending} pending forget · {orphans} orphans · {outbox} queued · {mirrored} mirrored',
+    'config.remoteLastSync': 'last pull {pull} · last push {push}',
+    'config.remoteNever': 'never',
+    'config.remoteSave': 'Save remote settings',
+    'config.remoteSaved': 'Remote settings saved',
+    'config.remoteCapFeed': 'feed',
+    'config.remoteCapMirror': 'mirror',
+    'config.remoteCapAuthority': 'authority',
+    'config.remoteCapIndex': 'index',
+    'config.remoteRoleHint': 'authority is limited to global/domain scopes and requires mode = hybrid or remote-authority',
   };
 
   const CAPABILITIES = [
@@ -532,6 +590,26 @@
 .dmh-distill-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;border-top:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-2)}
 .dmh-distill-hint{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
 .dmh-distill-errors{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-left:3px solid var(--dsw-alias-state-error-primary);border-radius:8px;background:var(--dsw-alias-bg-layer-1);padding:8px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:var(--dsw-alias-state-error-primary)}
+.dmh-remote-card{border:1px solid var(--dsw-alias-border-l1);border-radius:11px;background:var(--dsw-alias-bg-layer-1);padding:12px;display:flex;flex-direction:column;gap:10px}
+.dmh-remote-card+.dmh-remote-card{margin-top:10px}
+.dmh-remote-head{display:flex;align-items:center;gap:8px}
+.dmh-remote-id{font-size:12.5px;color:var(--dsw-alias-label-primary)}
+.dmh-remote-kind{font-size:11px;color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l1);border-radius:5px;padding:0 5px}
+.dmh-remote-error{font-size:11px;color:var(--dsw-alias-state-error-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dmh-remote-grid{display:grid;grid-template-columns:minmax(220px,1.2fr) minmax(220px,1fr) minmax(140px,.8fr);gap:14px}
+.dmh-remote-field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.dmh-remote-label{font-size:11px;color:var(--dsw-alias-label-secondary)}
+.dmh-remote-roles{display:flex;gap:10px;flex-wrap:wrap}
+.dmh-remote-role{display:inline-flex;align-items:center;gap:5px;font-size:12px;cursor:pointer}
+.dmh-remote-role input{accent-color:var(--dsw-alias-brand-primary);width:14px;height:14px;cursor:pointer}
+.dmh-remote-note{font-size:10.5px;color:var(--dsw-alias-state-warn-primary)}
+.dmh-remote-check{display:flex;align-items:flex-start;gap:6px;font-size:12px;cursor:pointer;line-height:1.5}
+.dmh-remote-check input{accent-color:var(--dsw-alias-brand-primary);width:14px;height:14px;cursor:pointer;flex:none;margin-top:2px}
+.dmh-remote-max{width:96px;flex:none;padding:5px 7px;border-radius:7px}
+.dmh-remote-warn{font-size:10.5px;color:var(--dsw-alias-state-warn-primary)}
+.dmh-remote-counts{font-size:11.5px;color:var(--dsw-alias-label-secondary);border-top:1px dashed var(--dsw-alias-border-l1);padding-top:8px;word-break:break-all}
+.dmh-remote-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 2px 0}
+@media (max-width:760px){.dmh-remote-grid{grid-template-columns:1fr}}
 @media (max-width:760px){.dmh-root{padding:18px 14px 30px}.dmh-two{grid-template-columns:1fr}.dmh-config-body{grid-template-columns:1fr}.dmh-split.has-detail{grid-template-columns:1fr}.dmh-detail{position:static;max-height:none}.dmh-hub-select{max-width:none}.dmh-distill-head{display:none}.dmh-distill-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px}.dmh-distill-name{grid-column:1/-1}.dmh-distill-label{display:block}.dmh-distill-foot{flex-wrap:wrap}}
 `;
 
@@ -1233,6 +1311,62 @@
         ...workspaces.map((workspace) => ({ key: `workspace:${workspace.id}`, kind: 'workspace', id: workspace.id, root: workspace.root, distill: workspace.distill })),
       ];
 
+      // ---- 远端 provider 卡片：只配置、不执行（同步/传播走模型工具）。----
+      const remoteBlock = (data.remote && typeof data.remote === 'object') ? data.remote : null;
+      const remoteProviders = remoteBlock && Array.isArray(remoteBlock.providers) ? remoteBlock.providers : [];
+      const [remoteEdits, setRemoteEdits] = useState({});
+      const remoteValue = (provider) => remoteEdits[provider.id] || {
+        roles: [...(provider.roles || [])],
+        forget: { ...(provider.forget || { on_deprecate: true, on_merge: false, max_per_run: 100 }) },
+        mirror: { ...(provider.mirror || { trigger: 'manual', include_body: true, max_body_chars: 4000, coordinate_tags: true }) },
+        feed: { ...(provider.feed || { scope: 'global', type: 'knowledge', limit: 50, tags: [], scope_from_tags: false }) },
+      };
+      const editRemote = (provider, patch) => setRemoteEdits((current) => ({
+        ...current,
+        [provider.id]: { ...remoteValue(provider), ...patch },
+      }));
+      const editRemoteForget = (provider, forgetPatch) => editRemote(provider, {
+        forget: { ...remoteValue(provider).forget, ...forgetPatch },
+      });
+      const editRemoteMirror = (provider, mirrorPatch) => editRemote(provider, {
+        mirror: { ...remoteValue(provider).mirror, ...mirrorPatch },
+      });
+      const editRemoteFeed = (provider, feedPatch) => editRemote(provider, {
+        feed: { ...remoteValue(provider).feed, ...feedPatch },
+      });
+      const toggleRemoteRole = (provider, role, checked) => {
+        const roles = remoteValue(provider).roles;
+        editRemote(provider, {
+          roles: checked ? (roles.includes(role) ? roles : [...roles, role]) : roles.filter((r) => r !== role),
+        });
+      };
+      const remoteDirty = Object.keys(remoteEdits).length > 0;
+      const handleSaveRemote = async () => {
+        if (!remoteBlock) return;
+        // 整段替换（与 workspaces 同语义）：以服务端回显的 provider 段为底，
+        // 只覆盖本卡片可编辑的字段（roles / forget），连接参数原样回传不丢。
+        const nextProviders = remoteProviders.map((provider) => {
+          const edit = remoteValue(provider);
+          const view = ['id', 'kind', 'enabled', 'roles', 'projection', 'feed', 'mirror', 'config', 'forget', 'inject_max_tokens'];
+          const base = {};
+          view.forEach((key) => {
+            if (provider[key] !== undefined) base[key] = provider[key];
+          });
+          base.roles = edit.roles;
+          base.forget = edit.forget;
+          base.mirror = edit.mirror;
+          base.feed = edit.feed;
+          return base;
+        });
+        try {
+          await save({ remote: { enabled: remoteBlock.enabled === true, mode: remoteBlock.mode || 'local-first', providers: nextProviders } });
+          setRemoteEdits({});
+          showMessage(t('config.remoteSaved'), false);
+        } catch (error) {
+          showMessage(error.message || t('config.error'), true);
+        }
+      };
+
       // 会话清单只用于“指定会话”下拉候选；读不到就退回手填，不影响其它配置。
       useEffect(() => {
         let cancelled = false;
@@ -1599,11 +1733,155 @@
               h('div', { key: `${entry.workspaceKind}:${entry.workspaceId}` },
                 `${entry.workspaceId}: ${entry.error}`))));
 
+      const remoteCountLine = (sync) => t('config.remoteCounts')
+        .replace('{pending}', String(sync ? sync.pendingForget : 0))
+        .replace('{orphans}', String(sync ? sync.orphans : 0))
+        .replace('{outbox}', String(sync ? sync.outboxPending : 0))
+        .replace('{mirrored}', String(sync ? sync.mirrored : 0));
+      const remoteTime = (value) => {
+        if (!value) return t('config.remoteNever');
+        try {
+          return new Date(value).toLocaleString();
+        } catch (_) {
+          return value;
+        }
+      };
+      const remoteStatusTag = (provider) => {
+        if (provider.enabled !== true) return h(Tag, { tone: 'muted' }, t('config.remoteOff'));
+        if (provider.ready === true) return h(Tag, { tone: 'ok' }, t('config.remoteReady'));
+        return h(Tag, { tone: 'err' }, t('config.remoteBroken'));
+      };
+      const remoteRoles = ['feed', 'mirror', 'authority', 'index'];
+      const renderRemoteProvider = (provider) => {
+        const value = remoteValue(provider);
+        const unlimited = value.forget.max_per_run === 0;
+        const roleChecks = h('div', { className: 'dmh-remote-roles' },
+          remoteRoles.map((role) =>
+            h('label', { key: role, className: 'dmh-remote-role' },
+              h('input', {
+                type: 'checkbox',
+                checked: value.roles.includes(role),
+                disabled: readOnly,
+                'aria-label': `${provider.id} ${role}`,
+                onChange: (event) => toggleRemoteRole(provider, role, event.target.checked),
+              }),
+              h('span', null, t(`config.remoteCap${role.charAt(0).toUpperCase()}${role.slice(1)}`)))));
+        const rolesField = h('div', { className: 'dmh-remote-field' },
+          h('span', { className: 'dmh-remote-label' }, t('config.remoteRoles')),
+          roleChecks,
+          value.roles.includes('authority')
+            ? h('div', { className: 'dmh-remote-note' }, t('config.remoteRoleHint'))
+            : null);
+        const forgetField = h('div', { className: 'dmh-remote-field' },
+          h('label', { className: 'dmh-remote-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: value.forget.on_deprecate === true,
+              disabled: readOnly,
+              onChange: (event) => editRemoteForget(provider, { on_deprecate: event.target.checked }),
+            }),
+            h('span', null, t('config.remoteForgetOnDeprecate'))),
+          h('label', { className: 'dmh-remote-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: value.forget.on_merge === true,
+              disabled: readOnly,
+              title: t('config.remoteForgetOnMergeHint'),
+              onChange: (event) => editRemoteForget(provider, { on_merge: event.target.checked }),
+            }),
+            h('span', null, t('config.remoteForgetOnMerge'))));
+        const maxField = h('div', { className: 'dmh-remote-field' },
+          h('span', { className: 'dmh-remote-label' }, t('config.remoteMaxPerRun')),
+          h('input', {
+            type: 'number',
+            min: 0,
+            max: 1000,
+            step: 1,
+            className: 'dmh-input dmh-remote-max dmh-mono',
+            value: String(value.forget.max_per_run),
+            disabled: readOnly,
+            'aria-label': `${provider.id} ${t('config.remoteMaxPerRun')}`,
+            onChange: (event) => editRemoteForget(provider, { max_per_run: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
+          }),
+          unlimited ? h('div', { className: 'dmh-remote-warn' }, t('config.remoteMaxUnlimitedWarn')) : null);
+        const coordField = h('div', { className: 'dmh-remote-field' },
+          h('label', { className: 'dmh-remote-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: value.mirror.coordinate_tags !== false,
+              disabled: readOnly,
+              title: t('config.remoteCoordTagsHint'),
+              onChange: (event) => editRemoteMirror(provider, { coordinate_tags: event.target.checked }),
+            }),
+            h('span', null, t('config.remoteCoordTags'))),
+          h('label', { className: 'dmh-remote-check' },
+            h('input', {
+              type: 'checkbox',
+              checked: value.feed.scope_from_tags === true,
+              disabled: readOnly,
+              title: t('config.remoteScopeTagsHint'),
+              onChange: (event) => editRemoteFeed(provider, { scope_from_tags: event.target.checked }),
+            }),
+            h('span', null, t('config.remoteScopeTags'))),
+          h('div', { className: 'dmh-remote-check' },
+            h('span', null, t('config.remoteRequireCitations')),
+            h('input', {
+              type: 'number',
+              min: 0,
+              max: 1000,
+              step: 1,
+              className: 'dmh-input dmh-remote-max dmh-mono',
+              value: String(value.mirror.require_citations ?? 0),
+              disabled: readOnly,
+              title: t('config.remoteRequireCitationsHint'),
+              'aria-label': `${provider.id} ${t('config.remoteRequireCitations')}`,
+              onChange: (event) => editRemoteMirror(provider, { require_citations: Math.max(0, Math.floor(Number(event.target.value) || 0)) }),
+            })));
+        const lastErrorSuffix = provider.sync && provider.sync.lastError ? ` · ${provider.sync.lastError}` : '';
+        const counts = h('div', { className: 'dmh-remote-counts' },
+          remoteCountLine(provider.sync),
+          ' · ',
+          t('config.remoteLastSync')
+            .replace('{pull}', remoteTime(provider.sync ? provider.sync.lastPullAt : null))
+            .replace('{push}', remoteTime(provider.sync ? provider.sync.lastPushAt : null))
+          + lastErrorSuffix);
+        return h('div', { key: provider.id, className: 'dmh-remote-card' },
+          h('div', { className: 'dmh-remote-head' },
+            h('span', { className: 'dmh-remote-id dmh-mono' }, provider.id),
+            h('span', { className: 'dmh-remote-kind' }, provider.kind),
+            remoteStatusTag(provider)),
+          provider.error ? h('div', { className: 'dmh-remote-error' }, provider.error) : null,
+          h('div', { className: 'dmh-remote-grid' }, rolesField, forgetField, maxField, coordField),
+          counts);
+      };
+      const remoteSection = h('section', { className: 'dmh-section' },
+        h(SectionHead, { title: t('config.remoteTitle'), hint: t('config.remoteHint') }),
+        !remoteBlock || remoteBlock.enabled !== true
+          ? h('div', { className: 'dmh-banner' }, t('config.remoteDisabled'))
+          : h('div', null,
+            remoteBlock.validation && remoteBlock.validation.ok === false
+              ? h('div', { className: 'dmh-banner err' },
+                [t('config.remoteInvalid')].concat(remoteBlock.validation.errors || []).join('：'))
+              : null,
+            remoteProviders.length === 0
+              ? h('div', { className: 'dmh-banner' }, t('config.remoteDisabled'))
+              : remoteProviders.map(renderRemoteProvider),
+            h('div', { className: 'dmh-remote-foot' },
+              h('span', { className: 'dmh-distill-hint' },
+                `${remoteBlock.mode || 'local-first'}${remoteDirty ? ` · ${t('config.distillDirty')}` : ''}`),
+              h('button', {
+                type: 'button',
+                className: 'dmh-btn dmh-btn-primary',
+                disabled: readOnly || state.phase === 'saving' || !remoteDirty,
+                onClick: handleSaveRemote,
+              }, t('config.remoteSave')))));
+
       return h('div', { className: 'dmh-config' },
         message ? h('div', { className: `dmh-banner${message.isError ? ' err' : ''}` }, message.text) : null,
         readOnly ? h('div', { className: 'dmh-banner err' }, t('config.readonly')) : null,
         h('div', { className: 'dmh-config-body' }, coreSection, subSection, unassignedSection),
-        distillSection);
+        distillSection,
+        remoteSection);
     }
 
     function Panel(props) {

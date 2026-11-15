@@ -4,12 +4,12 @@ import { build } from 'esbuild'
 const packageJson = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'))
 
 await build({
-  entryPoints: ['src/index.ts'],
+  entryPoints: ['src/index.ts', 'src/cli.ts'],
   bundle: true,
   platform: 'node',
   format: 'esm',
   target: 'node20',
-  outfile: 'dist/index.js',
+  outdir: 'dist',
   sourcemap: false,
   legalComments: 'none',
   logLevel: 'info',

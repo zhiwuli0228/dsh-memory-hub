@@ -23,6 +23,16 @@ function deadPid(): number {
   throw new Error('cannot find a free pid for the dead-writer test')
 }
 
+/**
+ * 模拟"锁属于另一个 DSH 进程"：把本进程的活跃锁句柄摘除并停止心跳，
+ * 锁文件原样留在磁盘上（仍带新鲜心跳与 token）。同进程多 Hub 实例现在共享
+ * 同一把锁（进程级单写者），跨进程互斥场景需要这个辅助来复现。
+ */
+function simulateForeignOwner(hub: Hub): void {
+  const holder = hub as unknown as { lock: { detach(): void } | null }
+  holder.lock?.detach()
+}
+
 describe('hub', () => {
   it('creates the layout and a default config', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-layout-'))
@@ -41,6 +51,7 @@ describe('hub', () => {
   it('degrades a second writer to read-only and recovers after release', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lock-'))
     const first = await Hub.open({ root })
+    simulateForeignOwner(first)
     const second = await Hub.open({ root })
     try {
       expect(first.readOnly).toBe(false)
@@ -51,6 +62,8 @@ describe('hub', () => {
       expect(second.canWriteConfig()).toBe(true)
     } finally {
       await second.close()
+      // 外部进程退出并释放锁：锁文件被删，根再次空闲。
+      await rm(first.lockPath(), { force: true })
       await first.close()
     }
 
@@ -122,11 +135,14 @@ describe('hub', () => {
   it('recovers the writer lock on the next write instead of staying read-only', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-lock-recover-'))
     const owner = await Hub.open({ root })
+    simulateForeignOwner(owner)
     const degraded = await Hub.open({ root })
     try {
       expect(degraded.readOnly).toBe(true)
       expect(degraded.readOnlySource).toBe('lock')
 
+      // 外部进程退出并释放锁（锁文件删除）。
+      await rm(owner.lockPath(), { force: true })
       await owner.close()
       // No restart: the blocked hub takes the freed lock itself.
       expect(await degraded.ensureWritable()).toBe(true)
@@ -143,6 +159,7 @@ describe('hub', () => {
   it('clears the cached read-only flag once the lock file is deleted', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cache-stale-'))
     const owner = await Hub.open({ root })
+    simulateForeignOwner(owner)
     const degraded = await Hub.open({ root })
     try {
       expect(degraded.readOnly).toBe(true)
@@ -174,6 +191,7 @@ describe('hub', () => {
   it('clears the cached read-only flag when the blocker pid disappears', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cache-deadpid-'))
     const owner = await Hub.open({ root })
+    simulateForeignOwner(owner)
     const degraded = await Hub.open({ root })
     try {
       expect(degraded.readOnly).toBe(true)
@@ -211,6 +229,7 @@ describe('hub', () => {
   it('keeps a live blocker read-only across revalidation', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-memory-hub-cache-live-'))
     const owner = await Hub.open({ root })
+    simulateForeignOwner(owner)
     const degraded = await Hub.open({ root })
     try {
       degraded.revalidateLock()
@@ -288,7 +307,9 @@ describe('hub', () => {
       expect(hub.configError).toBeNull()
       expect(hub.readOnly).toBe(false)
 
-      // The recovered hub now holds the writer lock again.
+      // The recovered hub now holds the writer lock again; a rival process
+      // still sees it as the live owner.
+      simulateForeignOwner(hub)
       const rival = await Hub.open({ root })
       try {
         expect(rival.readOnly).toBe(true)

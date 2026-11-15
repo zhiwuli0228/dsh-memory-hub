@@ -184,7 +184,7 @@ export function parseKnowledgeFile(raw: string, path: string): KnowledgeRecord {
   if (fm.format > CURRENT_FORMAT) {
     throw new MemoryError(
       'INVALID_INPUT',
-      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade dsh-memory-hub instead of editing the file`,
+      `${path}: format ${fm.format} is newer than this version supports (${CURRENT_FORMAT}); upgrade Memory Hub instead of editing the file`,
     )
   }
   assertIdMatchesType(fm.id, fm.type, path)

@@ -21,3 +21,4 @@ MEMORY-HUB.md
 .env
 .env.*
 !.env.example
+/config.yaml
